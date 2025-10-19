@@ -21,6 +21,7 @@ export default function BasketProgressTracker() {
   const [studentData, setStudentData] = useState(null);
   const [basketProgress, setBasketProgress] = useState({});
   const [allStudentsData, setAllStudentsData] = useState([]);
+  const [dataSources, setDataSources] = useState(null);
   
   // Basket detail state
   const [selectedBasket, setSelectedBasket] = useState(null);
@@ -37,6 +38,7 @@ export default function BasketProgressTracker() {
     setStudentData(null);
     setBasketProgress({});
     setAllStudentsData([]);
+    setDataSources(null);
     setSearchPerformed(false);
     setSemesters([]);
   }
@@ -91,20 +93,34 @@ export default function BasketProgressTracker() {
         
         console.log("Frontend sending request:", requestBody);
         
-        const res = await fetch("/api/cbcs/track/bulk", {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-          },
-          body: JSON.stringify(requestBody)
-        });
+        console.log("Making fetch request to:", "/api/cbcs/track/bulk");
+        let res;
+        try {
+          res = await fetch("/api/cbcs/track/bulk", {
+            method: "POST",
+            headers: { 
+              "Content-Type": "application/json",
+              "Accept": "application/json"
+            },
+            body: JSON.stringify(requestBody)
+          });
+          console.log("Fetch completed, response received");
+        } catch (fetchError) {
+          console.error("Fetch error:", fetchError);
+          throw new Error(`Network error: ${fetchError.message}`);
+        }
+        
+        console.log("Response status:", res.status);
+        console.log("Response headers:", Object.fromEntries(res.headers.entries()));
         
         let data;
         try {
           const responseText = await res.text();
+          console.log("Raw response:", responseText);
           data = JSON.parse(responseText);
+          console.log("Parsed response:", data);
         } catch (parseError) {
+          console.error("Parse error:", parseError);
           throw new Error("Invalid response from server. Please check your network connection.");
         }
         
@@ -145,6 +161,7 @@ Please check if the department name matches exactly with the available departmen
         
         // FIXED: Set data with proper validation
         setAllStudentsData(students);
+        setDataSources(data.dataSources || null);
         
       } else {
         // FIXED: Enhanced validation for individual search
@@ -202,6 +219,7 @@ Please check if the department name matches exactly with the available departmen
         
         setStudentData(student);
         setBasketProgress(progress);
+        setDataSources(data.dataSources || null);
       }
     } catch (err) {
       setError(err.message);
@@ -875,6 +893,37 @@ Filtering Guide:
               </div>
             </div>
 
+            {/* Data Source Summary */}
+            {dataSources && (
+              <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <h4 className="text-sm font-semibold text-blue-800 mb-2">📊 Data Sources Used for Basket Calculation:</h4>
+                <div className="flex flex-wrap gap-3">
+                  {dataSources.sources.cutm1 && (
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                        CUTM1 Collection
+                      </span>
+                      <span className="text-sm text-blue-700">{dataSources.cutm1Records} records</span>
+                    </div>
+                  )}
+                  {dataSources.sources.registrationData && (
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
+                        Registration Data Collection
+                      </span>
+                      <span className="text-sm text-green-700">{dataSources.registrationDataRecords} records</span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded-full">
+                      Total Combined
+                    </span>
+                    <span className="text-sm text-gray-700 font-semibold">{dataSources.totalRecords} records</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* FIXED: Enhanced Results Table */}
             <div className="overflow-x-auto">
               <table className="w-full border-collapse">
@@ -1071,6 +1120,28 @@ Filtering Guide:
                           )}
                         </td>
                       </tr>
+                      {dataSources && (
+                        <tr className="border-b border-gray-200">
+                          <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Data Sources:</td>
+                          <td className="px-4 py-3 text-gray-900">
+                            <div className="flex flex-wrap gap-2">
+                              {dataSources.sources.cutm1 && (
+                                <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                                  CUTM1 ({dataSources.cutm1Records} records)
+                                </span>
+                              )}
+                              {dataSources.sources.registrationData && (
+                                <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
+                                  Registration Data ({dataSources.registrationDataRecords} records)
+                                </span>
+                              )}
+                              <span className="px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded-full">
+                                Total: {dataSources.totalRecords} records
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
                       <tr className="border-b border-gray-200">
                         <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Total Required Credits:</td>
                         <td className="px-4 py-3 text-gray-900">
@@ -1095,7 +1166,24 @@ Filtering Guide:
 
               {/* Basket Progress Section */}
               <div>
-                <h4 className="text-md font-semibold text-gray-800 mb-3">Basket Progress</h4>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-md font-semibold text-gray-800">Basket Progress</h4>
+                  <div className="flex items-center gap-4 text-xs">
+                    <span className="text-gray-600">Data Sources:</span>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-1 rounded bg-blue-100 text-blue-800 font-medium">Reg</span>
+                      <span className="text-gray-600">Registration Data</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-1 rounded bg-gray-100 text-gray-800 font-medium">CUTM1</span>
+                      <span className="text-gray-600">CUTM1 Database</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-1 rounded bg-yellow-100 text-yellow-800 font-medium">Result Not Published</span>
+                      <span className="text-gray-600">Registration subjects (no grade yet)</span>
+                    </div>
+                  </div>
+                </div>
                 <div className="border border-gray-300 rounded-lg overflow-hidden">
                   <table className="w-full border-collapse">
                     <thead>
@@ -1277,22 +1365,35 @@ Filtering Guide:
                             <td className="border border-gray-300 px-3 py-2 text-center text-gray-900">{subject.credits || 0}</td>
                             <td className="border border-gray-300 px-3 py-2 text-center">
                               <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                subject.completed 
-                                  ? 'bg-green-100 text-green-800' 
-                                  : 'bg-red-100 text-red-800'
+                                subject.grade === 'Result Not Published'
+                                  ? 'bg-yellow-100 text-yellow-800'
+                                  : subject.completed 
+                                    ? 'bg-green-100 text-green-800' 
+                                    : 'bg-red-100 text-red-800'
                               }`}>
                                 {subject.grade || (subject.completed ? 'PASS' : 'FAIL')}
                               </span>
                             </td>
                             <td className="border border-gray-300 px-3 py-2 text-center text-gray-900">{subject.semester || 'N/A'}</td>
                             <td className="border border-gray-300 px-3 py-2 text-center">
-                              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                subject.completed 
-                                  ? 'bg-green-100 text-green-800' 
-                                  : 'bg-red-100 text-red-800'
-                              }`}>
-                                {subject.completed ? 'Completed' : 'Failed'}
-                              </span>
+                              <div className="flex flex-col gap-1">
+                                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                  subject.completed 
+                                    ? 'bg-green-100 text-green-800' 
+                                    : 'bg-red-100 text-red-800'
+                                }`}>
+                                  {subject.completed ? 'Completed' : 'Failed'}
+                                </span>
+                                {subject.dataSource && (
+                                  <span className={`px-1 py-0.5 rounded text-xs font-medium ${
+                                    subject.dataSource === 'Registration' 
+                                      ? 'bg-blue-100 text-blue-800' 
+                                      : 'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {subject.dataSource === 'Registration' ? 'Reg' : 'CUTM1'}
+                                  </span>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ))

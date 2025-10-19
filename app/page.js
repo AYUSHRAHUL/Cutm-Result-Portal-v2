@@ -8,9 +8,30 @@ export default function HomePage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const heroImages = [
-    { title: "Academic Excellence", subtitle: "Your results, instantly accessible", bg: "from-blue-600 to-indigo-700" },
-    { title: "Secure & Reliable", subtitle: "Protected with enterprise-grade security", bg: "from-purple-600 to-fuchsia-700" },
-    { title: "Real-time Analytics", subtitle: "Track your academic progress", bg: "from-emerald-600 to-teal-700" }
+    { 
+      title: "Academic Excellence", 
+      subtitle: "Your results, instantly accessible", 
+      bg: "from-blue-600 to-indigo-700",
+      icon: "🎓"
+    },
+    { 
+      title: "Secure & Reliable", 
+      subtitle: "Protected with enterprise-grade security", 
+      bg: "from-purple-600 to-fuchsia-700",
+      icon: "🔐"
+    },
+    { 
+      title: "Real-time Analytics", 
+      subtitle: "Track your academic progress", 
+      bg: "from-emerald-600 to-teal-700",
+      icon: "📊"
+    },
+    { 
+      title: "Seamless Experience", 
+      subtitle: "Access from any device, anywhere", 
+      bg: "from-amber-500 to-orange-600",
+      icon: "📱"
+    }
   ];
 
   useEffect(() => {
@@ -100,6 +121,11 @@ export default function HomePage() {
                 <span>System Online</span>
               </div>
 
+              <div className="flex items-center justify-center lg:justify-start gap-4 mb-4">
+                <span className="text-5xl">{heroImages[currentSlide].icon}</span>
+                <div className="h-12 w-0.5 bg-white/20 rounded-full"></div>
+              </div>
+              
               <h1 className="text-5xl md:text-7xl font-extrabold mb-6 leading-tight">
                 <span className="bg-gradient-to-r from-white via-blue-100 to-purple-200 bg-clip-text text-transparent">
                   {heroImages[currentSlide].title}
@@ -174,30 +200,36 @@ export default function HomePage() {
       <section id="features" className="py-20 bg-gradient-to-b from-transparent to-slate-900/50">
         <div className="mx-auto max-w-7xl px-6">
           <div className="text-center mb-16">
+            <div className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full bg-indigo-500/20 border border-indigo-500/30 text-sm mb-6">
+              <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+              <span className="text-indigo-200 font-medium">Cutting-edge Features</span>
+            </div>
             <h2 className="text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-white to-blue-200 bg-clip-text text-transparent">
-              Powerful Features
+              Powerful Result Management
             </h2>
-            <p className="text-white/80 text-lg max-w-2xl mx-auto">
-              Everything you need to manage academic results efficiently and securely
+            <p className="text-white/80 text-lg max-w-3xl mx-auto">
+              Everything you need to manage academic results efficiently and securely, designed for students, teachers, and administrators
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
-            <div className="rounded-3xl border border-blue-500/30 bg-gradient-to-br from-blue-500/10 to-transparent p-8 hover:scale-105 transition-transform">
+            <div className="rounded-3xl border border-blue-500/30 bg-gradient-to-br from-blue-500/10 to-transparent p-8 hover:scale-105 transition-transform hover:shadow-lg hover:shadow-blue-500/10">
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-3xl mb-6 shadow-lg">
                 🎒
               </div>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 text-xs font-medium mb-3">For Students</div>
               <h3 className="text-2xl font-bold mb-3">Student Portal</h3>
               <p className="text-white/80 mb-4">View semester results, calculate CGPA/SGPA, download transcripts, and track academic progress in real-time.</p>
-              <Link href="/login" className="inline-flex items-center gap-2 text-blue-300 hover:text-blue-200 font-semibold">
-                Access Portal <span>→</span>
+              <Link href="/login" className="inline-flex items-center gap-2 text-blue-300 hover:text-blue-200 font-semibold group">
+                Access Portal <span className="group-hover:translate-x-1 transition-transform">→</span>
               </Link>
             </div>
 
-            <div className="rounded-3xl border border-purple-500/30 bg-gradient-to-br from-purple-500/10 to-transparent p-8 hover:scale-105 transition-transform">
+            <div className="rounded-3xl border border-purple-500/30 bg-gradient-to-br from-purple-500/10 to-transparent p-8 hover:scale-105 transition-transform hover:shadow-lg hover:shadow-purple-500/10">
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500 to-fuchsia-600 flex items-center justify-center text-3xl mb-6 shadow-lg">
                 👩‍🏫
               </div>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/20 text-purple-300 text-xs font-medium mb-3">For Faculty</div>
               <h3 className="text-2xl font-bold mb-3">Teacher Dashboard</h3>
               <p className="text-white/80 mb-4">Search student results, review backlogs, generate reports, and monitor class performance analytics.</p>
               <Link href="/login" className="inline-flex items-center gap-2 text-purple-300 hover:text-purple-200 font-semibold">
@@ -394,7 +426,77 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* CTA Section */}
+      {/* Testimonials Section */}
+      <section className="py-20 bg-gradient-to-b from-slate-900/50 to-slate-900/80">
+        <div className="mx-auto max-w-7xl px-6">
+          <div className="text-center mb-16">
+            <div className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full bg-teal-500/20 border border-teal-500/30 text-sm mb-6">
+              <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
+              <span className="text-teal-200 font-medium">User Experiences</span>
+            </div>
+            <h2 className="text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-white to-teal-200 bg-clip-text text-transparent">
+              What Our Users Say
+            </h2>
+            <p className="text-white/80 text-lg max-w-3xl mx-auto">
+              Hear from students, faculty, and administrators who use the CUTM Result Portal
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {[
+              {
+                name: "Priya Sharma",
+                role: "Computer Science Student",
+                quote: "The CUTM Portal has made tracking my academic progress so much easier. I can access all my results in one place!",
+                avatar: "👩‍🎓",
+                color: "blue"
+              },
+              {
+                name: "Dr. Rajesh Kumar",
+                role: "Associate Professor",
+                quote: "As a faculty member, the analytics dashboard helps me identify students who need additional support.",
+                avatar: "👨‍🏫",
+                color: "purple"
+              },
+              {
+                name: "Amit Patel",
+                role: "Department Administrator",
+                quote: "The bulk upload feature saves hours of manual data entry. The system is reliable and secure.",
+                avatar: "👨‍💼",
+                color: "emerald"
+              }
+            ].map((testimonial, i) => (
+              <div key={i} className={`rounded-3xl border border-${testimonial.color}-500/30 bg-gradient-to-br from-${testimonial.color}-500/10 to-transparent p-8 hover:shadow-lg hover:shadow-${testimonial.color}-500/10 transition-all`}>
+                <div className="flex flex-col items-center text-center">
+                  <div className={`w-20 h-20 rounded-full bg-gradient-to-br from-${testimonial.color}-500 to-${testimonial.color}-600 flex items-center justify-center text-4xl mb-6`}>
+                    {testimonial.avatar}
+                  </div>
+                  <p className="text-white/90 mb-6 italic">"{testimonial.quote}"</p>
+                  <h4 className="font-bold text-lg">{testimonial.name}</h4>
+                  <p className="text-white/70 text-sm">{testimonial.role}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Stats Section */}
+          <div className="mt-20 grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+            {[
+              { value: "10,000+", label: "Students" },
+              { value: "500+", label: "Faculty Members" },
+              { value: "99.9%", label: "Uptime" },
+              { value: "24/7", label: "Support" }
+            ].map((stat, i) => (
+              <div key={i} className="p-6 rounded-2xl bg-white/5 border border-white/10">
+                <div className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-white to-blue-200 bg-clip-text text-transparent mb-2">{stat.value}</div>
+                <div className="text-white/70">{stat.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* About Section */}
       <section className="py-20">
         <div className="mx-auto max-w-4xl px-6">
           <div className="rounded-3xl border border-white/20 bg-gradient-to-br from-indigo-500/20 to-purple-500/20 backdrop-blur-2xl p-12 text-center">

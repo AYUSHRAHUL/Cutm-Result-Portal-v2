@@ -125,28 +125,55 @@ export async function POST(req) {
     const db = client.db("cutm1");
 
     // First, get student info to validate department and batch
-    const studentInfo = await db
+    // Check both CUTM1 collection and RegistrationData collection
+    let studentInfo = await db
       .collection("CUTM1")
       .findOne({ Reg_No: reg }, { projection: { _id: 0, Name: 1, Reg_No: 1, Branch: 1 } });
     
+    // If not found in CUTM1, check RegistrationData collection
+    if (!studentInfo) {
+      console.log(`Student not found in CUTM1, checking RegistrationData: ${reg}`);
+      const regData = await db
+        .collection("RegistrationData")
+        .findOne({ Reg_No: reg }, { projection: { _id: 0, Name: 1, Reg_No: 1, Sem: 1 } });
+      
+      if (regData) {
+        studentInfo = {
+          Name: regData.Name,
+          Reg_No: regData.Reg_No,
+          Branch: "From Registration Data", // Default branch for registration data
+          Sem: regData.Sem
+        };
+        console.log(`Found student in RegistrationData: ${regData.Name}`);
+      }
+    }
+    
     if (!studentInfo) {
       // FIXED: Enhanced error message with debugging info
-      console.log(`Student not found: ${reg}`);
+      console.log(`Student not found in both collections: ${reg}`);
       
-      // Check if there are similar registration numbers
-      const similarRegs = await db
+      // Check if there are similar registration numbers in both collections
+      const similarRegsCUTM1 = await db
         .collection("CUTM1")
         .find({ Reg_No: { $regex: `^${reg.slice(0, 6)}` } })
         .project({ _id: 0, Reg_No: 1, Name: 1 })
-        .limit(5)
+        .limit(3)
+        .toArray();
+        
+      const similarRegsRegData = await db
+        .collection("RegistrationData")
+        .find({ Reg_No: { $regex: `^${reg.slice(0, 6)}` } })
+        .project({ _id: 0, Reg_No: 1, Name: 1 })
+        .limit(3)
         .toArray();
       
-      const suggestions = similarRegs.length > 0 
-        ? ` Similar registrations found: ${similarRegs.map(r => r.Reg_No).join(', ')}`
+      const allSimilar = [...similarRegsCUTM1, ...similarRegsRegData];
+      const suggestions = allSimilar.length > 0 
+        ? ` Similar registrations found: ${allSimilar.map(r => r.Reg_No).join(', ')}`
         : '';
       
       return NextResponse.json({ 
-        error: `Student not found with registration number: ${reg}.${suggestions} Please verify the registration number.` 
+        error: `Student not found with registration number: ${reg}.${suggestions} Please verify the registration number or upload registration data first.` 
       }, { status: 404 });
     }
 
@@ -190,27 +217,59 @@ export async function POST(req) {
     }
     
     console.log(`Querying results for ${reg} with query:`, JSON.stringify(resultQuery));
+    console.log(`Registration number being searched: "${reg}"`);
     
-    const results = await db
+    // Get results from CUTM1 collection
+    const resultsCUTM1 = await db
       .collection("CUTM1")
       .find(resultQuery)
-      .project({ _id: 0, Reg_No: 1, Name: 1, Subject_Code: 1, Subject_Name: 1, Credits: 1, Grade: 1, Sem: 1 })
+      .project({ _id: 0, Reg_No: 1, Name: 1, Subject_Code: 1, Subject_Name: 1, Credits: 1, Grade: 1, Sem: 1, Type: 1 })
       .toArray();
     
-    console.log(`Found ${results.length} result records for ${reg}`);
+    // Get results from RegistrationData collection
+    // Try both string and number for Reg_No since it might be stored as either
+    const regAsNumber = parseInt(reg);
+    const regDataQuery = { 
+      $or: [
+        { Reg_No: reg },
+        { Reg_No: regAsNumber }
+      ]
+    };
+    
+    // Add semester filter if present
+    if (resultQuery.Sem) {
+      regDataQuery.Sem = resultQuery.Sem;
+    }
+    
+    const resultsRegData = await db
+      .collection("RegistrationData")
+      .find(regDataQuery)
+      .project({ _id: 0, Reg_No: 1, Name: 1, Subject_Code: 1, Subject_Name: 1, Credits: 1, Grade: 1, Sem: 1, Type: 1 })
+      .toArray();
+    
+    // Combine results from both collections
+    const results = [...resultsCUTM1, ...resultsRegData];
+    
+    console.log(`Found ${resultsCUTM1.length} records from CUTM1 and ${resultsRegData.length} records from RegistrationData for ${reg}`);
+    console.log(`Combined total: ${results.length} records for basket calculation`);
 
     if (results.length === 0) {
       // FIXED: Enhanced error message with debugging info
       console.log(`No academic records found for ${reg}`);
       
-      // Check if student exists but has no results
-      const studentExists = await db
+      // Check if student exists but has no results in both collections
+      const studentExistsCUTM1 = await db
         .collection("CUTM1")
         .findOne({ Reg_No: reg }, { projection: { _id: 0, Reg_No: 1, Name: 1 } });
+        
+      const studentExistsRegData = await db
+        .collection("RegistrationData")
+        .findOne({ Reg_No: reg }, { projection: { _id: 0, Reg_No: 1, Name: 1 } });
       
-      if (studentExists) {
+      if (studentExistsCUTM1 || studentExistsRegData) {
+        const studentName = studentExistsCUTM1?.Name || studentExistsRegData?.Name || "Unknown";
         return NextResponse.json({ 
-          error: `Student ${studentExists.Name} (${reg}) found but has no academic records. This could mean:
+          error: `Student ${studentName} (${reg}) found but has no academic records. This could mean:
           1. No results have been uploaded for this student
           2. The semester filter is too restrictive
           3. Results are stored under a different registration format
@@ -219,7 +278,7 @@ export async function POST(req) {
         }, { status: 404 });
       } else {
         return NextResponse.json({ 
-          error: `No academic records found for registration ${reg}. Please verify the registration number.` 
+          error: `No academic records found for registration ${reg}. Please verify the registration number or upload registration data first.` 
         }, { status: 404 });
       }
     }
@@ -262,15 +321,25 @@ export async function POST(req) {
       const code = String(r.Subject_Code || "").toUpperCase().trim();
       const credits = parseCredits(r.Credits);
       const grade = String(r.Grade || "").toUpperCase().trim();
-      const isFailed = FAIL_OR_INCOMPLETE_GRADES.has(grade);
       
-      // Special handling for CUTM1057 based on branch
+      // For registration data (Type: 'Registration'), treat empty grades as registered subjects
+      // For CUTM1 data, use normal grade logic
+      const isRegistrationData = r.Type === 'Registration';
+      const isFailed = isRegistrationData ? false : FAIL_OR_INCOMPLETE_GRADES.has(grade);
+      
+      // Special handling for CUTM1057 and CUTM1046 based on branch
       let targetBasket = codeMap.get(code) || "Basket V"; // default assignment
       if (code === "CUTM1057") {
         if (actualDepartment === "Computer Science Engineering" || actualDepartment === "Electronics & Communication Engineering") {
           targetBasket = "Basket V";
         } else {
           targetBasket = "Basket IV";
+        }
+      } else if (code === "CUTM1046") {
+        if (actualDepartment === "Computer Science Engineering") {
+          targetBasket = "Basket V";
+        } else {
+          targetBasket = "Basket V"; // Default to Basket V for other departments as well
         }
       }
       
@@ -282,11 +351,12 @@ export async function POST(req) {
         code,
         name: r.Subject_Name || "",
         credits,
-        grade,
+        grade: isRegistrationData ? 'Result Not Published' : grade, // Show "Result Not Published" for registration data
         completed: !isFailed,
         failed: isFailed,
         semester: r.Sem || "",
         is_default_assigned: !codeMap.has(code) && targetBasket === "Basket V",
+        dataSource: isRegistrationData ? 'Registration' : 'CUTM1', // Add data source indicator
       };
       basketProgress[targetBasket].subjects.push(subjectEntry);
       if (!isFailed) {
@@ -335,7 +405,19 @@ export async function POST(req) {
       },
     };
 
-    return NextResponse.json({ student, basketProgress: filteredProgress });
+    return NextResponse.json({ 
+      student, 
+      basketProgress: filteredProgress,
+      dataSources: {
+        cutm1Records: resultsCUTM1.length,
+        registrationDataRecords: resultsRegData.length,
+        totalRecords: results.length,
+        sources: {
+          cutm1: resultsCUTM1.length > 0,
+          registrationData: resultsRegData.length > 0
+        }
+      }
+    });
   } catch (err) {
     console.error("/api/cbcs/track error", err);
     return NextResponse.json({ error: "Unable to load progress" }, { status: 500 });

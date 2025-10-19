@@ -96,12 +96,16 @@ export async function POST(req) {
   try {
     // Check authentication
     const token = req.cookies.get("token")?.value;
+    console.log("Bulk API - Token present:", !!token);
     if (!token) {
+      console.log("Bulk API - No token found");
       return NextResponse.json({ error: "Unauthorized - Please login first" }, { status: 401 });
     }
 
     const payload = await verifyToken(token);
+    console.log("Bulk API - Token payload:", payload ? { email: payload.email, role: payload.role } : "null");
     if (!payload?.email) {
+      console.log("Bulk API - Invalid token payload");
       return NextResponse.json({ error: "Unauthorized - Invalid token" }, { status: 401 });
     }
 
@@ -117,12 +121,26 @@ export async function POST(req) {
 
     console.log(`Bulk access granted to ${userRole}: ${payload.email}`);
 
-    const { registration, department, batch, semesters = [], basket } = await req.json();
+    let requestBody;
+    try {
+      requestBody = await req.json();
+      console.log("Bulk API received request:", requestBody);
+    } catch (parseError) {
+      console.error("Bulk API - Error parsing request body:", parseError);
+      return NextResponse.json({ 
+        error: "Invalid request body",
+        details: parseError.message 
+      }, { status: 400 });
+    }
+    
+    const { registration, department, batch, semesters = [], basket } = requestBody;
     
     // Department is optional for bulk analysis - if not provided, get all students
 
+    console.log("Bulk API - Connecting to MongoDB...");
     const client = await clientPromise;
     const db = client.db("cutm1");
+    console.log("Bulk API - MongoDB connection established");
 
     // Build query for students with proper filtering
     let query = {};
@@ -141,8 +159,8 @@ export async function POST(req) {
       
       if (deptCode) {
         // Filter by department code in registration number (8th character)
-        query.Reg_No = { ...query.Reg_No, $regex: `.{7}${deptCode}` };
-        console.log(`Applied department filter: ${department} -> code ${deptCode}, regex: .{7}${deptCode}`);
+        query.Reg_No = { $regex: `^.{7}${deptCode}` };
+        console.log(`Applied department filter: ${department} -> code ${deptCode}, regex: ^.{7}${deptCode}`);
       } else {
         console.log(`Department not found in map: ${department}`);
       }
@@ -156,7 +174,7 @@ export async function POST(req) {
       // Combine batch and department filters
       if (query.Reg_No && query.Reg_No.$regex) {
         // If department filter is already applied, combine with batch
-        // Department filter: .{7}${deptCode} -> should become ^${batch}.{5}${deptCode}
+        // Department filter: ^.{7}${deptCode} -> should become ^${batch}.{5}${deptCode}
         const deptCode = query.Reg_No.$regex.slice(-1); // Get the department code
         query.Reg_No = { $regex: `^${batch}.{5}${deptCode}` };
         console.log(`Combined batch + department filter: batch ${batch}, dept code ${deptCode}, regex: ^${batch}.{5}${deptCode}`);
@@ -167,22 +185,81 @@ export async function POST(req) {
       }
     }
     
-    // Get students with the combined query - get unique students only
-    let students = await db
-      .collection("CUTM1")
-      .find(query)
-      .project({ _id: 0, Reg_No: 1, Name: 1 })
-      .toArray();
+    console.log(`Final query object:`, JSON.stringify(query));
+    console.log(`Query keys:`, Object.keys(query));
     
-    // Remove duplicates based on Reg_No to avoid duplicate students
-    const uniqueStudents = students.reduce((acc, student) => {
-      if (!acc.find(s => s.Reg_No === student.Reg_No)) {
-        acc.push(student);
+    // Ensure query is valid - if empty, use empty object
+    if (!query || Object.keys(query).length === 0) {
+      query = {};
+      console.log('Using empty query for all students');
+    }
+    
+    // Additional validation for Reg_No queries
+    if (query.Reg_No && query.Reg_No.$regex) {
+      try {
+        // Test if the regex is valid
+        new RegExp(query.Reg_No.$regex);
+        console.log('Regex validation passed:', query.Reg_No.$regex);
+      } catch (regexError) {
+        console.error('Invalid regex detected:', query.Reg_No.$regex, regexError);
+        // Fallback to empty query
+        query = {};
+        console.log('Falling back to empty query due to invalid regex');
       }
-      return acc;
-    }, []);
+    }
     
-    students = uniqueStudents;
+    // Get students with the combined query - check both CUTM1 and RegistrationData collections
+    console.log(`Querying CUTM1 with query:`, JSON.stringify(query));
+    let studentsCUTM1 = [];
+    try {
+      studentsCUTM1 = await db
+        .collection("CUTM1")
+        .find(query)
+        .project({ _id: 0, Reg_No: 1, Name: 1 })
+        .toArray();
+      console.log(`Found ${studentsCUTM1.length} students in CUTM1`);
+    } catch (error) {
+      console.error('Error querying CUTM1:', error);
+      studentsCUTM1 = [];
+    }
+    
+    // Also get students from RegistrationData collection
+    console.log(`Querying RegistrationData with query:`, JSON.stringify(query));
+    let studentsRegData = [];
+    try {
+      studentsRegData = await db
+        .collection("RegistrationData")
+        .find(query)
+        .project({ _id: 0, Reg_No: 1, Name: 1 })
+        .toArray();
+      console.log(`Found ${studentsRegData.length} students in RegistrationData`);
+    } catch (error) {
+      console.error('Error querying RegistrationData:', error);
+      studentsRegData = [];
+    }
+    
+    // Combine students from both collections, avoiding duplicates
+    const studentMap = new Map();
+    
+    // Add students from CUTM1
+    studentsCUTM1.forEach(student => {
+      studentMap.set(student.Reg_No, {
+        ...student,
+        source: 'CUTM1'
+      });
+    });
+    
+    // Add students from RegistrationData (only if not already in CUTM1)
+    studentsRegData.forEach(student => {
+      if (!studentMap.has(student.Reg_No)) {
+        studentMap.set(student.Reg_No, {
+          ...student,
+          source: 'RegistrationData'
+        });
+      }
+    });
+    
+    let students = Array.from(studentMap.values());
     
     console.log(`Final query:`, JSON.stringify(query));
     console.log(`Found ${students.length} unique students`);
@@ -235,12 +312,57 @@ export async function POST(req) {
       console.log("No semester filter applied - getting all semesters");
     }
 
-    // Get all results for these students
-    const results = await db
+    // Get all results for these students from both collections
+    const resultsCUTM1 = await db
       .collection("CUTM1")
       .find(resultQuery)
-      .project({ _id: 0, Reg_No: 1, Name: 1, Subject_Code: 1, Subject_Name: 1, Credits: 1, Grade: 1, Sem: 1 })
+      .project({ _id: 0, Reg_No: 1, Name: 1, Subject_Code: 1, Subject_Name: 1, Credits: 1, Grade: 1, Sem: 1, Type: 1 })
       .toArray();
+    
+    // Try both string and number for Reg_No since it might be stored as either
+    const regDataQuery = { 
+      $or: [
+        { Reg_No: { $in: regNumbers } },
+        { Reg_No: { $in: regNumbers.map(r => parseInt(r)) } }
+      ]
+    };
+    
+    // Add semester filter if present
+    if (resultQuery.Sem) {
+      regDataQuery.Sem = resultQuery.Sem;
+    }
+    
+    const resultsRegData = await db
+      .collection("RegistrationData")
+      .find(regDataQuery)
+      .project({ _id: 0, Reg_No: 1, Name: 1, Subject_Code: 1, Subject_Name: 1, Credits: 1, Grade: 1, Sem: 1, Type: 1 })
+      .toArray();
+    
+    // Combine results from both collections
+    const results = [...resultsCUTM1, ...resultsRegData];
+    
+    console.log(`Found ${resultsCUTM1.length} records from CUTM1 and ${resultsRegData.length} records from RegistrationData`);
+    console.log(`Combined total: ${results.length} records for bulk basket calculation`);
+    
+    // Debug: Show sample results from both collections
+    if (resultsCUTM1.length > 0) {
+      console.log(`Sample CUTM1 results:`, resultsCUTM1.slice(0, 2).map(r => ({
+        Reg_No: r.Reg_No,
+        Type: r.Type,
+        Subject_Code: r.Subject_Code,
+        Credits: r.Credits,
+        Grade: r.Grade
+      })));
+    }
+    if (resultsRegData.length > 0) {
+      console.log(`Sample RegistrationData results:`, resultsRegData.slice(0, 2).map(r => ({
+        Reg_No: r.Reg_No,
+        Type: r.Type,
+        Subject_Code: r.Subject_Code,
+        Credits: r.Credits,
+        Grade: r.Grade
+      })));
+    }
 
     if (results.length === 0) {
       return NextResponse.json({ 
@@ -274,7 +396,26 @@ export async function POST(req) {
     const studentsData = [];
     
     for (const student of students) {
-      const studentResults = results.filter(r => r.Reg_No === student.Reg_No);
+      // Try both string and number matching for Reg_No
+      const studentResults = results.filter(r => 
+        r.Reg_No === student.Reg_No || 
+        r.Reg_No === String(student.Reg_No) || 
+        String(r.Reg_No) === student.Reg_No ||
+        r.Reg_No === parseInt(student.Reg_No) ||
+        parseInt(r.Reg_No) === student.Reg_No
+      );
+      
+      // Debug: Check if we're finding results for this student
+      console.log(`Student ${student.Reg_No} (${student.Name}): Found ${studentResults.length} results`);
+      if (studentResults.length > 0) {
+        console.log(`Sample results for ${student.Reg_No}:`, studentResults.slice(0, 2).map(r => ({
+          Reg_No: r.Reg_No,
+          Type: r.Type,
+          Subject_Code: r.Subject_Code,
+          Credits: r.Credits,
+          Grade: r.Grade
+        })));
+      }
       
       if (studentResults.length === 0) continue;
 
@@ -301,15 +442,25 @@ export async function POST(req) {
         const code = String(r.Subject_Code || "").toUpperCase().trim();
         const credits = parseCredits(r.Credits);
         const grade = String(r.Grade || "").toUpperCase().trim();
-        const isFailed = FAIL_OR_INCOMPLETE_GRADES.has(grade);
         
-        // Special handling for CUTM1057 based on department
+        // For registration data (Type: 'Registration'), treat empty grades as registered subjects
+        // For CUTM1 data, use normal grade logic
+        const isRegistrationData = r.Type === 'Registration';
+        const isFailed = isRegistrationData ? false : FAIL_OR_INCOMPLETE_GRADES.has(grade);
+        
+        // Special handling for CUTM1057 and CUTM1046 based on department
         let targetBasket = codeMap.get(code) || "Basket V";
         if (code === "CUTM1057") {
           if (actualDepartment === "Computer Science Engineering" || actualDepartment === "Electronics & Communication Engineering") {
             targetBasket = "Basket V";
           } else {
             targetBasket = "Basket IV";
+          }
+        } else if (code === "CUTM1046") {
+          if (actualDepartment === "Computer Science Engineering") {
+            targetBasket = "Basket V";
+          } else {
+            targetBasket = "Basket V"; // Default to Basket V for other departments as well
           }
         }
         
@@ -374,10 +525,25 @@ export async function POST(req) {
       totalStudents: studentsData.length,
       department,
       batch: batch || "All",
-      basket: basket || "All"
+      basket: basket || "All",
+      dataSources: {
+        cutm1Records: resultsCUTM1.length,
+        registrationDataRecords: resultsRegData.length,
+        totalRecords: results.length,
+        sources: {
+          cutm1: resultsCUTM1.length > 0,
+          registrationData: resultsRegData.length > 0
+        }
+      }
     });
 
   } catch (err) {
-    return NextResponse.json({ error: "Unable to load bulk data" }, { status: 500 });
+    console.error('Bulk track API error:', err);
+    console.error('Error stack:', err.stack);
+    return NextResponse.json({ 
+      error: "Unable to load bulk data",
+      details: err.message,
+      stack: err.stack
+    }, { status: 500 });
   }
 }

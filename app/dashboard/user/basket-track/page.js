@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -19,6 +19,7 @@ export default function UserBasketTrack() {
   const [searchPerformed, setSearchPerformed] = useState(false);
   const [studentData, setStudentData] = useState(null);
   const [basketProgress, setBasketProgress] = useState({});
+  const [dataSources, setDataSources] = useState(null);
   
   // Basket detail state
   const [selectedBasket, setSelectedBasket] = useState(null);
@@ -55,6 +56,7 @@ export default function UserBasketTrack() {
     setError("");
     setStudentData(null);
     setBasketProgress({});
+    setDataSources(null);
     setSearchPerformed(false);
     setSemesters([]);
   }
@@ -123,6 +125,7 @@ export default function UserBasketTrack() {
       
       setStudentData(student);
       setBasketProgress(progress);
+      setDataSources(data.dataSources || null);
     } catch (err) {
       setError(err.message);
       setStudentData(null);
@@ -171,6 +174,23 @@ export default function UserBasketTrack() {
       setSemesters([]);
     }
   };
+
+  // Stats calculation with lateral entry support
+  const overallStats = useMemo(() => {
+    const entries = Object.values(basketProgress || {});
+    const totalBaskets = entries.length || 5;
+    const basketsCompleted = entries.filter((b) => b && b.is_completed).length;
+    const totalEarned = entries.reduce((sum, b) => sum + (Number(b?.earned_credits) || 0), 0);
+    const totalFailed = entries.reduce((sum, b) => sum + (Number(b?.failed_credits) || 0), 0);
+    const totalCredits = totalEarned + totalFailed;
+    
+    // Check if student is lateral entry
+    const isLateralEntry = studentData?.is_lateral_entry || false;
+    const totalRequired = isLateralEntry ? 120 : 160;
+    const percentage = Math.min(100, Math.round((totalEarned / totalRequired) * 100));
+    
+    return { totalBaskets, basketsCompleted, totalEarned, totalFailed, totalCredits, totalRequired, percentage, isLateralEntry };
+  }, [basketProgress, studentData]);
 
   // Handle basket click for details
   function handleBasketClick(basketName, basketInfo) {
@@ -295,11 +315,11 @@ export default function UserBasketTrack() {
                 >
                   <option value="">Select Basket</option>
                   <option value="All">All Baskets</option>
-                  <option value="Basket I">Basket I (17 credits)</option>
-                  <option value="Basket II">Basket II (12 credits)</option>
+                  <option value="Basket I">Basket I (17/6 credits)</option>
+                  <option value="Basket II">Basket II (12/9 credits)</option>
                   <option value="Basket III">Basket III (25 credits)</option>
-                  <option value="Basket IV">Basket IV (58 credits)</option>
-                  <option value="Basket V">Basket V (48 credits)</option>
+                  <option value="Basket IV">Basket IV (58/48 credits)</option>
+                  <option value="Basket V">Basket V (48/32 credits)</option>
                 </select>
                 <div className="text-xs text-gray-500">
                   💡 Filter results by specific basket or view all baskets
@@ -432,6 +452,49 @@ export default function UserBasketTrack() {
             </div>
 
             <div className="p-6">
+              {/* Total Credits Summary Card for Lateral Entry */}
+              {studentData.is_lateral_entry && (
+                <div className="mb-6 bg-gradient-to-r from-orange-50 to-orange-100 border border-orange-200 rounded-lg p-4">
+                  <div className="flex items-center">
+                    <div className="flex-shrink-0">
+                      <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center">
+                        <span className="text-white font-bold text-sm">120</span>
+                      </div>
+                    </div>
+                    <div className="ml-3">
+                      <h3 className="text-lg font-semibold text-orange-800">
+                        Lateral Entry Student - Total Required Credits
+                      </h3>
+                      <p className="text-orange-700 text-sm">
+                        You require <strong className="text-orange-900">120 total credits</strong> to complete your degree (instead of 160 for regular students).
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Data Source Information */}
+              {dataSources && (
+                <div className="mb-6 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4">
+                  <h4 className="text-md font-semibold text-blue-900 mb-3">📊 Data Sources Used</h4>
+                  <div className="flex items-center space-x-4">
+                    {dataSources.sources?.cutm1 && (
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
+                        🔵 CUTM1 Collection ({dataSources.cutm1Records} records)
+                      </span>
+                    )}
+                    {dataSources.sources?.registrationData && (
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+                        🟢 Registration Data Collection ({dataSources.registrationDataRecords} records)
+                      </span>
+                    )}
+                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800">
+                      ⚪ Total Combined ({dataSources.totalRecords} records)
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {/* Student Information Section */}
               <div className="mb-6">
                 <h4 className="text-md font-semibold text-gray-800 mb-3">Student Information</h4>
@@ -449,6 +512,28 @@ export default function UserBasketTrack() {
                       <tr className="border-b border-gray-200">
                         <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Registration No:</td>
                         <td className="px-4 py-3 text-gray-900 font-mono">{studentData.registration || 'Unknown'}</td>
+                      </tr>
+                      <tr className="border-b border-gray-200">
+                        <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Student Type:</td>
+                        <td className="px-4 py-3 text-gray-900">
+                          {studentData.is_lateral_entry ? (
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                              Lateral Entry Student
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                              Regular Student
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                      <tr className="border-b border-gray-200">
+                        <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Total Required Credits:</td>
+                        <td className="px-4 py-3 text-gray-900">
+                          <span className={studentData.is_lateral_entry ? "text-orange-600 font-semibold" : ""}>
+                            {studentData.is_lateral_entry ? "120 credits (Lateral Entry)" : "160 credits (Regular)"}
+                          </span>
+                        </td>
                       </tr>
                       <tr>
                         <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Semester:</td>
@@ -520,6 +605,32 @@ export default function UserBasketTrack() {
                           </td>
                         </tr>
                       )}
+                      
+                      {Object.entries(basketProgress || {}).length > 0 && (
+                        <tr className="bg-gray-50 border-t-2 border-gray-300">
+                          <td className="px-4 py-3 font-semibold text-center text-gray-900" colSpan="2">
+                            {overallStats.isLateralEntry ? "Lateral Entry Total" : "Total"}
+                          </td>
+                          <td className="px-4 py-3 text-center font-semibold text-gray-900">
+                            {overallStats.totalRequired}
+                            {overallStats.isLateralEntry && (
+                              <div className="text-xs text-orange-600 mt-1">Lateral Entry</div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-center font-semibold text-green-600">{overallStats.totalEarned}</td>
+                          <td className="px-4 py-3 text-center font-semibold text-red-600">{overallStats.totalFailed}</td>
+                          <td className="px-4 py-3 text-center font-semibold text-gray-900">{overallStats.totalCredits}</td>
+                          <td className="px-4 py-3 text-center">
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${
+                              overallStats.percentage >= 100 
+                                ? 'bg-green-100 text-green-800' 
+                                : 'bg-red-100 text-red-800'
+                            }`}>
+                              {overallStats.percentage >= 100 ? "Completed" : "Not Completed"}
+                            </span>
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -570,6 +681,49 @@ export default function UserBasketTrack() {
                   </div>
                 </div>
 
+                {/* Legend */}
+                <div className="mb-4 bg-gray-50 p-3 rounded-lg">
+                  <h5 className="text-sm font-semibold text-gray-700 mb-2">📋 Legend:</h5>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                    <div>
+                      <span className="font-medium text-gray-700">Data Sources:</span>
+                      <div className="mt-1 space-y-1">
+                        <div className="flex items-center">
+                          <span className="inline-block w-3 h-3 bg-green-100 border border-green-300 rounded mr-2"></span>
+                          <span className="text-green-800">Reg - Registration Data</span>
+                        </div>
+                        <div className="flex items-center">
+                          <span className="inline-block w-3 h-3 bg-gray-100 border border-gray-300 rounded mr-2"></span>
+                          <span className="text-gray-800">CUTM1 - Academic Records</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Grade Status:</span>
+                      <div className="mt-1 space-y-1">
+                        <div className="flex items-center">
+                          <span className="inline-block w-3 h-3 bg-green-100 border border-green-300 rounded mr-2"></span>
+                          <span className="text-green-800">Completed</span>
+                        </div>
+                        <div className="flex items-center">
+                          <span className="inline-block w-3 h-3 bg-yellow-100 border border-yellow-300 rounded mr-2"></span>
+                          <span className="text-yellow-800">Result Not Published</span>
+                        </div>
+                        <div className="flex items-center">
+                          <span className="inline-block w-3 h-3 bg-red-100 border border-red-300 rounded mr-2"></span>
+                          <span className="text-red-800">Failed</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Lateral Entry:</span>
+                      <div className="mt-1 text-orange-700">
+                        Students with "1" as 9th character in registration number require 120 total credits instead of 160.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {selectedBasket.subjects && selectedBasket.subjects.length > 0 ? (
                   <div className="border rounded-lg overflow-hidden">
                     <table className="w-full">
@@ -579,6 +733,7 @@ export default function UserBasketTrack() {
                           <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Subject Name</th>
                           <th className="px-4 py-2 text-center text-sm font-medium text-gray-700">Credits</th>
                           <th className="px-4 py-2 text-center text-sm font-medium text-gray-700">Grade</th>
+                          <th className="px-4 py-2 text-center text-sm font-medium text-gray-700">Data Source</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -590,13 +745,26 @@ export default function UserBasketTrack() {
                               <td className="px-4 py-2 text-sm text-gray-900">{subject.name}</td>
                               <td className="px-4 py-2 text-sm text-center text-gray-900">{subject.credits}</td>
                               <td className="px-4 py-2 text-sm text-center">
-                                <span className={`font-medium ${
-                                  ["O","E","A"].includes(grade) ? 'text-green-600' :
-                                  ["B","C","D"].includes(grade) ? 'text-blue-600' :
-                                  'text-red-600'
+                                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                  grade === 'RESULT NOT PUBLISHED'
+                                    ? 'bg-yellow-100 text-yellow-800'
+                                    : ["O","E","A"].includes(grade) ? 'bg-green-100 text-green-800' :
+                                    ["B","C","D"].includes(grade) ? 'bg-blue-100 text-blue-800' :
+                                    'bg-red-100 text-red-800'
                                 }`}>
                                   {grade || '—'}
                                 </span>
+                              </td>
+                              <td className="px-4 py-2 text-sm text-center">
+                                {subject.dataSource && (
+                                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                    subject.dataSource === 'Registration' 
+                                      ? 'bg-green-100 text-green-800' 
+                                      : 'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {subject.dataSource === 'Registration' ? 'Reg' : 'CUTM1'}
+                                  </span>
+                                )}
                               </td>
                             </tr>
                           );
