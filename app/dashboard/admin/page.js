@@ -114,9 +114,6 @@ export default function AdminDashboard() {
             <ModuleCard title="Results" icon="📝" gradient="from-rose-500 to-rose-600" onClick={() => go("/dashboard/admin/results")}>
               Search, update and export result entries with auditability.
             </ModuleCard>
-            <ModuleCard title="Analytics Dashboard" icon="📊" gradient="from-indigo-500 to-indigo-600" onClick={() => go("/dashboard/admin/analytics")}>
-              Comprehensive data visualization and insights with Chart.js integration.
-            </ModuleCard>
           </div>
         </div>
       </section>
@@ -134,17 +131,13 @@ export default function AdminDashboard() {
               { t: "Search Records", i: "🔎" },
               { t: "Export Data", i: "⬇️" },
               { t: "Notifications", i: "🔔" },
-              { t: "Analytics", i: "📊" },
+              { t: "Analytics", i: "🥧" },
               { t: "Settings", i: "⚙️" },
             ].map((a, idx) => (
-              <div 
-                key={idx} 
-                className={`text-center rounded-xl border border-white/10 bg-white/10 backdrop-blur-md p-4 text-white/90 hover:bg-white/15 transition-transform hover:-translate-y-1 ${idx === 4 ? 'cursor-pointer' : 'cursor-default'}`}
-                onClick={idx === 4 ? () => go("/dashboard/admin/analytics") : undefined}
-              >
+              <div key={idx} className="text-center rounded-xl border border-white/10 bg-white/10 backdrop-blur-md p-4 text-white/90 hover:bg-white/15 transition-transform hover:-translate-y-1 cursor-default">
                 <div className="text-2xl mb-2">{a.i}</div>
                 <div className="text-sm font-semibold">{a.t}</div>
-                <div className="text-xs text-white/70">{idx === 0 ? "Quick registration" : idx === 1 ? "Find data" : idx === 2 ? "Download reports" : idx === 3 ? "System alerts" : idx === 4 ? "View analytics" : "Configuration"}</div>
+                <div className="text-xs text-white/70">{idx === 0 ? "Quick registration" : idx === 1 ? "Find data" : idx === 2 ? "Download reports" : idx === 3 ? "System alerts" : idx === 4 ? "Insights" : "Configuration"}</div>
             </div>
             ))}
               </div>
@@ -171,27 +164,14 @@ export default function AdminDashboard() {
 
 function StatCard({ icon, color, label, value, trend, trendUp }) {
   return (
-    <div className="group relative overflow-hidden rounded-2xl border border-white/20 bg-white/10 backdrop-blur-lg p-6 text-center text-white transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl hover:border-white/30 hover:bg-white/15">
-      {/* Top indicator bar */}
-      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-500 to-emerald-500 scale-x-0 origin-left group-hover:scale-x-100 transition-transform duration-500" />
-      
-      {/* Icon with animation */}
-      <div className={`text-4xl mb-4 ${color} group-hover:scale-125 transition-transform duration-300`}>{icon}</div>
-      
-      {/* Value with animation */}
-      <div className="text-4xl font-extrabold group-hover:bg-gradient-to-r group-hover:from-white group-hover:to-blue-300 group-hover:bg-clip-text group-hover:text-transparent transition-all duration-300">{value}</div>
-      
-      {/* Label */}
-      <div className="text-xs uppercase tracking-wide text-white/70 mt-2 font-medium">{label}</div>
-      
-      {/* Trend indicator */}
-      <div className={`mt-4 pt-3 border-t border-white/15 text-sm font-semibold ${trendUp ? "text-emerald-400" : "text-rose-400"} flex items-center justify-center gap-1`}>
-        <span className="group-hover:animate-pulse">{trendUp ? "▲" : "▼"}</span> 
-        <span>{trend}</span>
-      </div>
-      
-      {/* Background glow effect */}
-      <div className="absolute inset-0 bg-gradient-to-br opacity-0 group-hover:opacity-10 transition-opacity duration-300 -z-10" />
+    <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/10 backdrop-blur-lg p-5 text-center text-white transition-transform hover:-translate-y-1 hover:shadow-2xl">
+      <div className={`text-3xl mb-3 ${color}`}>{icon}</div>
+      <div className="text-3xl font-extrabold">{value}</div>
+      <div className="text-xs uppercase tracking-wide text-white/70 mt-1">{label}</div>
+      <div className={`mt-3 pt-3 border-t border-white/10 text-xs font-semibold ${trendUp ? "text-emerald-400" : "text-rose-400"}`}>
+        {trendUp ? "▲" : "▼"} {trend}
+        </div>
+      <div className="absolute inset-x-0 -top-1 h-1 bg-blue-500/70 scale-x-0 origin-left group-hover:scale-x-100 transition-transform" />
     </div>
   );
 }
