@@ -232,7 +232,7 @@ function ResultPageContent() {
                             <td
                               className={`border p-2 text-center font-bold ${
                                 isFailingGrade(s.Grade)
-                                  ? "bg-rose-500/20 text-rose-200"
+                                  ? " text-red-600"
                                   : ["O", "E", "A"].includes(s.Grade)
                                   ? "text-green-600"
                                   : ["B", "C"].includes(s.Grade)
@@ -297,7 +297,7 @@ function ResultPageContent() {
                       <td
                         className={`border p-2 text-center font-bold ${
                           isFailingGrade(s.Grade)
-                            ? "bg-rose-500/20 text-rose-200"
+                            ? "  text-red-600"
                             : ["O", "E", "A"].includes(s.Grade)
                             ? "text-green-600"
                             : ["B", "C"].includes(s.Grade)

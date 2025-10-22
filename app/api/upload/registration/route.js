@@ -194,19 +194,59 @@ export async function POST(req) {
     const db = client.db("cutm1");
     const collection = db.collection("RegistrationData");
 
-    // Clear existing registration data (optional - you might want to keep historical data)
-    await collection.deleteMany({ Type: 'Registration' });
+    // Check if data already exists for this semester
+    const existingCount = await collection.countDocuments({ 
+      Type: 'Registration',
+      Sem: dbSemester 
+    });
 
-    // Insert processed data
-    const result = await collection.insertMany(processedData);
+    let updateStrategy = 'replace'; // Default strategy
+    let recordsUpdated = 0;
+    let recordsInserted = 0;
+    let recordsSkipped = 0;
 
-    console.log(`Inserted ${result.insertedCount} registration records into RegistrationData collection`);
+    if (existingCount > 0) {
+      console.log(`Found ${existingCount} existing records for ${dbSemester}. Using update strategy.`);
+      
+      // Use upsert strategy: update existing records, insert new ones
+      for (const record of processedData) {
+        const result = await collection.updateOne(
+          { 
+            Reg_No: record.Reg_No, 
+            Subject_Code: record.Subject_Code,
+            Sem: dbSemester,
+            Type: 'Registration'
+          },
+          { $set: record },
+          { upsert: true }
+        );
+        
+        if (result.upsertedCount > 0) {
+          recordsInserted++;
+        } else if (result.modifiedCount > 0) {
+          recordsUpdated++;
+        } else {
+          recordsSkipped++;
+        }
+      }
+    } else {
+      console.log(`No existing records found for ${dbSemester}. Inserting new data.`);
+      
+      // Insert all new data
+      const result = await collection.insertMany(processedData);
+      recordsInserted = result.insertedCount;
+    }
+
+    console.log(`Registration data processing complete for ${dbSemester}: ${recordsInserted} inserted, ${recordsUpdated} updated, ${recordsSkipped} skipped`);
 
     return NextResponse.json({
-      message: `Successfully uploaded ${processedData.length} registration records for ${dbSemester}. ${result.insertedCount} records inserted.`,
+      message: `Successfully processed ${processedData.length} registration records for ${dbSemester}. ${recordsInserted} inserted, ${recordsUpdated} updated, ${recordsSkipped} skipped.`,
       recordsProcessed: processedData.length,
-      recordsInserted: result.insertedCount,
+      recordsInserted,
+      recordsUpdated,
+      recordsSkipped,
       semester: dbSemester,
+      strategy: existingCount > 0 ? 'update' : 'insert',
       sampleData: processedData.slice(0, 3) // Return first 3 records as sample
     });
 

@@ -58,7 +58,24 @@ export default function AdminUploadPage() {
         setError(data.error || "Upload failed");
         return;
       }
-      setMessage(data.message || "Upload successful");
+      
+      // Enhanced success message with detailed results
+      let successMessage = data.message || "Upload successful";
+      if (data.results && data.results.length > 0) {
+        successMessage += "\n\nFile Results:";
+        data.results.forEach(result => {
+          successMessage += `\n• ${result.filename}: ${result.inserted} inserted, ${result.updated} updated`;
+        });
+      }
+      
+      if (data.errors && data.errors.length > 0) {
+        successMessage += "\n\nErrors:";
+        data.errors.forEach(error => {
+          successMessage += `\n• ${error}`;
+        });
+      }
+      
+      setMessage(successMessage);
       setFiles([]);
     } catch (err) {
       setError("Upload failed. Please try again.");
@@ -148,8 +165,12 @@ export default function AdminUploadPage() {
             <ul className="text-white/80 text-sm space-y-2">
               <li>Supported formats: CSV, XLS, XLSX files up to 50MB each</li>
               <li>Multiple files can be uploaded simultaneously for batch processing</li>
+              <li><strong>Required columns:</strong> Reg_No, Subject_Code</li>
+              <li><strong>Optional columns:</strong> Name, Sem, Subject_Name, Credits, Grade, Subject_Type</li>
+              <li>Existing records with grades F, S, M, I, R will be updated</li>
+              <li>New records will be inserted automatically</li>
               <li>Data validation performed automatically before database updates</li>
-              <li>Progress tracking and error reporting available</li>
+              <li>Progress tracking and detailed error reporting available</li>
               <li>All uploads are logged for security and audit purposes</li>
             </ul>
           </div>

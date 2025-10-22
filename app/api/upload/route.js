@@ -1,110 +1,233 @@
 import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
+import { jwtVerify } from "jose";
+import * as XLSX from 'xlsx';
+
+// JWT verification helper
+async function verifyToken(token) {
+  try {
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET || "dev-secret");
+    const { payload } = await jwtVerify(token, secret);
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+// Helper function to check if file is allowed
+function allowedFile(filename) {
+  const allowedExtensions = ['.csv', '.xls', '.xlsx'];
+  const ext = filename.toLowerCase().substring(filename.lastIndexOf('.'));
+  return allowedExtensions.includes(ext);
+}
+
+// Helper function to parse CSV content
+function parseCSV(content) {
+  const lines = content.split('\n').filter(line => line.trim());
+  if (lines.length < 2) return { headers: [], data: [] };
+  
+  const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+  const data = [];
+  
+  for (let i = 1; i < lines.length; i++) {
+    const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+    if (values.length >= headers.length) {
+      const row = {};
+      headers.forEach((header, index) => {
+        row[header] = values[index] || '';
+      });
+      data.push(row);
+    }
+  }
+  
+  return { headers, data };
+}
+
+// Helper function to parse Excel content
+function parseExcel(buffer) {
+  const workbook = XLSX.read(buffer, { type: 'buffer' });
+  const sheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[sheetName];
+  const jsonData = XLSX.utils.sheet_to_json(worksheet);
+  
+  if (jsonData.length === 0) return { headers: [], data: [] };
+  
+  const headers = Object.keys(jsonData[0]);
+  return { headers, data: jsonData };
+}
+
+// Helper function to find column by name (case-insensitive)
+function findColumn(headers, ...names) {
+  for (const name of names) {
+    const found = headers.find(h => h.toLowerCase().trim() === name.toLowerCase());
+    if (found) return found;
+  }
+  return null;
+}
 
 export async function POST(req) {
   try {
-    const formData = await req.formData();
-    const file = formData.get("file");
-    
-    if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+    // Check authentication
+    const token = req.cookies.get("token")?.value;
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized - Please login first" }, { status: 401 });
     }
 
-    // Read file content
-    const buffer = await file.arrayBuffer();
-    const content = Buffer.from(buffer).toString('utf-8');
-    
-    // Parse CSV content
-    const lines = content.split('\n').filter(line => line.trim());
-    if (lines.length < 2) {
-      return NextResponse.json({ error: "File must contain at least a header row and one data row" }, { status: 400 });
+    const payload = await verifyToken(token);
+    if (!payload?.email) {
+      return NextResponse.json({ error: "Unauthorized - Invalid token" }, { status: 401 });
     }
 
-    // Parse header
-    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-    const expectedHeaders = ['Branch', 'Basket', 'Subject Code', 'Subject Name', 'Credits'];
-    
-    // Validate headers
-    const hasRequiredHeaders = expectedHeaders.every(header => 
-      headers.some(h => h.toLowerCase().includes(header.toLowerCase()))
-    );
-    
-    if (!hasRequiredHeaders) {
+    // Check if user is admin
+    const userRole = payload.role?.toLowerCase();
+    if (userRole !== 'admin') {
       return NextResponse.json({ 
-        error: `File must contain headers: ${expectedHeaders.join(', ')}` 
-      }, { status: 400 });
+        error: "Access denied - Only admins can upload data" 
+      }, { status: 403 });
     }
 
-    // Find column indices
-    const getColumnIndex = (headerName) => {
-      return headers.findIndex(h => h.toLowerCase().includes(headerName.toLowerCase()));
-    };
-
-    const branchIndex = getColumnIndex('Branch');
-    const basketIndex = getColumnIndex('Basket');
-    const subjectCodeIndex = getColumnIndex('Subject Code');
-    const subjectNameIndex = getColumnIndex('Subject Name');
-    const creditsIndex = getColumnIndex('Credits');
-
-    // Parse data rows
-    const subjects = [];
-    for (let i = 1; i < lines.length; i++) {
-      const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
-      
-      if (values.length < headers.length) continue; // Skip incomplete rows
-      
-      const branch = values[branchIndex]?.trim();
-      const basket = values[basketIndex]?.trim() || '';
-      const subjectCode = values[subjectCodeIndex]?.trim();
-      const subjectName = values[subjectNameIndex]?.trim();
-      const credits = values[creditsIndex]?.trim() || '';
-
-      if (!branch || !subjectCode || !subjectName) continue; // Skip invalid rows
-
-      subjects.push({
-        Branch: branch,
-        Basket: basket,
-        "Subject Code": subjectCode.toUpperCase(),
-        Subject_name: subjectName,
-        Credits: credits
-      });
+    const formData = await req.formData();
+    const files = formData.getAll("files");
+    
+    if (!files || files.length === 0) {
+      return NextResponse.json({ error: "No files provided" }, { status: 400 });
     }
 
-    if (subjects.length === 0) {
-      return NextResponse.json({ error: "No valid subjects found in file" }, { status: 400 });
-    }
+    let totalUpdated = 0;
+    let totalInserted = 0;
+    const errors = [];
+    const results = [];
 
-    // Insert subjects into database
     const client = await clientPromise;
     const db = client.db("cutm1");
-    
-    // Check for duplicates and insert only new ones
-    const existingSubjects = await db.collection("cbcs").find({
-      "Subject Code": { $in: subjects.map(s => s["Subject Code"]) }
-    }).toArray();
-    
-    const existingCodes = new Set(existingSubjects.map(s => s["Subject Code"]));
-    const newSubjects = subjects.filter(s => !existingCodes.has(s["Subject Code"]));
-    
-    if (newSubjects.length === 0) {
-      return NextResponse.json({ 
-        error: "All subjects already exist in the database",
-        count: 0,
-        duplicates: subjects.length
-      }, { status: 400 });
+    const cutmCollection = db.collection("CUTM1");
+
+    for (const file of files) {
+      if (!file || !allowedFile(file.name)) {
+        errors.push(`Invalid file: ${file.name}`);
+        continue;
+      }
+
+      try {
+        const buffer = await file.arrayBuffer();
+        let headers, data;
+
+        // Parse file based on extension
+        if (file.name.toLowerCase().endsWith('.csv')) {
+          const content = Buffer.from(buffer).toString('utf-8');
+          const parsed = parseCSV(content);
+          headers = parsed.headers;
+          data = parsed.data;
+        } else {
+          // Excel file
+          const parsed = parseExcel(buffer);
+          headers = parsed.headers;
+          data = parsed.data;
+        }
+
+        if (data.length === 0) {
+          errors.push(`No data found in file: ${file.name}`);
+          continue;
+        }
+
+        // Find required columns
+        const regNoCol = findColumn(headers, 'Reg_No', 'Registration No.', 'Registration Number');
+        const subjectCodeCol = findColumn(headers, 'Subject_Code', 'Subject Code');
+        const subjectNameCol = findColumn(headers, 'Subject_Name', 'Subject Name');
+        const nameCol = findColumn(headers, 'Name', 'Student Name');
+        const semCol = findColumn(headers, 'Sem', 'Semester');
+        const creditsCol = findColumn(headers, 'Credits', 'Credit');
+        const gradeCol = findColumn(headers, 'Grade', 'Grade Point');
+        const subjectTypeCol = findColumn(headers, 'Subject_Type', 'Subject Type');
+
+        if (!regNoCol || !subjectCodeCol) {
+          errors.push(`Missing required columns in ${file.name}. Need: Reg_No, Subject_Code`);
+          continue;
+        }
+
+        let fileUpdated = 0;
+        let fileInserted = 0;
+
+        // Process each row
+        for (const row of data) {
+          const regNo = String(row[regNoCol] || "").trim().toUpperCase();
+          const subjectCode = String(row[subjectCodeCol] || "").trim().toUpperCase();
+          
+          if (!regNo || !subjectCode) continue;
+
+          const subjectName = String(row[subjectNameCol] || "").trim();
+          const name = String(row[nameCol] || "").trim();
+          const sem = String(row[semCol] || "").trim();
+          const credits = String(row[creditsCol] || "").trim();
+          const grade = String(row[gradeCol] || "").trim().toUpperCase();
+          const subjectType = String(row[subjectTypeCol] || "").trim();
+          
+          const semValue = sem && sem.match(/^\d+$/) ? `Sem ${sem}` : sem;
+
+          // Check if record exists
+          const existingRecord = await cutmCollection.findOne(
+            { Reg_No: regNo, Subject_Code: subjectCode },
+            { projection: { Grade: 1 } }
+          );
+
+          if (existingRecord) {
+            // Update existing record if grade is F, S, M, I, R, or empty
+            const currentGrade = existingRecord.Grade || '';
+            if (['F', 'S', 'M', 'I', 'R', ''].includes(currentGrade)) {
+              await cutmCollection.updateOne(
+                { Reg_No: regNo, Subject_Code: subjectCode },
+                { $set: { Grade: grade } }
+              );
+              fileUpdated++;
+            }
+          } else {
+            // Insert new record
+            await cutmCollection.insertOne({
+              Reg_No: regNo,
+              Subject_Code: subjectCode,
+              Grade: grade,
+              Name: name,
+              Sem: semValue,
+              Subject_Name: subjectName,
+              Subject_Type: subjectType,
+              Credits: credits
+            });
+            fileInserted++;
+          }
+        }
+
+        totalUpdated += fileUpdated;
+        totalInserted += fileInserted;
+        
+        results.push({
+          filename: file.name,
+          updated: fileUpdated,
+          inserted: fileInserted,
+          total: fileUpdated + fileInserted
+        });
+
+      } catch (fileError) {
+        console.error(`Error processing file ${file.name}:`, fileError);
+        errors.push(`Error processing ${file.name}: ${fileError.message}`);
+      }
     }
 
-    const result = await db.collection("cbcs").insertMany(newSubjects);
+    const message = `All files processed successfully! Updated: ${totalUpdated}, Inserted: ${totalInserted}`;
     
-    return NextResponse.json({ 
-      success: true, 
-      count: result.insertedCount,
-      duplicates: subjects.length - newSubjects.length,
-      message: `Successfully uploaded ${result.insertedCount} subjects. ${subjects.length - newSubjects.length} duplicates skipped.`
+    return NextResponse.json({
+      success: true,
+      message,
+      updated: totalUpdated,
+      inserted: totalInserted,
+      total: totalUpdated + totalInserted,
+      results,
+      errors: errors.length > 0 ? errors : undefined
     });
 
   } catch (err) {
-    console.error("Upload error", err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    console.error("Upload error:", err);
+    return NextResponse.json({ 
+      error: `Upload failed: ${err.message}` 
+    }, { status: 500 });
   }
 }

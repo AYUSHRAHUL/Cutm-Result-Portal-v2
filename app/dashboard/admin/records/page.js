@@ -242,11 +242,11 @@ export default function AdminRecordsPage() {
                       <td className="px-4 py-3">
                         <select 
                           defaultValue="" 
-                          className="rounded-md border border-white/20 bg-white/10 text-white/90 text-xs px-3 py-1.5 
+                          className="rounded-md border border-white/20 bg-white/10 text-white text-xs px-3 py-1.5 
                                     transition-all duration-200 hover:bg-white/20 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                           onChange={e => { const v = e.target.value; e.target.value = ""; updateGrade(r, v); }}>
-                          <option value="">Update Grade</option>
-                          {["O","E","A","B","C","D","F","S","M","I","R"].map(g => <option key={g} value={g}>{g}</option>)}
+                          <option value="" >Update Grade</option>
+                          {["O","E","A","B","C","D","F","S","M","I","R"].map(g => <option key={g} value={g} className="bg-gray-700">{g}</option>)}
                         </select>
                       </td>
                     </tr>

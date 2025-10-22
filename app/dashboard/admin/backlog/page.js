@@ -55,27 +55,86 @@ export default function AdminBacklogPage() {
   useEffect(() => {
     (async () => {
       try {
-        if (regMode !== "list") { setRegList([]); return; }
-        if (!branch && !year) { setRegList([]); return; }
+        if (regMode !== "list") { 
+          setRegList([]); 
+          setSelectedReg("");
+          return; 
+        }
+        if (!branch && !year) { 
+          setRegList([]); 
+          setSelectedReg("");
+          return; 
+        }
+        
+        // Always try to load all students first, then filter client-side
+        // This ensures we get all data and can filter properly
         const res = await fetch("/api/students", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ department: branch || "All", batch: year || "All" })
+          body: JSON.stringify({ department: "All", batch: "All" })
         });
         const data = await res.json();
+        
         if (res.ok) {
-          const list = (data.students || data.records || data.result || [])
+          let students = data.students || data.records || data.result || [];
+          
+          // Apply branch filtering using 8th character logic
+          if (branch && branch !== "") {
+            const branchCodeMap = {
+              "Civil": "1",
+              "CSE": "2", 
+              "ECE": "3",
+              "EEE": "5",
+              "Mechanical": "6"
+            };
+            
+            const expectedBranchCode = branchCodeMap[branch];
+            students = students.filter(student => {
+              const regNo = student.Reg_No || student.registration;
+              if (!regNo || regNo.length < 8) return false;
+              
+              const regBranchCode = regNo.charAt(7);
+              return regBranchCode === expectedBranchCode;
+            });
+          }
+          
+          // Apply batch filtering using first 2 digits
+          if (year && year !== "") {
+            const yearPattern = year.slice(-2);
+            students = students.filter(student => {
+              const regNo = student.Reg_No || student.registration;
+              if (!regNo || regNo.length < 2) return false;
+              
+              const regYear = regNo.slice(0, 2);
+              return regYear === yearPattern;
+            });
+          }
+          
+          const list = students
             .map(r => r.Reg_No || r.registration)
-            .filter(Boolean);
+            .filter(Boolean)
+            .sort(); // Sort for better UX
+          
           setRegList(Array.from(new Set(list)));
+          setSelectedReg(""); // Reset selection when list changes
         } else {
           setRegList([]);
+          setSelectedReg("");
         }
-      } catch {
+      } catch (err) {
         setRegList([]);
+        setSelectedReg("");
       }
     })();
   }, [branch, year, regMode]);
+
+  // Auto-search when registration is selected
+  useEffect(() => {
+    if (regMode === "list" && selectedReg) {
+      search();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedReg, regMode]);
 
   // Load subjects when in list mode
   useEffect(() => {
@@ -146,10 +205,17 @@ export default function AdminBacklogPage() {
                 </div>
                 <div className="flex gap-3">
                   <select className="flex-1 rounded-xl border border-white/15 bg-white/90 px-3 py-2 text-gray-900" value={selectedReg} onChange={e => setSelectedReg(e.target.value)}>
-                    <option value="">Select Registration</option>
+                    <option value="">
+                      {regList.length === 0 
+                        ? (branch && year ? "No students found for selected criteria" : "Select batch and branch first")
+                        : `Select Registration (${regList.length} students)`
+                      }
+                    </option>
                     {regList.map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
-                  <button className="rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-semibold px-4" disabled={!selectedReg}>Search</button>
+                  <button className="rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-semibold px-4" disabled={!selectedReg}>
+                    {selectedReg ? "Search" : "Select First"}
+                  </button>
                 </div>
               </>
             )}

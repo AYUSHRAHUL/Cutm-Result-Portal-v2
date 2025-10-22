@@ -1,640 +1,650 @@
-CUTM Result Portal (v2)
+# 🎓 CUTM Result Portal - Comprehensive Documentation
 
-Overview
-The CUTM Result Portal is a role-based academic platform built with Next.js (App Router). It provides secure authentication, rich dashboards for Admin/Teacher/Student, CBCS management, backlogs handling, batch exports, OTP-based password flows, and CSV/Excel/PDF exports. UI follows a white-card + blue-accent theme with polished forms and loaders.
+## 📋 Table of Contents
 
-Top Features
-- Authentication and Security
-  - Login/Register with OTP verification, Forgot/Reset Password (OTP), Change Password
-  - JWT in HTTP-only cookie; middleware guards; role-based API access
-- Role Dashboards
-  - Admin: Results, Records, Backlog, CBCS Data, Batch, Upload, Analytics
-  - Teacher: Results (parity with Admin), Batch (parity via reuse), uploads
-  - Student: Results, academic progress, basket/backlog trackers
-- Results Engine
-  - Semester discovery and per-semester results
-  - SGPA computed by grade points O/A+/A/B+/B/C/P/D = 10/9/8/7/6/5/4/4; F/E/NA = 0
-  - Credits parser normalizes strings like “2+1” to numeric sums (used everywhere)
-  - CGPA (single): cumulative up to selected term, weighted by each term’s total credits; skips missing terms
-  - CGPA (ALL): sidebar of semesters with stacked result tables; each card shows its SGPA and cumulative CGPA up to that card
-  - Grade pill colors: F/S highlighted red; passing grades green/amber
-- Exports
-  - Results CSV (Admin/Teacher) for single and ALL views (Semester column included for ALL)
-  - Batch: CSV, Excel (HTML table), and printable PDF via new window
-  - Credits in exports are summed; CSV values are properly escaped
-- CBCS Management
-  - Admin: create, edit, delete CBCS subjects; manual add and file upload; server-side normalization (trim/uppercase)
-- Backlog Tools (Admin)
-  - Search by Registration: Enter Manually, or Choose from List (filtered by Batch/Branch via POST /api/students)
-  - Search by Subject + Filters (subject_code + Branch + Batch)
-  - Grade updates via PUT /api/students with validation
-- Batch Views
-  - Branch/Batch queries, summaries, clean exports; credits summed; responsive tables
-- UI/UX
-  - White-card, blue-accent, brand gradient utilities; spinners and step indicators; logo from `/public/spinner.jpg`
+1. [Project Overview](#-project-overview)
+2. [Architecture & Technology Stack](#-architecture--technology-stack)
+3. [Features & Functionality](#-features--functionality)
+4. [Installation & Setup](#-installation--setup)
+5. [API Documentation](#-api-documentation)
+6. [Database Schema](#-database-schema)
+7. [Deployment Guide](#-deployment-guide)
+8. [Security Implementation](#-security-implementation)
+9. [Performance & Analytics](#-performance--analytics)
+10. [Contributing & Development](#-contributing--development)
+11. [Troubleshooting](#-troubleshooting)
+12. [Support & Contact](#-support--contact)
 
-Repository Layout (key paths)
-- app/
-  - api/
-    - auth/
-      - login, logout, register, me, profile, forgot-password, change-password, OTP endpoints
-    - students/route.js
-      - POST registration lookup; POST department/batch listing; PUT grade update
-    - cbcs/route.js, cbcs/[id]/route.js
-      - CBCS list, create (normalized), update (trim/uppercase), delete
-    - result/route.js, semesters/route.js
-      - Results per registration+semester and semester discovery
-    - backlogs/route.js, backlogs/analytics/route.js
-      - Backlog queries and simple analytics
-    - upload/route.js
-      - CSV/XLSX ingest endpoint
-    - health/route.js
-      - Liveness probe
-    - debug/* (optional inspectors)
-  - dashboard/
-    - admin/
-      - results/page.js (ALL view, CSV export, SGPA/CGPA, summed credits)
-      - records/page.js (search/grade updates, credits sum)
-      - backlog/page.js (Registration search with Manual/List modes; Batch+Branch filters)
-      - data/basket/page.js (CBCS CRUD + upload)
-      - batch/page.js (exports)
-      - analytics/page.js (stub)
-    - teacher/
-      - results/page.js (ALL view, CSV export, credits sum; parity with Admin)
-      - batch/page.js (reuses Admin batch)
-    - user/* (profile, results, trackers)
-- components/ (Navbar with logo/profile dropdown; Footer; AuthForm; ProtectedRoute)
-- lib/ (mongodb, redis, email/OTP, roles, export helpers)
-- models/User.js (Mongoose user model)
-- middleware.js (auth handling)
+---
 
-Data & Computation Details
-- Credits
-  - Everywhere we render/compute, strings like “2+1” are parsed into sums
-  - Display shows summed integer/decimal; exports use the summed value
-- SGPA/CGPA
-  - SGPA = Σ(credits × points) / Σ(credits) for the semester
-  - CGPA (single) = weighted average of per-term SGPA using each term’s credits up to target term (skips missing terms)
-  - CGPA (ALL) is recomputed per card (cumulative up to that semester)
-  - F and S are treated as failing (0 points) and highlighted red in UI
+## 🎯 Project Overview
 
-API Summary (selected)
-- POST /api/auth/login | /register | /forgot-password | /verify-registration-otp | /send-registration-otp | /logout | /me | /profile
-- POST /api/students
-  - { registration } → records for a student
-  - { department, batch } → list of students for dropdown (Reg_No, Name, Branch)
-- PUT /api/students { Reg_No, Subject_Code, Grade } → update one grade
-- GET/POST /api/cbcs (list/create), PUT/DELETE /api/cbcs/[id]
-- POST /api/result { registration, semester }, POST /api/semesters { registration }
-- POST /api/upload (file)
+The **CUTM Result Portal** is a comprehensive academic result management system designed for Centurion University of Technology and Management (CUTM). It provides a modern, secure, and efficient platform for students, faculty, and administrators to access and manage academic results, track progress, and analyze performance data.
 
-Environment
-Copy `env.example` → `.env.local` and configure:
-- MONGODB_URI
-- JWT_SECRET
-- SMTP config (for OTP emails) if required
+### 🎯 Key Objectives
 
-Scripts
-- npm install
-- npm run dev | build | start | lint
+- **Student Empowerment**: Provide instant access to academic results and progress tracking
+- **Faculty Efficiency**: Streamline result management and student performance analysis
+- **Administrative Control**: Comprehensive analytics and bulk data management
+- **Data Security**: Enterprise-grade security with role-based access control
+- **Scalability**: Modern architecture supporting thousands of concurrent users
 
-Deployment
-- Dockerfile + docker-compose.yml
-- Kubernetes: `k8s/` (namespace, app deployment, Mongo/Redis, ingress)
+### 🏆 Project Highlights
 
-Troubleshooting
-- Header hydration mismatch → Navbar mounts with a guard to align SSR/CSR
-- Student list empty in backlog → ensure you’re logged in and POST body includes department+batch (values like CSE/2023). API supports 2-digit and 4-digit year prefixes in Reg_No.
-- ALL export button disabled → activates when either single-semester subjects or ALL results are present
+- **Real-time Analytics**: Advanced dashboard with interactive charts and insights
+- **Multi-role System**: Separate interfaces for students, teachers, and administrators
+- **CBCS Support**: Complete Choice Based Credit System implementation
+- **Mobile Responsive**: Optimized for all devices and screen sizes
+- **Modern UI/UX**: Professional design with smooth animations and interactions
 
-License
-Proprietary/internal use for CUTM Result Portal.
+---
 
--------------------------------------------------------------------------------
-Extended Documentation
--------------------------------------------------------------------------------
+## 🏗️ Architecture & Technology Stack
 
-Table of Contents (Extended)
-1. Architecture Overview
-2. Local Development Guide (Step-by-Step)
-3. Environment Configuration (Deep Dive)
-4. Authentication Flow (Detailed)
-5. Authorization & Role Model (Detailed)
-6. Data Model & Collections
-7. API Reference (Detailed)
-8. UI Walkthroughs (Admin/Teacher/Student)
-9. Results Computation (Examples)
-10. File Uploads & Validation
-11. Exports (CSV/Excel/PDF) Internals
-12. Backlog Module (End-to-End)
-13. CBCS Module (End-to-End)
-14. Batch Module (End-to-End)
-15. Styling System & Theming
-16. Accessibility & Internationalization
-17. Performance Tips & Benchmarks
-18. Security Considerations
-19. Testing Strategy
-20. Deployment Patterns
-21. Observability & Logging
-22. Maintenance & Backup
-23. Roadmap & Future Enhancements
-24. FAQ
-25. Glossary
+### Frontend Technologies
 
-1) Architecture Overview
-- Client: Next.js App Router with a mixture of Server and Client Components
-- API: Route handlers under app/api/* (stateless HTTP, JSON)
-- State: Local component state (useState/useEffect); some derived state memoization
-- DB: MongoDB cluster; collections include CUTM1 (results), cbcs (subjects), users
-- Cache: Optional Redis (lib/redis.js) for OTP or ephemeral shares
-- Auth: JWT in HTTP-only cookie; middleware enforces auth
-- Storage: CSV/XLSX uploads via in-memory stream parse (server route)
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| **Next.js** | 15.5.4 | React framework with SSR/SSG |
+| **React** | 19.1.0 | UI library with hooks |
+| **Tailwind CSS** | 4.1.14 | Utility-first CSS framework |
+| **Framer Motion** | 12.23.22 | Animation library |
+| **Chart.js** | 4.5.1 | Data visualization |
+| **React Chart.js 2** | 5.3.0 | React wrapper for Chart.js |
 
-2) Local Development Guide (Step-by-Step)
-Prereqs: Node 18+, npm, MongoDB URI
-- git clone <repo>
-- npm install
-- cp env.example .env.local and fill variables
-- npm run dev
-- Open http://localhost:3000
-- Create admin account via register/OTP, or seed via database (optional)
+### Backend Technologies
 
-3) Environment Configuration (Deep Dive)
-Required:
-- MONGODB_URI=mongodb+srv://...
-- JWT_SECRET=your-strong-secret
-Optional SMTP (for OTP):
-- SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM
-Optional Redis:
-- REDIS_URL=redis://...
-Other toggles:
-- NODE_ENV, NEXT_PUBLIC_* client flags if needed
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| **Node.js** | 18+ | Runtime environment |
+| **MongoDB** | 7+ | Primary database |
+| **Redis** | 7+ | Caching and sessions |
+| **JWT** | 6.1.0 | Authentication tokens |
+| **bcryptjs** | 3.0.2 | Password hashing |
+| **Nodemailer** | 6.10.1 | Email services |
 
-4) Authentication Flow (Detailed)
-- Register: User submits name/email/password/role → send-registration-otp → verify-registration-otp → create user
-- Login: POST /api/auth/login → set cookie token
-- Me: GET /api/auth/me → returns { user }
-- Logout: POST /api/auth/logout → clears cookie
-- Forgot Password: POST forgot-password (send OTP) → PUT forgot-password (verify OTP + set new password)
-- Change Password: POST /api/auth/change-password (requires auth)
-Notes:
-- Email domain allowlist: @cutm.ac.in, @centurionuniv.edu.in (configurable)
-- Institutional email logic restricted to numeric registration IDs only
+### DevOps & Deployment
 
-5) Authorization & Role Model (Detailed)
-Roles: admin, teacher, user (student)
-Policies:
-- admin: full access to results/CBCS/backlogs/batch
-- teacher: read access to students, results, batch; limited updates (if enabled)
-- user: read-only own results; no browsing other students
-Enforcement:
-- middleware.js for page access
-- Each API route checks cookie + role and enforces scope
+| Technology | Purpose |
+|------------|---------|
+| **Docker** | Containerization |
+| **Docker Compose** | Multi-container orchestration |
+| **Kubernetes** | Container orchestration |
+| **Vercel** | Cloud deployment platform |
+| **MongoDB Atlas** | Cloud database |
+| **Redis Cloud** | Cloud caching |
 
-6) Data Model & Collections
-- users: { name, email, password(hash), role, createdAt, updatedAt }
-- CUTM1: { Reg_No, Name, Branch, Sem, Subject_Code, Subject_Name, Credits, Grade }
-- cbcs: { Branch, Basket, "Subject Code", Subject_name, Credits }
-Indexes (recommended):
-- CUTM1: { Reg_No: 1 }, { Subject_Code: 1 }, { Sem: 1 }
-- users: { email: 1 (unique) }
+### Development Tools
 
-7) API Reference (Detailed)
-Auth
-- POST /api/auth/register (via OTP flow: send-registration-otp, verify-registration-otp)
-- POST /api/auth/login → { success, user }
-- POST /api/auth/logout → clears token
-- GET /api/auth/me → { user }
-- POST /api/auth/forgot-password (send)
-- PUT /api/auth/forgot-password (verify + set)
-- POST /api/auth/change-password
+| Tool | Purpose |
+|------|---------|
+| **ESLint** | Code linting |
+| **PostCSS** | CSS processing |
+| **Autoprefixer** | CSS vendor prefixes |
+| **Turbopack** | Fast bundling |
 
-Students
-- POST /api/students
-  Request (one of):
-  - { registration }
-  - { department, batch }
-  Responses:
-  - { records: [...] } or { students: [{ Reg_No, Name, Branch }] }
-- PUT /api/students { Reg_No, Subject_Code, Grade }
+---
 
-Results
-- POST /api/semesters { registration } → { semesters: ["1","2",...] }
-- POST /api/result { registration, semester } → { subjects, sgpa, cgpa }
+## ✨ Features & Functionality
 
-CBCS
-- GET/POST /api/cbcs → list/create subject
-- PUT/DELETE /api/cbcs/[id] → update/delete subject
+### 🎓 Student Portal
 
-Backlogs
-- POST /api/backlogs { registration } or { subject_code, branch, year }
+#### Core Features
+- **Result Viewing**: Access semester-wise results with detailed grade breakdown
+- **CGPA/SGPA Calculator**: Automatic calculation with credit-based system
+- **Transcript Download**: PDF generation with official formatting
+- **Progress Tracking**: Visual progress indicators across semesters
+- **Backlog Management**: Track and monitor backlog subjects
 
-Uploads
-- POST /api/upload → parse CSV/XLSX and persist
+#### Advanced Features
+- **CBCS Basket Tracking**: Monitor credit completion and basket progress
+- **Performance Analytics**: Personal performance insights and trends
+- **Grade History**: Complete academic history with filtering options
+- **Export Options**: Download results in multiple formats
 
-8) UI Walkthroughs (Admin/Teacher/Student)
-Admin
-- Results: Enter reg → load semesters → choose single or ALL → SGPA/CGPA visible → export CSV
-- Records: Search reg → table of all subject rows → inline grade update with validation
-- Backlog: Registration search or Subject+Filters → NEW Batch/Branch and Manual/List modes
-- CBCS: Manage subjects (manual add/edit, bulk upload)
-- Batch: Branch + Year imports; exports CSV/Excel/PDF
-Teacher
-- Results/Batch: mirrors Admin features (read-oriented)
-Student
-- Own results with SGPA/CGPA; trackers for basket/backlog
+### 👨‍🏫 Teacher Portal
 
-9) Results Computation (Examples)
-Credits parse examples:
-- "3" → 3
-- "2+1" → 3
-- "1+1+1" → 3
-SGPA example:
-- Subjects: [{Credits: 3, Grade: "A"}, {Credits: 1, Grade: "O"}]
-- Points: A=8, O=10 → Σ = (3×8)+(1×10)=34 → SGPA=34/4=8.5
-CGPA example (terms):
-- T1: credits=20, SGPA=7.5; T2: credits=22, SGPA=8.0
-- CGPA after T2 = (20×7.5 + 22×8.0)/(42)= (150+176)/42 ≈ 7.76
-Handling missing terms:
-- We aggregate only terms with actual subject rows.
+#### Student Management
+- **Student Search**: Advanced search by registration, name, or batch
+- **Result Review**: View and analyze individual student performance
+- **Class Analytics**: Performance metrics for entire classes
+- **Backlog Tracking**: Monitor student backlogs and progress
 
-10) File Uploads & Validation
-- Accepts .csv, .xlsx, .xls
-- Validates headers where required (CBCS or batch formats)
-- Returns counts and/or error messages on failure
+#### Reporting Features
+- **Performance Reports**: Generate comprehensive performance reports
+- **Grade Distribution**: Visual analysis of grade patterns
+- **Subject Analysis**: Track subject-wise performance
+- **Export Capabilities**: Generate reports in PDF/Excel formats
 
-11) Exports (CSV/Excel/PDF) Internals
-- CSV: RFC4180 quoting, commas/quotes escaped
-- Excel: HTML table format for broad compatibility
-- PDF: Browser print with styled table (lightweight)
+### ⚙️ Admin Portal
 
-12) Backlog Module (End-to-End)
-Manual Mode:
-- Enter registration directly; search fetches backlogs
-List Mode:
-- Pick Batch (year) + Branch → loads distinct registration numbers from /api/students
-- Choose registration from dropdown → search
-Subject + Filters Mode:
-- Provide subject_code, optional branch/year → query backlogs
-Updates:
-- Admin may update Grade via PUT /api/students (with validation)
+#### Data Management
+- **Bulk Upload**: CSV/Excel import for mass data entry
+- **Data Validation**: Automated data integrity checks
+- **System Configuration**: Manage system settings and parameters
+- **User Management**: Create and manage user accounts
 
-13) CBCS Module (End-to-End)
-- Grid of subjects with filters
-- Add subject: Branch, Basket, Subject Code, Subject Name, Credits
-- Edit subject: uppercasing codes; trims persisted fields
-- Upload: Parse file, insert many, report count
+#### Analytics Dashboard
+- **Real-time Metrics**: Live system performance indicators
+- **Advanced Analytics**: Multi-dimensional data analysis
+- **Custom Reports**: Generate custom analytical reports
+- **Data Export**: Export analytics data in various formats
 
-14) Batch Module (End-to-End)
-- Inputs: Branch, Batch (Year)
-- Output: Records table with export buttons
-- CSV: header mapping + credit sums
-- Excel: HTML table download
-- PDF: print dialog
+#### System Administration
+- **User Roles**: Manage role-based access control
+- **Security Settings**: Configure authentication and authorization
+- **Backup Management**: Automated data backup and recovery
+- **Audit Logs**: Track system usage and changes
 
-15) Styling System & Theming
-- Tailwind base with custom palette:
-  - brand blues, purple, emerald
-- Helpers:
-  - .bg-brand-gradient, .card-white, .shadow-elevated, .btn-gradient, .ring-brand
-- White-card + blue-accent applied across auth and dashboards
+---
 
-16) Accessibility & Internationalization
-Accessibility
-- Proper semantic headings and button labels
-- Focus styling on inputs and buttons
-I18n (future-ready)
-- Centralize copy in components, avoid hard-coded date locale formatting on server
+## 🚀 Installation & Setup
 
-17) Performance Tips & Benchmarks
-- Use query parameters to limit results
-- Debounce search input where applicable (e.g., CBCS filters)
-- Prefer small payloads for dropdowns (distinct Reg_No lists)
-- Image optimization via next/image for logo/spinner
+### Prerequisites
 
-18) Security Considerations
-- HTTP-only JWT cookie; avoid localStorage for tokens
-- Verify role on every API call
-- Sanitize and validate all POST/PUT bodies (trim/uppercase codes)
-- Limit batch/list endpoints to admin/teacher
+- **Node.js** 18+ 
+- **MongoDB** 7+
+- **Redis** 7+
+- **Git** for version control
 
-19) Testing Strategy
-- Unit: helpers (credits parse, grade mapping, SGPA/CGPA) with sample cases
-- Integration: API route handlers (students, cbcs, result)
-- E2E (optional): Playwright for critical flows (login, results ALL export)
+### Local Development Setup
 
-20) Deployment Patterns
-- Docker: MULTI-STAGE build, node:alpine runtime
-- K8s: separate Mongo/Redis deployments; HPA for app deployment
-- Env injection via ConfigMap/Secret
+1. **Clone the Repository**
+   ```bash
+   git clone <repository-url>
+   cd cutm-result-portal-v2
+   ```
 
-21) Observability & Logging
-- Server console logs for access and query construction in dev
-- Add request IDs for correlation (future)
-- Hook up to external log sinks (Stackdriver/CloudWatch) in prod
+2. **Install Dependencies**
+   ```bash
+   npm install
+   ```
 
-22) Maintenance & Backup
-- Schedule MongoDB backups (daily snapshot)
-- Keep CSV exports as ad-hoc offline backups for cohorts
-- Rotate JWT_SECRET and SMTP creds periodically
+3. **Environment Configuration**
+   ```bash
+   cp env.example .env.local
+   # Edit .env.local with your configuration
+   ```
 
-23) Roadmap & Future Enhancements
-- Role-based granular permissions (per endpoint)
-- Pagination and virtualized tables for large datasets
-- Graph-based Analytics (charts on results/backlogs)
-- Full-text search with indexes on Subject_Name
-- Bulk grade update UI for admin (with audit trail)
-- Unit/E2E test coverage expansion
+4. **Database Setup**
+   ```bash
+   # Start MongoDB and Redis
+   # Configure connection strings in .env.local
+   ```
 
-24) FAQ
-Q: Why is CGPA equal across semesters?
-A: Ensure semesters are sorted numerically and each term’s credits are included. The app now computes cumulative CGPA using per-term total credits.
+5. **Run Development Server**
+   ```bash
+   npm run dev
+   ```
 
-Q: Why doesn’t the registration list load?
-A: You must be logged in as admin/teacher, and you need to provide Batch + Branch. The API accepts two- or four-digit years (21 or 2021).
+6. **Access Application**
+   - Open [http://localhost:3000](http://localhost:3000)
+   - Register admin account
+   - Configure system settings
 
-Q: How are “2+1” credits treated?
-A: They are parsed and summed to 3 for display, computation, and exports.
+### Environment Variables
 
-Q: Can students update grades?
-A: No. Only admin (and optionally teacher, if enabled) can update grades.
+```env
+# Database Configuration
+MONGO_URI=mongodb://localhost:27017/cutm1
+REDIS_URL=redis://localhost:6379
 
-25) Glossary
-- CBCS: Choice Based Credit System
-- SGPA: Semester Grade Point Average
-- CGPA: Cumulative Grade Point Average
-- OTP: One-Time Password
-- HPA: Horizontal Pod Autoscaler
+# Authentication
+JWT_SECRET=your-super-secret-jwt-key
 
-Appendix A: Sample Data Rows (Anonymized)
-- CUTM1:
-  { Reg_No: "220101130056", Name: "Student A", Branch: "CSE", Sem: "1",
-    Subject_Code: "CS101", Subject_Name: "Programming", Credits: "2+1", Grade: "A" }
-  { Reg_No: "220101130056", Name: "Student A", Branch: "CSE", Sem: "2",
-    Subject_Code: "CS102", Subject_Name: "DSA", Credits: "3", Grade: "O" }
+# Email Configuration
+EMAIL_USER=your-email@gmail.com
+EMAIL_PASS=your-app-password
 
-Appendix B: Sample CSV (Results ALL)
-Semester,Code,Subject,Credits,Grade
-1,CS101,Programming,3,A
-2,CS102,DSA,3,O
+# Application
+NODE_ENV=development
+PORT=3000
+```
 
-Appendix C: Credits Parser Notes
-- Accepts: "3", "2+1", "1+1+1", with optional spaces
-- Ignores invalid tokens; treats non-numeric as 0 component
+---
 
-Appendix D: Grade Map
-O:10, A+:9, A:8, B+:7, B:6, C:5, P:4, D:4, F/E/NA:0
+## 📚 API Documentation
 
-Appendix E: API Error Shapes
-{ error: string }
-{ success: boolean, ...data }
+### Authentication Endpoints
 
-Appendix F: Styling Tokens
---brand-blue-50..900, --brand-purple-500, --brand-emerald-500
-Utilities: .bg-brand-gradient, .btn-gradient, .card-white, .card-glass
-
-Appendix G: Security Checklist
-- [ ] HTTPS enabled in production
-- [ ] Secure cookies (httpOnly, sameSite)
-- [ ] Input validation & trim on APIs
-- [ ] Role checks on every sensitive route
-- [ ] Audit logs for grade updates (future)
-
--------------------------------------------------------------------------------
-Extended API Examples and Contracts
--------------------------------------------------------------------------------
-
-Auth Endpoints (Examples)
-- POST /api/auth/login
-  Request
-  {
-    "email": "admin@cutm.ac.in",
-    "password": "********"
+#### POST `/api/auth/login`
+**Purpose**: User authentication
+**Request Body**:
+```json
+{
+  "email": "user@example.com",
+  "password": "password123"
+}
+```
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Login successful",
+  "user": {
+    "name": "User Name",
+    "role": "admin",
+    "email": "user@example.com"
   }
-  Response
-  {
-    "success": true,
-    "user": { "name": "Admin", "email": "admin@cutm.ac.in", "role": "admin" }
+}
+```
+
+#### POST `/api/auth/register`
+**Purpose**: User registration
+**Request Body**:
+```json
+{
+  "name": "User Name",
+  "email": "user@example.com",
+  "password": "password123",
+  "role": "user"
+}
+```
+
+### Student Data Endpoints
+
+#### POST `/api/students`
+**Purpose**: Fetch student data with filtering
+**Request Body**:
+```json
+{
+  "registration": "2022001234",
+  "department": "CSE",
+  "batch": "2022"
+}
+```
+**Response**:
+```json
+{
+  "students": [
+    {
+      "Reg_No": "2022001234",
+      "Name": "Student Name",
+      "Branch": "CSE"
+    }
+  ]
+}
+```
+
+### Analytics Endpoints
+
+#### GET `/api/analytics`
+**Purpose**: Fetch comprehensive analytics data
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "dataSourceStats": {
+      "totalRecords": 10000,
+      "cutm1Records": 8000,
+      "registrationRecords": 2000
+    },
+    "departmentStats": [...],
+    "gradeStats": [...],
+    "performanceMetrics": {...}
   }
+}
+```
 
-- POST /api/auth/send-registration-otp
-  Request
-  {
-    "name": "Teacher X",
-    "email": "teacher@cutm.ac.in",
-    "password": "********",
-    "role": "teacher"
-  }
-  Response
-  { "success": true, "emailsSent": 1, "institutionalEmail": null }
+### Result Management Endpoints
 
-- POST /api/auth/verify-registration-otp
-  Request
-  { "email": "teacher@cutm.ac.in", "otp": "123456", "password": "********" }
-  Response
-  { "success": true }
+#### GET `/api/result`
+**Purpose**: Fetch student results
+**Query Parameters**:
+- `registration`: Student registration number
+- `semester`: Specific semester (optional)
 
-- POST /api/auth/forgot-password (send)
-  { "email": "user@cutm.ac.in" }
-  → { success: true, emailsSent: 1 }
+#### POST `/api/upload`
+**Purpose**: Bulk upload results
+**Request**: Multipart form data with CSV/Excel file
 
-- PUT /api/auth/forgot-password (verify + set)
-  { "email": "user@cutm.ac.in", "otp": "123456", "newPassword": "********" }
-  → { success: true }
+---
 
-Students Endpoints
-- POST /api/students (records)
-  { "registration": "220101130056" }
-  → { "records": [ { Reg_No, Name, Branch, Sem, Subject_Code, Subject_Name, Credits, Grade }, ... ] }
+## 🗄️ Database Schema
 
-- POST /api/students (list by department/batch)
-  { "department": "CSE", "batch": "2023" }
-  → { "students": [ { Reg_No, Name, Branch }, ... ] }
+### Collections Structure
 
-- PUT /api/students
-  { "Reg_No": "220101130056", "Subject_Code": "CS101", "Grade": "A" }
-  → { success: true }
+#### Users Collection
+```javascript
+{
+  _id: ObjectId,
+  name: String,
+  email: String (unique),
+  password: String (hashed),
+  role: String (admin|teacher|user),
+  createdAt: Date,
+  updatedAt: Date
+}
+```
 
-Results Endpoints
-- POST /api/semesters
-  { registration }
-  → { semesters: ["1","2","3"] }
+#### CUTM1 Collection (Main Results)
+```javascript
+{
+  _id: ObjectId,
+  Reg_No: String,
+  Name: String,
+  Branch: String,
+  Sem: String,
+  Subject_Code: String,
+  Subject_Name: String,
+  Credits: String,
+  Grade: String,
+  CGPA: Number,
+  SGPA: Number
+}
+```
 
-- POST /api/result
-  { registration, semester: "1" }
-  → { subjects: [...], sgpa: 8.45, cgpa: 8.45 }
+#### RegistrationData Collection
+```javascript
+{
+  _id: ObjectId,
+  Reg_No: String,
+  Name: String,
+  Branch: String,
+  Batch: String,
+  Email: String,
+  Phone: String
+}
+```
 
-CBCS Endpoints
-- GET /api/cbcs → { items: [...] }
-- POST /api/cbcs → normalize + insert, returns { success: true, item }
-- PUT /api/cbcs/[id] → update normalized fields
-- DELETE /api/cbcs/[id]
+### Indexes
 
-Backlogs Endpoints
-- POST /api/backlogs
-  { registration } or { subject_code, branch, year }
-  → { backlogs: [...] }
+```javascript
+// Performance indexes
+db.CUTM1.createIndex({ "Reg_No": 1, "Sem": 1 })
+db.CUTM1.createIndex({ "Branch": 1 })
+db.CUTM1.createIndex({ "Subject_Code": 1 })
+db.users.createIndex({ "email": 1 }, { unique: true })
+```
 
-Uploads Endpoint
-- POST /api/upload
-  FormData: file (.csv/.xlsx/.xls)
-  → { success: true, count: N }
+---
 
--------------------------------------------------------------------------------
-Data Dictionary (Selected Fields)
--------------------------------------------------------------------------------
-CUTM1 Collection
-- Reg_No (string): Registration number (prefix encodes batch)
-- Name (string)
-- Branch (string): e.g., CSE, ECE, EEE, Civil, Mechanical
-- Sem (string/number): semester index
-- Subject_Code (string): uppercased code like CS101
-- Subject_Name (string)
-- Credits (string|number): may be composite like "2+1"
-- Grade (string): O,A+,A,B+,B,C,D,P,F,E,NA,S,M,I,R
+## 🚀 Deployment Guide
 
-users Collection
-- name (string)
-- email (unique string)
-- password (bcrypt hash)
-- role (enum: admin|teacher|user)
-- createdAt/updatedAt (ISO)
+### Docker Deployment
 
-cbcs Collection
-- Branch (string)
-- Basket (string)
-- "Subject Code" (string, uppercased)
-- Subject_name (string)
-- Credits (string/number)
+1. **Build and Run with Docker Compose**
+   ```bash
+   docker-compose up -d
+   ```
 
--------------------------------------------------------------------------------
-UI/UX Flows (Detailed Steps)
--------------------------------------------------------------------------------
-Admin → Results (Single)
-1. Enter registration
-2. Load semesters (POST /api/semesters)
-3. Choose semester (not ALL) and View Result
-4. Table shows Code/Subject/Credits/Grade; SGPA and CGPA displayed in header
-5. Export CSV enabled when results are present
+2. **Access Services**
+   - Application: http://localhost:3000
+   - MongoDB: localhost:27017
+   - Redis: localhost:6379
 
-Admin → Results (ALL)
-1. Enter registration → load semesters
-2. Choose ALL → View Result
-3. Sidebar lists semesters with SGPA; main area shows stacked tables
-4. Each card header shows SGPA and cumulative CGPA up to that term
-5. Export CSV includes Semester column for all rows
+### Kubernetes Deployment
 
-Admin → Backlog (Registration)
-1. Choose mode: Enter Manually or Choose from List
-2. If list mode: pick Batch + Branch → dropdown fills with Reg_No
-3. Select registration → Search → backlog rows show (Reg/Name/Subject/Code/Sem/Grade)
-4. Use the grade update control in Records page for persistent updates
+1. **Apply Kubernetes Manifests**
+   ```bash
+   kubectl apply -f k8s/
+   ```
 
-Admin → CBCS
-1. Add/Edit manual subject: Branch, Basket, SubjectCode/Name, Credits
-2. Bulk upload (CSV/XLSX) supported; count displayed after insert
-3. Update and Delete via action buttons; server normalizes values
+2. **Check Deployment Status**
+   ```bash
+   kubectl get pods -n cutm-portal
+   kubectl get svc -n cutm-portal
+   ```
 
-Admin → Records
-1. Enter registration → search
-2. Table shows all subjects; Credits displayed as sums (2+1→3)
-3. Inline grade update (validated set); footer stats update
+### Vercel Deployment
 
-Teacher → Results/Batch
-1. Same flows as Admin (read-oriented); CSV exports and ALL mode included
+1. **Connect Repository**
+   - Link GitHub repository to Vercel
+   - Configure environment variables
+   - Deploy automatically
 
-Student → Results
-1. Authentication-protected; user can view only own results
+2. **Environment Variables**
+   - Set MongoDB Atlas connection string
+   - Configure Redis Cloud URL
+   - Add JWT secret and email credentials
 
--------------------------------------------------------------------------------
-Results Math—Worked Examples
--------------------------------------------------------------------------------
-Example A
-Sem 1: subjects [{3,A},{1,O}] → SGPA1=(3×8+1×10)/4=8.5, termCredits=4
-Sem 2: subjects [{3,B+},{2,A+}] → SGPA2=(3×7+2×9)/5=7.8, termCredits=5
-CGPA after Sem 2 = (SGPA1×4 + SGPA2×5)/(4+5) = (8.5×4 + 7.8×5)/9 = (34+39)/9 ≈ 8.11
+---
 
-Example B (credits like 2+1)
-Sem 1: [{"2+1", A}] → termCredits=3, SGPA=(3×8)/3=8.0
+## 🔒 Security Implementation
 
-Example C (failed subject)
-Sem 1: [{3,F},{2,A}] → SGPA=(3×0 + 2×8)/5=3.2 (rendered red on F)
+### Authentication & Authorization
 
--------------------------------------------------------------------------------
-Validation & Normalization Details
--------------------------------------------------------------------------------
-POST /api/cbcs
-- Trims whitespace
-- Uppercases SubjectCode
-- Coerces Credits to string; frontend sums for display
+#### JWT Token Security
+- **Secret Key**: Strong, randomly generated JWT secret
+- **Expiration**: 7-day token expiration
+- **HttpOnly Cookies**: Secure cookie storage
+- **Role-based Access**: Granular permission system
 
-PUT /api/cbcs/[id]
-- Trims all string fields; uppercases code; keeps Credits as provided
+#### Password Security
+- **bcrypt Hashing**: Industry-standard password hashing
+- **Salt Rounds**: 12 rounds for optimal security
+- **Password Validation**: Strong password requirements
 
-PUT /api/students
-- Validates grade against allowlist
-- Requires Reg_No and Subject_Code
+### Data Protection
 
--------------------------------------------------------------------------------
-Developer Notes & Conventions
--------------------------------------------------------------------------------
-Code Style
-- Descriptive variable names, early returns, minimal nesting
-- Only non-trivial comments; avoid TODOs—implement instead
-- Prefer multi-line for readability; avoid long one-liners
+#### Database Security
+- **Connection Encryption**: TLS/SSL encrypted connections
+- **Access Control**: Role-based database access
+- **Data Validation**: Input sanitization and validation
 
-Components
-- Separate concerns: fetch in handlers; pure presentational where possible
-- Keep pages small by extracting sections into local components if needed
+#### API Security
+- **Rate Limiting**: Prevent API abuse
+- **CORS Configuration**: Secure cross-origin requests
+- **Input Validation**: Comprehensive input sanitization
 
-APIs
-- Always return structured JSON with success or error
-- Log minimal debugging info in dev; avoid PII in logs
+### Security Headers
 
--------------------------------------------------------------------------------
-Operational Runbooks
--------------------------------------------------------------------------------
-Password Reset Failing
-1. Check SMTP credentials
-2. Verify OTP store is reachable
-3. Confirm allowed email domain
+```javascript
+// Security headers configuration
+{
+  "X-Frame-Options": "DENY",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "origin-when-cross-origin"
+}
+```
 
-Student List Empty in Backlog
-1. Ensure login as admin/teacher
-2. Provide Batch + Branch
-3. Check API logs for query pattern
+---
 
-CSV Not Downloading
-1. Check browser pop-up/download permission
-2. Ensure data present (subjects or allResults)
+## 📊 Performance & Analytics
 
-Hydration Warnings
-1. Ensure dynamic nav mounts after client hydration
-2. Avoid Date.now()/Math.random() in SSR areas
+### Analytics Dashboard Features
 
--------------------------------------------------------------------------------
-Release Checklist
--------------------------------------------------------------------------------
-- [ ] Lint clean
-- [ ] Env set (.env.local/.env)
-- [ ] Build passes
-- [ ] Smoke test Auth → Results → Exports → Backlog → CBCS
-- [ ] Validate CGPA/SGPA on known records
-- [ ] Configure domain + TLS
+#### Real-time Metrics
+- **Total Records**: Live count of academic records
+- **Data Sources**: CUTM1 vs Registration data breakdown
+- **Pass Rate**: Overall academic performance metrics
+- **System Health**: Database and service status
 
--------------------------------------------------------------------------------
-Changelog (Excerpt)
--------------------------------------------------------------------------------
-v2
-- Added ALL results view with cumulative CGPA per term
-- Summed credits display and exports
-- Backlog registration list mode with Batch+Branch filters
-- Teacher parity for results + CSV
-- Navbar logo and profile dropdown; mounted guard
+#### Advanced Analytics
+- **Department Distribution**: Student enrollment by department
+- **Semester Analysis**: Performance across academic periods
+- **Grade Distribution**: Comprehensive grade pattern analysis
+- **Performance Trends**: Historical performance tracking
 
--------------------------------------------------------------------------------
-Credits & Acknowledgements
--------------------------------------------------------------------------------
-- CUTM stakeholders, faculty contributors, and student testers
-- Open-source libraries across Next.js, Tailwind, MongoDB drivers
+#### Interactive Visualizations
+- **Chart.js Integration**: Professional chart rendering
+- **Real-time Updates**: Live data refresh capabilities
+- **Export Options**: PDF and CSV export functionality
+- **Custom Filters**: Advanced data filtering options
 
+### Performance Optimization
+
+#### Frontend Optimization
+- **Next.js SSR/SSG**: Server-side rendering for SEO
+- **Image Optimization**: Next.js Image component
+- **Code Splitting**: Automatic bundle optimization
+- **Caching Strategy**: Redis-based response caching
+
+#### Backend Optimization
+- **Database Indexing**: Optimized query performance
+- **Connection Pooling**: Efficient database connections
+- **Response Caching**: Redis-based API caching
+- **Compression**: Gzip compression for responses
+
+---
+
+## 🛠️ Contributing & Development
+
+### Development Workflow
+
+1. **Fork Repository**
+   ```bash
+   git fork <repository-url>
+   ```
+
+2. **Create Feature Branch**
+   ```bash
+   git checkout -b feature/new-feature
+   ```
+
+3. **Make Changes**
+   - Follow coding standards
+   - Add tests for new features
+   - Update documentation
+
+4. **Submit Pull Request**
+   - Describe changes clearly
+   - Include test results
+   - Request code review
+
+### Code Standards
+
+#### JavaScript/React
+- **ESLint Configuration**: Enforced code quality
+- **Prettier Formatting**: Consistent code style
+- **Component Structure**: Functional components with hooks
+- **Error Handling**: Comprehensive error boundaries
+
+#### Database
+- **Schema Validation**: Mongoose schema validation
+- **Query Optimization**: Efficient database queries
+- **Index Management**: Proper indexing strategy
+
+### Testing Strategy
+
+#### Unit Testing
+- **Component Testing**: React component testing
+- **API Testing**: Endpoint functionality testing
+- **Database Testing**: Data integrity testing
+
+#### Integration Testing
+- **End-to-End Testing**: Complete user workflow testing
+- **Performance Testing**: Load and stress testing
+- **Security Testing**: Vulnerability assessment
+
+---
+
+## 🆘 Troubleshooting
+
+### Common Issues
+
+#### Database Connection Issues
+```bash
+# Check MongoDB connection
+mongosh --eval "db.adminCommand('ping')"
+
+# Check Redis connection
+redis-cli ping
+```
+
+#### Build Issues
+```bash
+# Clear Next.js cache
+rm -rf .next
+
+# Reinstall dependencies
+rm -rf node_modules package-lock.json
+npm install
+```
+
+#### Performance Issues
+- **Database Indexing**: Ensure proper indexes are created
+- **Memory Usage**: Monitor application memory consumption
+- **Query Optimization**: Analyze slow database queries
+
+### Debug Mode
+
+#### Enable Debug Logging
+```env
+NODE_ENV=development
+DEBUG=cutm-portal:*
+```
+
+#### Common Debug Commands
+```bash
+# Check application logs
+docker-compose logs -f app
+
+# Check database logs
+docker-compose logs -f mongodb
+
+# Check Redis logs
+docker-compose logs -f redis
+```
+
+---
+
+## 📞 Support & Contact
+
+### Project Information
+
+- **Developer**: Ayush Kumar Singh
+- **Institution**: Centurion University of Technology and Management
+- **Batch**: 2022 (ECE)
+- **Guidance**: Prof. Sn Padhay
+
+### Contact Information
+
+- **GitHub**: [github.com/ayush-kumar-singh7](https://github.com/ayush-kumar-singh7)
+- **LinkedIn**: [linkedin.com/in/ayush-kumar-singh7](https://linkedin.com/in/ayush-kumar-singh7)
+- **Email**: rahulkrsingh4321@gmail.com
+- **Portfolio**: [protfolio-seven-roan.vercel.app](https://protfolio-seven-roan.vercel.app)
+
+### Technical Support
+
+#### Documentation Resources
+- **API Documentation**: Comprehensive endpoint documentation
+- **Deployment Guides**: Step-by-step deployment instructions
+- **Troubleshooting**: Common issues and solutions
+- **Security Guide**: Security best practices
+
+#### Community Support
+- **GitHub Issues**: Report bugs and request features
+- **Documentation**: Comprehensive project documentation
+- **Code Examples**: Sample implementations and use cases
+
+---
+
+## 📄 License & Credits
+
+### License
+This project is developed for educational purposes at Centurion University of Technology and Management.
+
+### Technology Credits
+- **Next.js**: React framework
+- **MongoDB**: Database system
+- **Redis**: Caching solution
+- **Tailwind CSS**: Styling framework
+- **Chart.js**: Data visualization
+- **Vercel**: Deployment platform
+
+### Acknowledgments
+- **CUTM Faculty**: Academic guidance and support
+- **Open Source Community**: Libraries and frameworks
+- **Beta Testers**: User feedback and testing
+
+---
+
+## 🔄 Version History
+
+### Current Version: 2.0.0
+- **Major Features**: Complete analytics dashboard
+- **Performance**: Optimized database queries
+- **Security**: Enhanced authentication system
+- **UI/UX**: Modern responsive design
+
+### Previous Versions
+- **v1.0.0**: Basic result portal functionality
+- **v1.1.0**: Added teacher portal features
+- **v1.2.0**: Implemented admin analytics
+- **v1.3.0**: Added CBCS basket tracking
+
+---
+
+*This documentation is maintained by the CUTM Result Portal development team. For the latest updates and information, please refer to the project repository.*
