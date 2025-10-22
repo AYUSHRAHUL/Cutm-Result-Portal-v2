@@ -338,8 +338,10 @@ export async function POST(req) {
       } else if (code === "CUTM1046") {
         if (actualDepartment === "Computer Science Engineering") {
           targetBasket = "Basket V";
+        } else if (actualDepartment === "Electronics & Communication Engineering") {
+          targetBasket = "Basket IV";
         } else {
-          targetBasket = "Basket V"; // Default to Basket V for other departments as well
+          targetBasket = "Basket IV"; // Default to Basket IV for other departments
         }
       }
       
