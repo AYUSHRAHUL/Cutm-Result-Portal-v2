@@ -169,11 +169,14 @@ function computeCreditsSum(credits) {
   const s = String(credits).trim();
   if (s === "") return "";
   // If already a number-like string
-  if (/^\d+(\.\d+)?$/.test(s)) return s;
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    const num = parseFloat(s);
+    return Number.isInteger(num) ? String(Math.floor(num)) : String(num);
+  }
   // Split by + or whitespace, sum numeric parts
   const parts = s.split(/[+\s]+/).map(p => p.trim()).filter(Boolean);
   const sum = parts.reduce((acc, p) => acc + (parseFloat(p) || 0), 0);
-  return Number.isFinite(sum) ? String(sum) : s;
+  return Number.isFinite(sum) ? (Number.isInteger(sum) ? String(Math.floor(sum)) : String(sum)) : s;
 }
 
 function shortBranch(branch) {

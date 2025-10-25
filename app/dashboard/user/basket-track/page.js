@@ -182,7 +182,7 @@ export default function UserBasketTrack() {
     const basketsCompleted = entries.filter((b) => b && b.is_completed).length;
     const totalEarned = entries.reduce((sum, b) => sum + (Number(b?.earned_credits) || 0), 0);
     const totalFailed = entries.reduce((sum, b) => sum + (Number(b?.failed_credits) || 0), 0);
-    const totalCredits = totalEarned + totalFailed;
+    const totalCredits = totalEarned;
     
     // Check if student is lateral entry
     const isLateralEntry = studentData?.is_lateral_entry || false;
@@ -216,7 +216,7 @@ export default function UserBasketTrack() {
       ...Object.entries(basketProgress).map(([basketName, info]) => {
         const earnedCredits = Number(info?.earned_credits) || 0;
         const failedCredits = Number(info?.failed_credits) || 0;
-        const totalCredits = earnedCredits + failedCredits;
+        const totalCredits = earnedCredits;
         const requiredCredits = Number(info?.required_credits) || 0;
         const isCompleted = earnedCredits >= requiredCredits && requiredCredits > 0;
         const status = isCompleted ? "Completed" : "Not Completed";
@@ -290,20 +290,7 @@ export default function UserBasketTrack() {
               </div>
 
               {/* Semester */}
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Semester:</label>
-                <select 
-                  value={semesterValues.length > 0 ? semesterValues[0] : ""} 
-                  onChange={e => setSemesterValues([e.target.value])} 
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
-                  disabled={loadingSemesters}
-                >
-                  <option value="">Select Semester</option>
-                  <option value="All">All Semesters</option>
-                  {semesters.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-                {loadingSemesters && <div className="text-xs text-gray-500">Loading semesters...</div>}
-              </div>
+           
 
               {/* Basket */}
               <div className="space-y-2">
@@ -567,7 +554,7 @@ export default function UserBasketTrack() {
                         Object.entries(basketProgress).map(([basketName, info], index) => {
                           const earnedCredits = Number(info?.earned_credits) || 0;
                           const failedCredits = Number(info?.failed_credits) || 0;
-                          const totalCredits = earnedCredits + failedCredits;
+                          const totalCredits = earnedCredits;
                           const requiredCredits = Number(info?.required_credits) || 0;
                           const isCompleted = earnedCredits >= requiredCredits && requiredCredits > 0;
                           const status = isCompleted ? "Completed" : "Not Completed";
@@ -675,7 +662,7 @@ export default function UserBasketTrack() {
                     <div>
                       <span className="font-medium text-gray-700">Total Credits:</span>
                       <span className="ml-2 text-gray-900 font-semibold">
-                        {(selectedBasket.info?.earned_credits || 0) + (selectedBasket.info?.failed_credits || 0)}
+                        {selectedBasket.info?.earned_credits || 0}
                       </span>
                     </div>
                   </div>

@@ -67,8 +67,6 @@ function ResultPageContent() {
         if (semesters.length > 1) {
           // Fetch results for all semesters
           const semesterResults = {};
-          let cumulativeCredits = 0;
-          let cumulativePoints = 0;
 
           for (const sem of semesters) {
             const res = await fetch("/api/result", {
@@ -84,22 +82,22 @@ function ResultPageContent() {
               semesterResults[sem.trim()] = {
                 ...data,
                 sgpa,
-                totalCredits,
-                cumulativeCredits,
-                cumulativePoints
+                totalCredits
               };
-
-              // Update cumulative values
-              cumulativeCredits += totalCredits;
-              cumulativePoints += totalCredits * parseFloat(sgpa);
             }
           }
 
           // Calculate cumulative CGPA for each semester
+          let runningCredits = 0;
+          let runningPoints = 0;
+          
           Object.keys(semesterResults).forEach(sem => {
             const semData = semesterResults[sem];
-            const cgpa = semData.cumulativeCredits > 0 
-              ? (semData.cumulativePoints / semData.cumulativeCredits).toFixed(2)
+            runningCredits += semData.totalCredits;
+            runningPoints += semData.totalCredits * parseFloat(semData.sgpa);
+            
+            const cgpa = runningCredits > 0 
+              ? (runningPoints / runningCredits).toFixed(2)
               : '0.00';
             semesterResults[sem].cumulativeCgpa = cgpa;
           });
