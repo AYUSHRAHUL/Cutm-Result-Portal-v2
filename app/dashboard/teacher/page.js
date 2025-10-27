@@ -1,123 +1,326 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
 
 export default function TeacherDashboard() {
   const router = useRouter();
+  
+  // Loading states
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadingMessage, setLoadingMessage] = useState('Loading Teacher Dashboard...');
 
   const go = (path) => router.push(path);
 
-  return (
-    <>
-      <div className="min-h-screen bg-[radial-gradient(circle_at_20%_30%,rgba(99,102,241,0.10),transparent_50%),radial-gradient(circle_at_80%_30%,rgba(168,85,247,0.10),transparent_50%),radial-gradient(circle_at_40%_70%,rgba(16,185,129,0.08),transparent_50%)]">
-        {/* Slim top progress accent */}
-        <div className="fixed top-0 left-0 right-0 h-1 z-20">
-          <div className="h-full w-full bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-500 opacity-20" />
+  // Loading sequence
+  useEffect(() => {
+    const messages = [
+      'Loading Teacher Dashboard...',
+      'Fetching Your Data...',
+      'Preparing Tools...',
+      'Almost Ready...',
+      'Welcome Teacher!'
+    ];
+    
+    let messageIndex = 0;
+    const messageInterval = setInterval(() => {
+      if (messageIndex < messages.length) {
+        setLoadingMessage(messages[messageIndex]);
+        messageIndex++;
+      }
+    }, 600);
+
+    const loadingTimer = setTimeout(() => {
+      clearInterval(messageInterval);
+      setIsLoading(false);
+    }, 3000);
+
+    return () => {
+      clearInterval(messageInterval);
+      clearTimeout(loadingTimer);
+    };
+  }, []);
+
+  // Loading Screen
+  if (isLoading) {
+    return (
+      <div 
+        className="fixed inset-0 flex flex-col items-center justify-center z-50"
+        style={{
+          background: 'linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)',
+          backgroundSize: '400% 400%',
+          animation: 'gradientShift 8s ease-in-out infinite'
+        }}
+      >
+        {/* Spinner Container */}
+        <div className="relative flex items-center justify-center mb-8">
+          <div className="w-28 h-28 sm:w-32 sm:h-32 lg:w-36 lg:h-36">
+            <img 
+              className="w-full h-full rounded-full object-cover p-2 backdrop-blur-lg"
+              style={{
+                border: '4px solid rgba(255, 255, 255, 0.4)',
+                boxShadow: '0 0 60px rgba(255, 255, 255, 0.6)',
+                animation: 'logoSpin 3s ease-in-out infinite'
+              }}
+              src="/spinner.jpg"  
+              alt="CUTM Logo Loading" 
+            />
+          </div>
         </div>
 
-        {/* Header */}
-        <section className="pt-12 pb-4">
-          <div className="mx-auto max-w-6xl px-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <nav className="text-sm text-white/70 mb-2">
-                  <ol className="flex items-center gap-2">
-                    <li><button onClick={() => go('/')} className="hover:text-white">Home</button></li>
-                    <li className="opacity-60">/</li>
-                    <li className="text-white/90">Teacher</li>
-                  </ol>
-                </nav>
-                <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-purple-200 bg-clip-text text-transparent">Teacher Dashboard</h1>
-                <p className="mt-2 text-indigo-100/85">Review results, monitor backlogs, and explore batches with clarity.</p>
-              </div>
-              <div className="hidden md:block">
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/15 text-white/90 text-sm">
-                  <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" /> Status: Active
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
+        {/* Loading Text */}
+        <div 
+          className="text-white text-xl sm:text-2xl lg:text-3xl font-black text-center mb-6 px-4"
+          style={{
+            textShadow: '0 0 20px rgba(255, 255, 255, 0.8)',
+            letterSpacing: '1.5px'
+          }}
+        >
+          {loadingMessage}
+        </div>
+        
+        {/* Progress Bar */}
+        <div className="w-56 sm:w-64 lg:w-72 h-1.5 sm:h-2 bg-white/20 rounded-full overflow-hidden mb-4">
+          <div 
+            className="h-full rounded-full"
+            style={{
+              background: 'linear-gradient(90deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.5) 100%)',
+              animation: 'progressFill 3s ease-in-out infinite'
+            }}
+          ></div>
+        </div>
+        
+        {/* Status */}
+        <div className="text-white/90 text-sm sm:text-base text-center px-4 font-semibold flex items-center gap-2">
+          <span className="text-xl">👨‍🏫</span>
+          <span>Teacher Portal Access</span>
+        </div>
 
-        {/* Mini stats */}
-        <section className="pb-6">
-          <div className="mx-auto max-w-6xl px-6 grid grid-cols-2 md:grid-cols-4 gap-4">
-            <StatCard label="My Classes" value="12" icon="🏫" color="from-indigo-500 to-indigo-600" />
-            <StatCard label="Pending Backlogs" value="8" icon="🕓" color="from-amber-500 to-orange-600" />
-            <StatCard label="Last Upload" value="2d ago" icon="☁️" color="from-purple-500 to-fuchsia-600" />
-            <StatCard label="System Health" value="99%" icon="💠" color="from-emerald-500 to-teal-600" />
-          </div>
-        </section>
-
-        <section className="py-8">
-          <div className="mx-auto max-w-6xl px-6">
-            <div className="text-center mb-8">
-              <h2 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-white to-indigo-300 bg-clip-text text-transparent">Modules</h2>
-              <p className="text-indigo-100/80 mt-2">Key tools for teachers</p>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <ModuleCard title="Results" icon="📝" gradient="from-indigo-500 to-indigo-600" onClick={() => go("/dashboard/teacher/results")}>View student results by registration and semester, with SGPA/CGPA.</ModuleCard>
-              <ModuleCard title="Backlog Review" icon="🕓" gradient="from-amber-500 to-amber-600" onClick={() => go("/dashboard/teacher/backlog")}>Review and update backlog-related entries.</ModuleCard>
-              <ModuleCard title="Batch Explorer" icon="🗂️" gradient="from-cyan-500 to-cyan-600" onClick={() => go("/dashboard/teacher/batch")}>Explore branch/batch wise summaries and insights.</ModuleCard>
-              <ModuleCard title="CBCS Data" icon="📚" gradient="from-emerald-500 to-emerald-600" onClick={() => go("/dashboard/teacher/data")}>Browse CBCS subjects, baskets and mappings.</ModuleCard>
-            </div>
-          </div>
-        </section>
-
-        <section className="py-8 bg-white/5">
-          <div className="mx-auto max-w-6xl px-6">
-            <div className="text-center mb-6">
-              <h3 className="text-xl font-semibold text-white">Quick Links</h3>
-              <p className="text-indigo-100/80">Frequently used teacher actions</p>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-              {[
-                { t: "Find Result", i: "🔎", p: "/dashboard/teacher/results" },
-                { t: "Review Backlog", i: "🧾", p: "/dashboard/teacher/backlog" },
-                { t: "Batch Summary", i: "📊", p: "/dashboard/teacher/batch" },
-                { t: "CBCS Lookup", i: "📘", p: "/dashboard/teacher/data" },
-              ].map((a, idx) => (
-                <button key={idx} onClick={() => go(a.p)} className="group text-center rounded-xl border border-white/10 bg-white/10 backdrop-blur-md p-4 text-white/90 hover:bg-white/15 transition-transform hover:-translate-y-1">
-                  <div className="text-2xl mb-2">{a.i}</div>
-                  <div className="text-sm font-semibold">{a.t}</div>
-                  <div className="text-xs text-white/70 inline-flex items-center gap-1">Open <span className="transition-transform group-hover:translate-x-0.5">→</span></div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
+        <style jsx>{`
+          @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+          }
+          @keyframes logoSpin {
+            0% { transform: rotate(0deg) scale(1); }
+            50% { transform: rotate(180deg) scale(1.05); }
+            100% { transform: rotate(360deg) scale(1); }
+          }
+          @keyframes progressFill {
+            0% { width: 0%; }
+            100% { width: 100%; }
+          }
+        `}</style>
       </div>
-    </>
+    );
+  }
+
+  return (
+    <div 
+      className="min-h-screen pb-10"
+      style={{
+        background: "linear-gradient(to bottom, #F5F8FA 0%, #E8F4F8 50%, #D1E9F6 100%)",
+      }}
+    >
+      {/* Top accent bar */}
+      <div className="fixed top-0 left-0 right-0 h-1 sm:h-1.5 z-50">
+        <div 
+          className="h-full w-full animate-pulse"
+          style={{
+            background: "linear-gradient(90deg, #05A3C7 0%, #F18F01 50%, #04748F 100%)",
+            opacity: 0.6
+          }}
+        />
+      </div>
+
+      {/* Header */}
+      <section className="pt-12 sm:pt-16 pb-6 sm:pb-8 px-3 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="flex flex-col items-center justify-center space-y-3 sm:space-y-4">
+            <div className="flex items-center gap-3 sm:gap-4">
+              <div 
+                className="w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 rounded-2xl flex items-center justify-center text-2xl sm:text-3xl shadow-lg hover:scale-105 transition-transform duration-300"
+                style={{
+                  background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
+                  boxShadow: "0 0 30px rgba(5,163,199,0.3)"
+                }}
+              >
+                👨‍🏫
+              </div>
+              <h1 
+                className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black tracking-tight"
+                style={{
+                  background: "linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  backgroundClip: "text",
+                }}
+              >
+                Teacher Dashboard
+              </h1>
+            </div>
+            <p className="text-xs sm:text-sm md:text-base text-[#5A6C7D] font-medium text-center max-w-2xl px-4">
+              Manage student results, review backlogs, and explore batch data
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Main Module Cards */}
+      <section className="py-6 sm:py-8 pb-12 px-3 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+       
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 lg:gap-6">
+            <ModuleCard 
+              title="Results" 
+              icon="📝" 
+              gradient="from-[#05A3C7] to-[#04748F]"
+              onClick={() => go("/dashboard/teacher/results")}
+            >
+              View student results by registration and semester, with SGPA/CGPA calculations.
+            </ModuleCard>
+            
+            <ModuleCard 
+              title="Backlog Review" 
+              icon="🕓" 
+              gradient="from-[#F18F01] to-[#E67E00]"
+              onClick={() => go("/dashboard/teacher/backlog")}
+            >
+              Review and update backlog-related entries for students.
+            </ModuleCard>
+            
+            <ModuleCard 
+              title="Batch Explorer" 
+              icon="🗂️" 
+              gradient="from-[#10B981] to-[#059669]"
+              onClick={() => go("/dashboard/teacher/batch")}
+            >
+              Explore branch/batch wise summaries and insights.
+            </ModuleCard>
+            
+            <ModuleCard 
+              title="CBCS Data" 
+              icon="📚" 
+              gradient="from-[#8B5CF6] to-[#7C3AED]"
+              onClick={() => go("/dashboard/teacher/data")}
+            >
+              Browse CBCS subjects, baskets and mappings.
+            </ModuleCard>
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
 
 function ModuleCard({ title, icon, gradient, children, onClick }) {
   return (
-    <button onClick={onClick} className="group text-left rounded-3xl border border-white/10 bg-white/10 backdrop-blur-xl p-6 text-white transition-transform hover:-translate-y-1 hover:shadow-2xl focus:outline-none">
-      <div className={`w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center text-2xl text-white shadow-lg bg-gradient-to-br ${gradient}`}>{icon}</div>
-      <h4 className="text-lg font-bold text-center mb-1">{title}</h4>
-      <p className="text-sm text-white/80 text-center mb-3">{children}</p>
+    <button 
+      onClick={onClick} 
+      className="group text-left rounded-xl sm:rounded-2xl border-2 bg-white p-4 sm:p-5 lg:p-6 transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl focus:outline-none focus:ring-4 focus:ring-[#05A3C7]/20 relative overflow-hidden"
+      style={{
+        borderColor: "rgba(5,163,199,0.2)",
+        minHeight: "200px",
+      }}
+    >
+      {/* Top gradient bar */}
+      <div 
+        className={`absolute inset-x-0 top-0 h-1 scale-x-0 origin-left group-hover:scale-x-100 transition-transform duration-500 bg-gradient-to-r ${gradient}`}
+      />
+      
+      {/* Icon */}
+      <div 
+        className={`w-14 h-14 sm:w-16 sm:h-16 lg:w-18 lg:h-18 mx-auto mb-4 sm:mb-5 rounded-2xl flex items-center justify-center text-2xl sm:text-3xl text-white shadow-lg bg-gradient-to-br ${gradient} transition-all duration-300 group-hover:scale-110 group-hover:rotate-3`}
+      >
+        <span className="group-hover:animate-bounce">{icon}</span>
+      </div>
+      
+      {/* Title */}
+      <h4 className="text-base sm:text-lg font-black text-[#1A1F29] text-center mb-2 sm:mb-3 group-hover:text-[#05A3C7] transition-colors">
+        {title}
+      </h4>
+      
+      {/* Description */}
+      <p className="text-xs sm:text-sm text-[#5A6C7D] text-center mb-4 sm:mb-5 font-medium leading-relaxed">
+        {children}
+      </p>
+      
+      {/* Features List */}
+      <ul 
+        className="text-[10px] sm:text-xs space-y-1.5 mb-4 sm:mb-5 rounded-lg p-2 sm:p-3"
+        style={{ background: "rgba(5,163,199,0.05)" }}
+      >
+        <li className="flex items-center gap-2 text-[#1A1F29]">
+          <span className="text-green-500 group-hover:scale-125 transition-transform text-sm">✓</span> 
+          <span className="group-hover:text-[#05A3C7] transition-colors font-medium">Quick Access</span>
+        </li>
+        <li className="flex items-center gap-2 text-[#1A1F29]">
+          <span className="text-green-500 group-hover:scale-125 transition-transform text-sm">✓</span> 
+          <span className="group-hover:text-[#05A3C7] transition-colors font-medium">Real-time Data</span>
+        </li>
+      </ul>
+      
+      {/* Button */}
       <div className="flex justify-center">
-        <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-white/20 to-white/10 border border-white/20 text-sm">
-          Open <span className="transition-transform group-hover:translate-x-0.5">→</span>
+        <span 
+          className="inline-flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all duration-300 group-hover:gap-3"
+          style={{
+            background: "linear-gradient(135deg, rgba(5,163,199,0.1) 0%, rgba(241,143,1,0.1) 100%)",
+            color: "#05A3C7",
+            border: "2px solid rgba(5,163,199,0.2)",
+          }}
+        >
+          Open Module
+          <span className="transition-transform duration-300 group-hover:translate-x-1">
+            →
+          </span>
         </span>
       </div>
+
+      {/* Background decoration */}
+      <div 
+        className={`absolute top-0 right-0 w-20 h-20 sm:w-24 sm:h-24 opacity-5 pointer-events-none bg-gradient-to-br ${gradient} rounded-full blur-2xl`}
+      />
     </button>
   );
 }
 
-function StatCard({ label, value, icon, color }) {
+function StatCard({ label, value, icon, gradient }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/10 backdrop-blur-lg p-4 text-white">
-      <div className={`absolute -top-8 -right-8 w-28 h-28 rounded-full opacity-20 blur-2xl bg-gradient-to-br ${color}`} />
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-xs uppercase tracking-wider text-white/70">{label}</div>
-          <div className="text-2xl font-extrabold mt-1">{value}</div>
+    <div 
+      className="relative overflow-hidden rounded-xl sm:rounded-2xl border-2 bg-white p-4 sm:p-5 transition-all duration-300 hover:shadow-lg hover:-translate-y-1"
+      style={{
+        borderColor: "rgba(5,163,199,0.2)",
+        minHeight: "110px",
+      }}
+    >
+      {/* Background decoration */}
+      <div 
+        className={`absolute -top-8 -right-8 w-24 h-24 sm:w-28 sm:h-28 rounded-full opacity-10 blur-2xl bg-gradient-to-br ${gradient}`}
+      />
+      
+      <div className="relative flex items-center justify-between">
+        <div className="flex-1 min-w-0">
+          <div className="text-xs sm:text-sm uppercase tracking-wider text-[#5A6C7D] font-bold mb-1">
+            {label}
+          </div>
+          <div className="text-2xl sm:text-3xl font-black text-[#1A1F29]">
+            {value}
+          </div>
         </div>
-        <div className="text-2xl">{icon}</div>
+        <div className="text-2xl sm:text-3xl ml-2 flex-shrink-0">
+          {icon}
+        </div>
+      </div>
+      
+      {/* Progress indicator */}
+      <div className="mt-3 w-full h-1 rounded-full bg-gray-100 overflow-hidden">
+        <div 
+          className={`h-full rounded-full bg-gradient-to-r ${gradient} transition-all duration-500`}
+          style={{ width: '75%' }}
+        />
       </div>
     </div>
   );
 }
-

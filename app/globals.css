@@ -22,23 +22,12 @@
 }
 
  
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #4e2cb6;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
-
-html {
-  zoom: 0.9; /* Global zoom out by 10% */
-}
+ 
 
 /* ---------- Custom Utilities (non-conflicting with Tailwind) ---------- */
 .bg-brand-gradient {

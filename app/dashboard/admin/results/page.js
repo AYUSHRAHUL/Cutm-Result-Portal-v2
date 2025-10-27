@@ -71,7 +71,6 @@ export default function AdminResultsPage() {
     try {
       setLoading(true);
       if (semester === "ALL") {
-        // fetch all, then compute cumulative CGPA strictly up to each semester (weighted by official SGPA and term credits)
         const fetched = [];
         for (const sem of semesters) {
           const r = await fetch("/api/result", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ registration, semester: sem }) });
@@ -103,7 +102,6 @@ export default function AdminResultsPage() {
         setSubjects(list);
         const currentSgpa = data.sgpa ?? computeSgpa(list);
         setSgpa(currentSgpa);
-        // cumulative up to selected semester using only available terms (weighted by each term's SGPA and total credits)
         const target = (()=>{ const m=String(semester).match(/\d+/); return m?Number(m[0]):Number(semester); })();
         let cumCredits = 0, cumPoints = 0;
         for (const sem of semesters) {
@@ -125,7 +123,6 @@ export default function AdminResultsPage() {
   }
 
   function exportCSV() {
-    // Support both single-semester view and ALL view
     let rows = [];
     let header = [];
     if (allResults.length > 0) {
@@ -169,51 +166,156 @@ export default function AdminResultsPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_25%_25%,rgba(102,126,234,.15),transparent_50%),radial-gradient(circle_at_75%_75%,rgba(118,75,162,.15),transparent_50%)] pb-10">
-      <div className="max-w-6xl mx-auto px-6 pt-16">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl md:text-3xl font-extrabold bg-gradient-to-r from-white to-blue-200 bg-clip-text text-transparent">Results — Viewer</h1>
-          <a href="/dashboard/admin" className="px-3 py-2 rounded-full border border-white/15 text-white/90 hover:bg-white/10">← Admin</a>
-        </div>
+    <div 
+      className="min-h-screen pb-10"
+      style={{
+        background: "linear-gradient(to bottom, #F5F8FA 0%, #E8F4F8 50%, #D1E9F6 100%)",
+      }}
+    >
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 pt-6 sm:pt-8 lg:pt-12">
+        {/* Header */}
+       <div className="mb-4 sm:mb-6 text-center">
+  <h1 
+    className="text-2xl sm:text-3xl md:text-4xl font-black"
+    style={{
+      background: "linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)",
+      WebkitBackgroundClip: "text",
+      WebkitTextFillColor: "transparent",
+      backgroundClip: "text",
+    }}
+  >
+    Results Viewer
+  </h1>
+</div>
 
-        <form ref={formRef} onSubmit={loadResult} className="rounded-2xl border border-white/15 bg-white/10 backdrop-blur-xl p-5 mb-4 grid grid-cols-1 md:grid-cols-[1fr_auto_auto_auto] gap-3">
-          <input name="registration" className="rounded-xl border border-white/15 bg-white/90 px-4 py-2 outline-none focus:ring-2 focus:ring-indigo-400 text-gray-900" placeholder="Registration (e.g., 2301234567)" value={registration} onChange={e => { const v = e.target.value.toUpperCase(); setRegistration(v); if (v.length >= 6) loadSemesters(v); }} />
-          <select className="rounded-xl border border-white/15 bg-white/90 px-3 py-2 text-gray-900" value={semester} onChange={e => setSemester(e.target.value)}>
-            <option value="">Select Semester</option>
-            <option value="ALL" disabled={semesters.length === 0}>ALL</option>
-            {semesters.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <button className="rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-semibold px-5" disabled={loading}>{loading?"Loading...":"View Result"}</button>
-          <button type="button" onClick={exportCSV} className="rounded-xl border border-white/20 text-white/90 px-4 hover:bg-white/10" disabled={subjects.length===0 && allResults.length===0}>Export CSV</button>
+
+        {/* Search Form */}
+        <form 
+          ref={formRef} 
+          onSubmit={loadResult} 
+          className="rounded-xl sm:rounded-2xl border-2 bg-white p-4 sm:p-5 mb-4 sm:mb-6 shadow-lg"
+          style={{ borderColor: "rgba(5,163,199,0.2)" }}
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_auto_auto_auto] gap-3">
+            <input 
+              name="registration" 
+              className="rounded-xl border-2 bg-white px-3 sm:px-4 py-2.5 sm:py-3 outline-none focus:ring-4 focus:ring-[#05A3C7]/20 text-[#1A1F29] font-medium text-sm sm:text-base min-h-[44px]" 
+              style={{ borderColor: "rgba(5,163,199,0.3)" }}
+              placeholder="Registration (e.g., 220101130056)" 
+              value={registration} 
+              onChange={e => { const v = e.target.value.toUpperCase(); setRegistration(v); if (v.length >= 6) loadSemesters(v); }} 
+            />
+            <select 
+              className="rounded-xl border-2 bg-white px-3 py-2.5 sm:py-3 text-[#1A1F29] font-medium text-sm sm:text-base outline-none focus:ring-4 focus:ring-[#05A3C7]/20 min-h-[44px]" 
+              style={{ borderColor: "rgba(5,163,199,0.3)" }}
+              value={semester} 
+              onChange={e => setSemester(e.target.value)}
+            >
+              <option value="">Select Semester</option>
+              <option value="ALL" disabled={semesters.length === 0}>ALL Semesters</option>
+              {semesters.map(s => <option key={s} value={s}> {s}</option>)}
+            </select>
+            <button 
+              type="submit"
+              className="rounded-xl text-white font-bold px-4 sm:px-5 py-2.5 sm:py-3 transition-all hover:shadow-lg active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed text-sm sm:text-base min-h-[44px]"
+              style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+              disabled={loading}
+            >
+              {loading ? "Loading..." : "View Result"}
+            </button>
+            <button 
+              type="button" 
+              onClick={exportCSV} 
+              className="rounded-xl border-2 font-bold px-4 py-2.5 sm:py-3 transition-all hover:bg-[#05A3C7]/10 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed text-sm sm:text-base min-h-[44px]"
+              style={{ borderColor: "rgba(5,163,199,0.3)", color: "#05A3C7" }}
+              disabled={subjects.length===0 && allResults.length===0}
+            >
+              📥 Export CSV
+            </button>
+          </div>
         </form>
 
-        {error && <div className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-200 px-4 py-3">{error}</div>}
+        {/* Error Alert */}
+        {error && (
+          <div className="mb-4 rounded-xl border-2 border-red-200 bg-red-50 text-red-700 px-3 sm:px-4 py-2.5 sm:py-3 font-medium flex items-center gap-3 text-sm sm:text-base">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0">
+              <path fillRule="evenodd" d="M9.401 3.003c1.155-2 4.043-2 5.197 0l7.355 12.748c1.154 2-.29 4.5-2.599 4.5H4.645c-2.309 0-3.752-2.5-2.598-4.5L9.4 3.003zM12 8.25a.75.75 0 01.75.75v3.75a.75.75 0 01-1.5 0V9a.75.75 0 01.75-.75zm0 8.25a.75.75 0 100-1.5.75.75 0 000 1.5z" clipRule="evenodd" />
+            </svg>
+            {error}
+          </div>
+        )}
 
+        {/* Single Semester Results */}
         {subjects.length > 0 && (
-          <div className="rounded-2xl overflow-hidden border border-white/15 bg-white/10 backdrop-blur-xl">
-            <div className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-5 py-3 text-sm font-bold flex items-center justify-between">
-              <span>Results — {registration} — {semester}</span>
-              <div className="flex gap-4 text-white/90">
-                <span>SGPA: <strong>{sgpa}</strong></span>
-                <span>CGPA: <strong>{cgpa}</strong></span>
+          <div className="rounded-xl sm:rounded-2xl overflow-hidden border-2 bg-white shadow-lg" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
+            <div 
+              className="text-white px-4 sm:px-5 py-3 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4"
+              style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+            >
+              <span className="font-black text-sm sm:text-base">
+                Results — {registration} — Semester {semester}
+              </span>
+              <div className="flex flex-wrap gap-3 sm:gap-4 text-xs sm:text-sm">
+                <span>SGPA: <strong className="text-base sm:text-lg">{sgpa}</strong></span>
+                <span>CGPA: <strong className="text-base sm:text-lg">{cgpa}</strong></span>
               </div>
             </div>
-            <div className="overflow-x-auto">
+            
+            {/* Mobile Card View */}
+            <div className="block lg:hidden divide-y-2" style={{ borderColor: "rgba(5,163,199,0.1)" }}>
+              {subjects.map((r, i) => (
+                <div key={i} className="p-3 sm:p-4 hover:bg-[#05A3C7]/5 transition-colors">
+                  <div className="flex justify-between items-start gap-2 mb-2">
+                    <code className="text-[#05A3C7] bg-[#05A3C7]/10 px-2 py-1 rounded font-bold text-xs sm:text-sm">
+                      {r.Subject_Code}
+                    </code>
+                    <span className={`px-2.5 py-1 rounded-full text-xs sm:text-sm font-bold ${isRedGrade(r.Grade) ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                      {r.Grade}
+                    </span>
+                  </div>
+                  <div className="text-[#1A1F29] font-medium text-sm sm:text-base mb-2">
+                    {r.Subject_Name}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-full text-xs bg-[#05A3C7]/10 font-bold" style={{ color: "#04748F" }}>
+                      Credits: {displayCredits(r.Credits)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table View */}
+            <div className="hidden lg:block overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead>
-                  <tr className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white">
-                    {['Code','Subject','Credits','Grade'].map(h => <th key={h} className="px-3 py-2 text-left uppercase tracking-wider">{h}</th>)}
+                  <tr style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }} className="text-white">
+                    {['Code','Subject','Credits','Grade'].map(h => (
+                      <th key={h} className="px-4 py-3 text-left uppercase tracking-wider font-black text-xs">
+                        {h}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {subjects.map((r,i) => (
-                    <tr key={i} className="border-t border-white/10 hover:bg-white/10">
-                      <td className="px-3 py-2"><code className="text-indigo-200 bg-indigo-900/30 px-1.5 py-0.5 rounded">{r.Subject_Code}</code></td>
-                      <td className="px-3 py-2 text-white/90">{r.Subject_Name}</td>
-                      <td className="px-3 py-2"><span className="px-2 py-1 rounded-full text-xs bg-white/20 text-white">{displayCredits(r.Credits)}</span></td>
-                       <td className="px-3 py-2">
-                         <span className={`px-2 py-1 rounded-full text-xs ${isRedGrade(r.Grade) ? 'bg-rose-500/20 text-rose-200' : 'bg-emerald-500/20 text-emerald-200'}`}>{r.Grade}</span>
-                       </td>
+                  {subjects.map((r, i) => (
+                    <tr key={i} className="border-t-2 hover:bg-[#05A3C7]/5 transition-colors" style={{ borderColor: "rgba(5,163,199,0.1)" }}>
+                      <td className="px-4 py-3">
+                        <code className="text-[#05A3C7] bg-[#05A3C7]/10 px-2 py-1 rounded font-bold text-sm">
+                          {r.Subject_Code}
+                        </code>
+                      </td>
+                      <td className="px-4 py-3 text-[#1A1F29] font-medium">{r.Subject_Name}</td>
+                      <td className="px-4 py-3">
+                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-[#05A3C7]/10" style={{ color: "#04748F" }}>
+                          {displayCredits(r.Credits)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${isRedGrade(r.Grade) ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                          {r.Grade}
+                        </span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -222,48 +324,103 @@ export default function AdminResultsPage() {
           </div>
         )}
 
+        {/* All Semesters Results */}
         {allResults.length > 0 && (
-          <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4">
-            <aside className="rounded-2xl border border-white/15 bg-white/10 backdrop-blur-xl p-4 max-h-[70vh] overflow-auto">
-              <h3 className="text-white font-semibold mb-2">Semesters</h3>
+          <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4 sm:gap-6">
+            {/* Sidebar */}
+            <aside className="rounded-xl sm:rounded-2xl border-2 bg-white p-3 sm:p-4 shadow-lg max-h-[70vh] overflow-auto" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
+              <h3 className="text-[#1A1F29] font-black mb-3 text-sm sm:text-base flex items-center gap-2">
+                <span>📊</span> Semesters
+              </h3>
               <ul className="space-y-2">
                 {allResults.map((r) => (
-                  <li key={r.semester} className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-white/90">
-                    <div className="flex items-center justify-between">
-                      <span>Semester {r.semester}</span>
-                      <span className="text-xs">SGPA: <strong>{r.sgpa ?? '-'}</strong></span>
+                  <li 
+                    key={r.semester} 
+                    className="rounded-lg border-2 bg-white p-2 sm:p-3 hover:bg-[#05A3C7]/5 transition-colors"
+                    style={{ borderColor: "rgba(5,163,199,0.2)" }}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[#1A1F29] font-bold text-xs sm:text-sm">Sem {r.semester}</span>
+                      <span className="text-[10px] sm:text-xs font-bold" style={{ color: "#05A3C7" }}>
+                        SGPA: {r.sgpa ?? '-'}
+                      </span>
                     </div>
-                    <div className="text-xs text-white/70">Subjects: {r.subjects.length}</div>
+                    <div className="text-[10px] sm:text-xs text-[#5A6C7D]">
+                      {r.subjects.length} subjects • CGPA: {r.cgpa}
+                    </div>
                   </li>
                 ))}
               </ul>
             </aside>
-            <div className="space-y-6">
+
+            {/* Results List */}
+            <div className="space-y-4 sm:space-y-6">
               {allResults.map((r) => (
-                <div key={r.semester} className="rounded-2xl overflow-hidden border border-white/15 bg-white/10 backdrop-blur-xl">
-                  <div className="bg-gradient-to-r from-indigo-600 to-purple-600 text.white px-5 py-3 text-sm font-bold flex items-center justify-between">
-                    <span>Results — {registration} — {r.semester}</span>
-                    <div className="flex gap-4 text-white/90">
-                      <span>SGPA: <strong>{r.sgpa}</strong></span>
-                      <span>CGPA: <strong>{r.cgpa}</strong></span>
+                <div key={r.semester} className="rounded-xl sm:rounded-2xl overflow-hidden border-2 bg-white shadow-lg" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
+                  <div 
+                    className="text-white px-4 sm:px-5 py-3 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                    style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+                  >
+                    <span className="font-black text-sm sm:text-base">Semester {r.semester}</span>
+                    <div className="flex flex-wrap gap-3 sm:gap-4 text-xs sm:text-sm">
+                      <span>SGPA: <strong className="text-base sm:text-lg">{r.sgpa}</strong></span>
+                      <span>CGPA: <strong className="text-base sm:text-lg">{r.cgpa}</strong></span>
                     </div>
                   </div>
-                  <div className="overflow-x-auto">
+                  
+                  {/* Mobile Cards */}
+                  <div className="block lg:hidden divide-y-2" style={{ borderColor: "rgba(5,163,199,0.1)" }}>
+                    {r.subjects.map((s, i) => (
+                      <div key={i} className="p-3 sm:p-4 hover:bg-[#05A3C7]/5 transition-colors">
+                        <div className="flex justify-between items-start gap-2 mb-2">
+                          <code className="text-[#05A3C7] bg-[#05A3C7]/10 px-2 py-1 rounded font-bold text-xs sm:text-sm">
+                            {s.Subject_Code}
+                          </code>
+                          <span className={`px-2.5 py-1 rounded-full text-xs sm:text-sm font-bold ${isRedGrade(s.Grade) ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                            {s.Grade}
+                          </span>
+                        </div>
+                        <div className="text-[#1A1F29] font-medium text-sm sm:text-base mb-2">
+                          {s.Subject_Name}
+                        </div>
+                        <span className="px-2.5 py-1 rounded-full text-xs bg-[#05A3C7]/10 font-bold" style={{ color: "#04748F" }}>
+                          Credits: {displayCredits(s.Credits)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Desktop Table */}
+                  <div className="hidden lg:block overflow-x-auto">
                     <table className="min-w-full text-sm">
                       <thead>
-                        <tr className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white">
-                          {['Code','Subject','Credits','Grade'].map(h => <th key={h} className="px-3 py-2 text-left uppercase tracking-wider">{h}</th>)}
+                        <tr style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }} className="text-white">
+                          {['Code','Subject','Credits','Grade'].map(h => (
+                            <th key={h} className="px-4 py-3 text-left uppercase tracking-wider font-black text-xs">
+                              {h}
+                            </th>
+                          ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {r.subjects.map((s,i) => (
-                          <tr key={i} className="border-t border-white/10 hover:bg-white/10">
-                            <td className="px-3 py-2"><code className="text-indigo-200 bg-indigo-900/30 px-1.5 py-0.5 rounded">{s.Subject_Code}</code></td>
-                            <td className="px-3 py-2 text-white/90">{s.Subject_Name}</td>
-                            <td className="px-3 py-2"><span className="px-2 py-1 rounded-full text-xs bg-white/20 text-white">{displayCredits(s.Credits)}</span></td>
-                             <td className="px-3 py-2">
-                               <span className={`px-2 py-1 rounded-full text-xs ${isRedGrade(s.Grade) ? 'bg-rose-500/20 text-rose-200' : 'bg-emerald-500/20 text-emerald-200'}`}>{s.Grade}</span>
-                             </td>
+                        {r.subjects.map((s, i) => (
+                          <tr key={i} className="border-t-2 hover:bg-[#05A3C7]/5 transition-colors" style={{ borderColor: "rgba(5,163,199,0.1)" }}>
+                            <td className="px-4 py-3">
+                              <code className="text-[#05A3C7] bg-[#05A3C7]/10 px-2 py-1 rounded font-bold text-sm">
+                                {s.Subject_Code}
+                              </code>
+                            </td>
+                            <td className="px-4 py-3 text-[#1A1F29] font-medium">{s.Subject_Name}</td>
+                            <td className="px-4 py-3">
+                              <span className="px-3 py-1 rounded-full text-xs font-bold bg-[#05A3C7]/10" style={{ color: "#04748F" }}>
+                                {displayCredits(s.Credits)}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`px-3 py-1 rounded-full text-xs font-bold ${isRedGrade(s.Grade) ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                {s.Grade}
+                              </span>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -271,6 +428,19 @@ export default function AdminResultsPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* Loading Overlay */}
+        {loading && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+            <div 
+              className="rounded-xl sm:rounded-2xl p-4 sm:p-6 flex items-center gap-3 shadow-2xl max-w-sm w-full"
+              style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+            >
+              <div className="w-5 h-5 sm:w-6 sm:h-6 border-3 border-white/30 border-t-white rounded-full animate-spin flex-shrink-0"></div>
+              <span className="text-white font-bold text-sm sm:text-base">Loading results...</span>
             </div>
           </div>
         )}
@@ -284,5 +454,3 @@ function escapeCsv(val) {
   if (/[",\n]/.test(s)) return '"' + s.replace(/"/g,'""') + '"';
   return s;
 }
-
-

@@ -142,10 +142,10 @@ export default function BasketProgressTracker() {
         // FIXED: Enhanced request body with proper filtering
         const requestBody = { 
           registration: "all",
-          department: department === "All" ? "" : department, // Send empty string for "All" departments
-          batch: batch && batch !== "All" ? batch : "", // Send empty string for "All" batches
+          department: department === "All" || department === "Select Department" ? "" : department, // Send empty string for "All" departments
+          batch: batch && batch !== "All" && batch !== "Select Batch" ? batch : "", // Send empty string for "All" batches
           semesters: semesterValues.length > 0 && !semesterValues.includes("All") ? semesterValues : [], // Send empty array for "All" semesters
-          basket: basket && basket !== "All" ? basket : "" // Send empty string for "All" baskets
+          basket: basket && basket !== "All" && basket !== "Select Basket" ? basket : "" // Send empty string for "All" baskets
         };
         
         console.log("Frontend sending request:", requestBody);
@@ -237,11 +237,11 @@ Please check if the department name matches exactly with the available departmen
         
         // FIXED: Individual student search with proper filtering
         const requestBody = {
-          department: department && department !== "All" ? department : "", 
-          batch: batch && batch !== "All" ? batch : "", 
+          department: department && department !== "All" && department !== "Select Department" ? department : "", 
+          batch: batch && batch !== "All" && batch !== "Select Batch" ? batch : "", 
           registration: registration.trim().toUpperCase(), 
           semesters: semesterValues.length > 0 && !semesterValues.includes("All") ? semesterValues : [], 
-          basket: basket && basket !== "All" ? basket : ""
+          basket: basket && basket !== "All" && basket !== "Select Basket" ? basket : ""
         };
         
         console.log("Individual search request:", requestBody);
@@ -396,7 +396,7 @@ Please check if the department name matches exactly with the available departmen
     const basketsCompleted = entries.filter((b) => b && b.is_completed).length;
     const totalEarned = entries.reduce((sum, b) => sum + (Number(b?.earned_credits) || 0), 0);
     const totalFailed = entries.reduce((sum, b) => sum + (Number(b?.failed_credits) || 0), 0);
-    const totalCredits = totalEarned;
+    const totalCredits = totalEarned + totalFailed; // FIXED: Include failed credits in total
     const totalRequired = studentData?.is_lateral_entry ? 120 : 160;
     const percentage = Math.min(100, Math.round((totalEarned / totalRequired) * 100));
     return { totalBaskets, basketsCompleted, totalEarned, totalFailed, totalCredits, totalRequired, percentage };
@@ -509,7 +509,7 @@ Please check if the department name matches exactly with the available departmen
           registration: student.registration,
           department: student.department,
           batch: student.registration.substring(0, 2),
-          semesters: ["All"],
+          semesters: [],
           basket: `Basket ${basketNumber}`
         })
       });
@@ -553,8 +553,8 @@ Please check if the department name matches exactly with the available departmen
           registration: student.registration,
           department: student.department,
           batch: student.registration.substring(0, 2),
-          semesters: ["All"],
-          basket: "All"
+          semesters: [],
+          basket: ""
         })
       });
       
@@ -1401,7 +1401,7 @@ Please check if the department name matches exactly with the available departmen
                         Object.entries(basketProgress).map(([basketName, info], index) => {
                           const earnedCredits = Number(info?.earned_credits) || 0;
                           const failedCredits = Number(info?.failed_credits) || 0;
-                          const totalCredits = earnedCredits;
+                          const totalCredits = earnedCredits + failedCredits; // FIXED: Include failed credits in total
                           const requiredCredits = Number(info?.required_credits) || 0;
                           const isCompleted = earnedCredits >= requiredCredits && requiredCredits > 0;
                           const status = isCompleted ? "Completed" : "Not Completed";

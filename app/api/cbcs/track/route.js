@@ -188,9 +188,37 @@ export async function POST(req) {
       '2': 'Computer Science Engineering', 
       '3': 'Electronics & Communication Engineering',
       '5': 'Electrical & Electronics Engineering',
-      '6': 'Mechanical Engineering'
+      '6': 'Mechanical Engineering',
+      '7': 'Mechanical Engineering', // Alternative code for ME
+      '8': 'Computer Science Engineering', // Alternative code for CSE
+      '9': 'Civil Engineering' // Alternative code for Civil
     };
-    const actualDepartment = deptMap[deptCode] || "Unknown";
+    
+    // If department code is not found, try to get from student info
+    let actualDepartment = deptMap[deptCode];
+    
+    if (!actualDepartment) {
+      // Try to get department from student info if available
+      if (studentInfo && studentInfo.Branch) {
+        // Map branch names to department names
+        const branchMap = {
+          'Civil': 'Civil Engineering',
+          'CSE': 'Computer Science Engineering',
+          'ECE': 'Electronics & Communication Engineering',
+          'EEE': 'Electrical & Electronics Engineering',
+          'ME': 'Mechanical Engineering',
+          'Mechanical': 'Mechanical Engineering',
+          'Computer Science': 'Computer Science Engineering',
+          'Electronics': 'Electronics & Communication Engineering',
+          'Electrical': 'Electrical & Electronics Engineering'
+        };
+        actualDepartment = branchMap[studentInfo.Branch] || studentInfo.Branch || "Unknown";
+      } else {
+        actualDepartment = "Unknown";
+      }
+    }
+    
+    console.log(`Department mapping for ${reg}: code=${deptCode}, mapped=${actualDepartment}, studentInfo.Branch=${studentInfo?.Branch}`);
 
     // Validate department if provided
     if (department && department !== "All" && department !== actualDepartment) {

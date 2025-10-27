@@ -39,10 +39,23 @@ function getDepartmentFromRegNo(regNo) {
     '1': 'Civil Engineering',
     '2': 'Computer Science Engineering', 
     '3': 'Electronics & Communication Engineering',
+    '4': 'Electronics & Communication Engineering', // Alternative code for ECE
     '5': 'Electrical & Electronics Engineering',
-    '6': 'Mechanical Engineering'
+    '6': 'Mechanical Engineering',
+    '7': 'Mechanical Engineering', // Alternative code for ME
+    '8': 'Computer Science Engineering', // Alternative code for CSE
+    '9': 'Civil Engineering' // Alternative code for Civil
   };
-  return deptMap[deptCode] || 'Unknown';
+  
+  let department = deptMap[deptCode];
+  
+  // If not found in map, try to get from student data
+  if (!department) {
+    // This will be handled in the main function where we have access to student info
+    department = 'Unknown';
+  }
+  
+  return department;
 }
 
 // Function to check if a student is lateral entry
@@ -420,7 +433,23 @@ export async function POST(req) {
       if (studentResults.length === 0) continue;
 
       // Get department from registration number
-      const actualDepartment = getDepartmentFromRegNo(student.Reg_No);
+      let actualDepartment = getDepartmentFromRegNo(student.Reg_No);
+      
+      // If department is still "Unknown", try to get from student info
+      if (actualDepartment === 'Unknown' && student.Branch) {
+        const branchMap = {
+          'Civil': 'Civil Engineering',
+          'CSE': 'Computer Science Engineering',
+          'ECE': 'Electronics & Communication Engineering',
+          'EEE': 'Electrical & Electronics Engineering',
+          'ME': 'Mechanical Engineering',
+          'Mechanical': 'Mechanical Engineering',
+          'Computer Science': 'Computer Science Engineering',
+          'Electronics': 'Electronics & Communication Engineering',
+          'Electrical': 'Electrical & Electronics Engineering'
+        };
+        actualDepartment = branchMap[student.Branch] || student.Branch || "Unknown";
+      }
       
       // Skip if department doesn't match the filter (only if department filter is applied and not "all")
       if (department && department !== "All" && department !== "Select Department" && actualDepartment !== department) {

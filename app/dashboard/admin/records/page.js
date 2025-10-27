@@ -46,11 +46,10 @@ export default function AdminRecordsPage() {
       return; 
     }
     
-    // Accept either CUTM-style (e.g., 21CUTM1234567890) or plain registration numbers
     const isCUTM = /^[0-9]{2}CUTM[0-9]{10}$/.test(reg);
-    const isPlain = /^[A-Z0-9\-]{6,20}$/.test(reg); // lenient plain format (alnum/hyphen)
+    const isPlain = /^[A-Z0-9\-]{6,20}$/.test(reg);
     if (!isCUTM && !isPlain) {
-      setError("Invalid registration. Enter CUTM format (21CUTMXXXXXXXXXX)  .");
+      setError("Invalid registration. Enter CUTM format (21CUTMXXXXXXXXXX).");
       return;
     }
     
@@ -76,7 +75,6 @@ export default function AdminRecordsPage() {
     const grade = String(newGrade || "").trim().toUpperCase();
     if (!grade) return;
     
-    // Validate grade
     const validGrades = ["O","E","A","B","C","D","F","S","M","I","R"];
     if (!validGrades.includes(grade)) {
       setError("Invalid grade. Please select a valid grade.");
@@ -102,12 +100,10 @@ export default function AdminRecordsPage() {
   }
 
   useEffect(() => {
-    // autofocus
     const el = formRef.current?.querySelector('input[name="registration"]');
     if (el) el.focus();
   }, []);
 
-  // Clear messages after 5 seconds
   useEffect(() => {
     if (message) {
       const timer = setTimeout(() => setMessage(""), 5000);
@@ -122,7 +118,6 @@ export default function AdminRecordsPage() {
     }
   }, [error]);
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyPress = (e) => {
       if (e.ctrlKey && e.key === 'Enter') {
@@ -135,57 +130,142 @@ export default function AdminRecordsPage() {
   }, [registration]);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_25%_25%,rgba(102,126,234,.15),transparent_50%),radial-gradient(circle_at_75%_75%,rgba(118,75,162,.15),transparent_50%)] pb-10">
-      <div className="max-w-7xl mx-auto px-6 pt-16">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl md:text-3xl font-extrabold bg-gradient-to-r from-white to-blue-200 bg-clip-text text-transparent flex items-center gap-3">
-            <span className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 text-white flex items-center justify-center shadow">📚</span>
-            Student Records Management
-          </h1>
-          <Link href="/dashboard/admin" className="px-3 py-2 rounded-full border border-white/15 text-white/90 hover:bg-white/10">← Back to Admin</Link>
-        </div>
+    <div 
+      className="min-h-screen pb-10"
+      style={{
+        background: "linear-gradient(to bottom, #F5F8FA 0%, #E8F4F8 50%, #D1E9F6 100%)",
+      }}
+    >
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 pt-6 sm:pt-8 lg:pt-12">
+    {/* Header */}
+<div className="mb-4 sm:mb-6 text-center">
+  <h1 
+    className="text-2xl sm:text-3xl md:text-4xl font-black"
+    style={{
+      background: "linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)",
+      WebkitBackgroundClip: "text",
+      WebkitTextFillColor: "transparent",
+      backgroundClip: "text",
+    }}
+  >
+    Student Records
+  </h1>
+  <p className="text-[#5A6C7D] text-sm sm:text-base font-medium mt-2">
+    View and manage academic records
+  </p>
+</div>
 
-        {/* Search */}
-        <div className="rounded-2xl border border-white/15 bg-white/10 backdrop-blur-xl p-5 mb-6">
-          <h2 className="text-white font-semibold mb-3 flex items-center gap-2">🔎 Search Student Records</h2>
-          <form ref={formRef} onSubmit={search} className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
+
+        {/* Search Form */}
+        <div 
+          className="rounded-xl sm:rounded-2xl border-2 bg-white p-4 sm:p-5 mb-4 sm:mb-6 shadow-lg"
+          style={{ borderColor: "rgba(5,163,199,0.2)" }}
+        >
+          <h2 className="text-[#1A1F29] font-black mb-3 flex items-center gap-2 text-sm sm:text-base">
+            🔎 Search Student Records
+          </h2>
+          <form ref={formRef} onSubmit={search} className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3">
             <input
               name="registration"
-              className="rounded-xl border border-white/15 bg-white/90 px-4 py-2 outline-none focus:ring-2 focus:ring-indigo-400 text-gray-900"
-              placeholder="Enter registration number  "
+              className="rounded-xl border-2 bg-white px-3 sm:px-4 py-2.5 sm:py-3 outline-none focus:ring-4 focus:ring-[#05A3C7]/20 text-[#1A1F29] font-medium text-sm sm:text-base min-h-[44px]"
+              style={{ borderColor: "rgba(5,163,199,0.3)" }}
+              placeholder="Enter registration number"
               value={registration}
               onChange={e => setRegistration(e.target.value.toUpperCase())}
-              // allow longer IDs; server handles exact matching
             />
-            <button className="rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-semibold px-5 py-2 disabled:opacity-50" disabled={loading}>
+            <button 
+              className="rounded-xl text-white font-bold px-4 sm:px-5 py-2.5 sm:py-3 disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:shadow-lg active:scale-95 text-sm sm:text-base min-h-[44px]"
+              style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+              disabled={loading}
+            >
               {loading ? "Searching..." : "Search Records"}
             </button>
           </form>
         </div>
 
         {/* Alerts */}
-        {message && <div className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 px-4 py-3">✅ {message}</div>}
-        {error && <div className="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-200 px-4 py-3">⚠️ {error}</div>}
-        
- 
+        {message && (
+          <div className="mb-4 rounded-xl border-2 border-green-200 bg-green-50 text-green-700 px-3 sm:px-4 py-2.5 sm:py-3 font-medium flex items-center gap-3 text-sm sm:text-base">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0">
+              <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm13.36-1.814a.75.75 0 10-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.14-.094l3.75-5.25z" clipRule="evenodd" />
+            </svg>
+            {message}
+          </div>
+        )}
+        {error && (
+          <div className="mb-4 rounded-xl border-2 border-red-200 bg-red-50 text-red-700 px-3 sm:px-4 py-2.5 sm:py-3 font-medium flex items-center gap-3 text-sm sm:text-base">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0">
+              <path fillRule="evenodd" d="M9.401 3.003c1.155-2 4.043-2 5.197 0l7.355 12.748c1.154 2-.29 4.5-2.599 4.5H4.645c-2.309 0-3.752-2.5-2.598-4.5L9.4 3.003zM12 8.25a.75.75 0 01.75.75v3.75a.75.75 0 01-1.5 0V9a.75.75 0 01.75-.75zm0 8.25a.75.75 0 100-1.5.75.75 0 000 1.5z" clipRule="evenodd" />
+            </svg>
+            {error}
+          </div>
+        )}
 
-        {/* Table */}
+        {/* Table / Cards */}
         {rows.length > 0 ? (
-          <div className="rounded-2xl overflow-hidden border border-white/15 bg-white/10 backdrop-blur-xl shadow-lg shadow-indigo-500/10 transition-all duration-300 hover:shadow-indigo-500/20">
-            <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 text-white px-6 py-4 text-sm font-bold flex items-center justify-between">
+          <div 
+            className="rounded-xl sm:rounded-2xl overflow-hidden border-2 bg-white shadow-lg"
+            style={{ borderColor: "rgba(5,163,199,0.2)" }}
+          >
+            <div 
+              className="text-white px-4 sm:px-5 lg:px-6 py-3 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+              style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+            >
               <div className="flex items-center gap-2">
-                <span className="bg-white/20 p-1.5 rounded-full">📊</span>
-                <span className="text-base">Academic Records — {registration}</span>
+                <span className="p-1 sm:p-1.5 rounded-full" style={{ background: "rgba(255,255,255,0.2)" }}>📊</span>
+                <span className="font-black text-sm sm:text-base">Academic Records — {registration}</span>
               </div>
-              <div className="text-xs bg-white/20 px-3 py-1 rounded-full">
-                {rows.length} Records Found
+              <div className="text-xs sm:text-sm px-2.5 sm:px-3 py-1 rounded-full" style={{ background: "rgba(255,255,255,0.2)" }}>
+                {rows.length} Records
               </div>
             </div>
-            <div className="overflow-x-auto max-h-[70vh] scrollbar-thin scrollbar-thumb-indigo-500 scrollbar-track-white/10">
+
+            {/* Mobile Card View */}
+            <div className="block lg:hidden divide-y-2" style={{ borderColor: "rgba(5,163,199,0.1)" }}>
+              {sortedRows.map((r, i) => (
+                <div key={i} className="p-3 sm:p-4 hover:bg-[#05A3C7]/5 transition-colors">
+                  <div className="flex justify-between items-start gap-2 mb-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[#1A1F29] font-bold text-sm sm:text-base mb-0.5">{r.Name}</div>
+                      <div className="text-[#5A6C7D] text-xs sm:text-sm font-medium">{r.Reg_No}</div>
+                    </div>
+                    <span className={`px-2.5 py-1 rounded-full text-xs sm:text-sm font-bold flex-shrink-0 ${badgeClass(r.Grade)}`}>
+                      {r.Grade}
+                    </span>
+                  </div>
+                  
+                  <div className="text-[#1A1F29] font-medium text-sm mb-2 leading-snug">{r.Subject_Name}</div>
+                  
+                  <div className="flex flex-wrap items-center gap-2 text-xs mb-2">
+                    <code className="text-[#05A3C7] bg-[#05A3C7]/10 px-2 py-1 rounded font-bold">
+                      {r.Subject_Code}
+                    </code>
+                    <span className="px-2 py-1 rounded-full font-bold text-white" style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}>
+                      Sem {r.Sem}
+                    </span>
+                    <span className="px-2 py-1 rounded-full text-[#04748F] bg-[#05A3C7]/10 font-bold">
+                      {sumCredits(r.Credits)} Credits
+                    </span>
+                  </div>
+                  
+                  <select 
+                    defaultValue="" 
+                    className="w-full rounded-lg border-2 bg-white px-3 py-2 text-[#1A1F29] text-sm font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 min-h-[44px]"
+                    style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                    onChange={e => { const v = e.target.value; e.target.value = ""; updateGrade(r, v); }}
+                  >
+                    <option value="">Update Grade</option>
+                    {["O","E","A","B","C","D","F","S","M","I","R"].map(g => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table View */}
+            <div className="hidden lg:block overflow-x-auto max-h-[70vh]">
               <table className="min-w-full text-sm">
                 <thead className="sticky top-0 z-10">
-                  <tr className="bg-gradient-to-r from-indigo-700 via-purple-700 to-indigo-700 text-white shadow-md">
+                  <tr style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }} className="text-white">
                     {[
                       {label: 'Reg No', key: 'Reg_No'},
                       {label: 'Name', key: 'Name'},
@@ -198,7 +278,7 @@ export default function AdminRecordsPage() {
                     ].map(({label, key}) => (
                       <th 
                         key={label} 
-                        className="px-4 py-3 text-left uppercase tracking-wider font-bold text-xs cursor-pointer hover:bg-white/10 transition-colors"
+                        className="px-3 sm:px-4 py-3 text-left uppercase tracking-wider font-black text-xs cursor-pointer hover:bg-white/10 transition-colors"
                         onClick={() => key && requestSort(key)}
                       >
                         <div className="flex items-center gap-1">
@@ -213,82 +293,100 @@ export default function AdminRecordsPage() {
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/10">
+                <tbody>
                   {sortedRows.map((r, i) => (
-                    <tr key={i} className="transition-colors duration-150 hover:bg-white/15 backdrop-blur-lg">
-                      <td className="px-4 py-3 font-semibold text-white/90">{r.Reg_No}</td>
-                      <td className="px-4 py-3 text-white/90 font-medium">{r.Name}</td>
-                      <td className="px-4 py-3">
-                        <span className="px-2.5 py-1 rounded-full text-xs bg-gradient-to-r from-cyan-500/30 to-blue-500/30 text-cyan-100 font-medium border border-cyan-500/20 shadow-sm">
+                    <tr key={i} className="border-t-2 hover:bg-[#05A3C7]/5 transition-colors" style={{ borderColor: "rgba(5,163,199,0.1)" }}>
+                      <td className="px-3 sm:px-4 py-3 font-bold text-[#05A3C7]">{r.Reg_No}</td>
+                      <td className="px-3 sm:px-4 py-3 text-[#1A1F29] font-medium">{r.Name}</td>
+                      <td className="px-3 sm:px-4 py-3">
+                        <span className="px-2.5 py-1 rounded-full text-xs text-white font-bold" style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}>
                           {r.Sem}
                         </span>
                       </td>
-                      <td className="px-4 py-3">
-                        <code className="text-indigo-200 bg-indigo-900/40 px-2 py-1 rounded font-mono text-xs border border-indigo-500/20">
+                      <td className="px-3 sm:px-4 py-3">
+                        <code className="text-[#05A3C7] bg-[#05A3C7]/10 px-2 py-1 rounded font-bold text-xs">
                           {r.Subject_Code}
                         </code>
                       </td>
-                      <td className="px-4 py-3 text-white/90 max-w-xs truncate">{r.Subject_Name}</td>
-                      <td className="px-4 py-3">
-                        <span className="px-2.5 py-1 rounded-full text-xs bg-white/20 text-white font-medium border border-white/10 shadow-sm">
+                      <td className="px-3 sm:px-4 py-3 text-[#1A1F29] font-medium max-w-xs truncate">{r.Subject_Name}</td>
+                      <td className="px-3 sm:px-4 py-3">
+                        <span className="px-2.5 py-1 rounded-full text-xs text-[#04748F] bg-[#05A3C7]/10 font-bold">
                           {sumCredits(r.Credits)}
                         </span>
                       </td>
-                      <td className="px-4 py-3">
-                        <span className={`px-3 py-1.5 rounded-full text-xs font-bold shadow-sm ${badgeClass(r.Grade)}`}>
+                      <td className="px-3 sm:px-4 py-3">
+                        <span className={`px-3 py-1.5 rounded-full text-xs font-bold ${badgeClass(r.Grade)}`}>
                           {r.Grade}
                         </span>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 sm:px-4 py-3">
                         <select 
                           defaultValue="" 
-                          className="rounded-md border border-white/20 bg-white/10 text-white text-xs px-3 py-1.5 
-                                    transition-all duration-200 hover:bg-white/20 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                          onChange={e => { const v = e.target.value; e.target.value = ""; updateGrade(r, v); }}>
-                          <option value="" >Update Grade</option>
-                          {["O","E","A","B","C","D","F","S","M","I","R"].map(g => <option key={g} value={g} className="bg-gray-700">{g}</option>)}
+                          className="rounded-lg border-2 bg-white px-3 py-1.5 text-[#1A1F29] text-xs font-medium outline-none focus:ring-2 focus:ring-[#05A3C7]/20"
+                          style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                          onChange={e => { const v = e.target.value; e.target.value = ""; updateGrade(r, v); }}
+                        >
+                          <option value="">Update</option>
+                          {["O","E","A","B","C","D","F","S","M","I","R"].map(g => <option key={g} value={g}>{g}</option>)}
                         </select>
                       </td>
                     </tr>
                   ))}
-                  <tr className="bg-gradient-to-r from-indigo-700 via-purple-700 to-indigo-700 text-white font-bold shadow-md">
-                    <td className="px-4 py-3 text-right" colSpan={5}>TOTAL CREDITS:</td>
-                    <td className="px-4 py-3">
-                      <span className="px-3 py-1.5 rounded-md bg-white text-gray-900 font-bold shadow-sm">
+                  <tr style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }} className="text-white font-bold">
+                    <td className="px-3 sm:px-4 py-3 text-right" colSpan={5}>TOTAL CREDITS:</td>
+                    <td className="px-3 sm:px-4 py-3">
+                      <span className="px-3 py-1.5 rounded-lg bg-white text-[#05A3C7] font-black shadow-sm">
                         {totalCredits.toFixed(1)}
                       </span>
                     </td>
-                    <td className="px-4 py-3" colSpan={2}>
-                      <span className="text-sm opacity-90">Cumulative credits earned</span>
+                    <td className="px-3 sm:px-4 py-3" colSpan={2}>
+                      <span className="text-xs sm:text-sm opacity-90">Cumulative credits earned</span>
                     </td>
                   </tr>
                 </tbody>
               </table>
             </div>
-            <div className="px-6 py-4 border-t border-white/10 bg-gradient-to-r from-indigo-900/30 to-purple-900/30 text-white/90 text-sm grid grid-cols-4 gap-4 text-center">
-              <FooterStat label="Total Subjects" value={rows.length} color="text-white" />
-              <FooterStat label="Total Credits" value={totalCredits.toFixed(1)} color="text-emerald-300" />
-              <FooterStat label="Passed" value={rows.filter(r => !["F","M","S"].includes(r.Grade)).length} color="text-emerald-300" />
-              <FooterStat label="Failed" value={rows.filter(r => ["F","M","S"].includes(r.Grade)).length} color="text-rose-300" />
+
+            {/* Footer Stats */}
+            <div 
+              className="px-4 sm:px-5 lg:px-6 py-3 sm:py-4 border-t-2 text-[#1A1F29] text-xs sm:text-sm grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 text-center"
+              style={{ borderColor: "rgba(5,163,199,0.1)", background: "rgba(5,163,199,0.05)" }}
+            >
+              <FooterStat label="Total Subjects" value={rows.length} />
+              <FooterStat label="Total Credits" value={totalCredits.toFixed(1)} />
+              <FooterStat label="Passed" value={rows.filter(r => !["F","M","S"].includes(r.Grade)).length} color="text-green-600" />
+              <FooterStat label="Failed" value={rows.filter(r => ["F","M","S"].includes(r.Grade)).length} color="text-red-600" />
             </div>
           </div>
         ) : loading ? (
-          <div className="rounded-2xl border border-white/15 bg-white/10 backdrop-blur-xl p-10 text-center text-white/90 shadow-lg shadow-indigo-500/10">
-            <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-gradient-to-r from-indigo-500/20 to-purple-500/20 flex items-center justify-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-t-2 border-indigo-500"></div>
+          <div 
+            className="rounded-xl sm:rounded-2xl border-2 bg-white p-8 sm:p-10 text-center shadow-lg"
+            style={{ borderColor: "rgba(5,163,199,0.2)" }}
+          >
+            <div 
+              className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 rounded-full flex items-center justify-center"
+              style={{ background: "rgba(5,163,199,0.1)" }}
+            >
+              <div className="animate-spin rounded-full h-10 h-10 sm:h-12 sm:w-12 border-b-2 border-t-2" style={{ borderColor: "#05A3C7" }}></div>
             </div>
-            <h3 className="text-lg font-semibold mb-1">Searching Records...</h3>
-            <p className="text-white/70">Please wait while we fetch the academic records.</p>
+            <h3 className="text-base sm:text-lg font-black mb-1 text-[#1A1F29]">Searching Records...</h3>
+            <p className="text-[#5A6C7D] text-sm">Please wait while we fetch the academic records.</p>
           </div>
         ) : (
-          <div className="rounded-2xl border border-white/15 bg-white/10 backdrop-blur-xl p-12 text-center text-white/90 shadow-lg shadow-indigo-500/10">
-            <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-gradient-to-r from-indigo-500/20 to-purple-500/20 flex items-center justify-center">
-              <span className="text-3xl animate-pulse">🔍</span>
+          <div 
+            className="rounded-xl sm:rounded-2xl border-2 bg-white p-10 sm:p-12 text-center shadow-lg"
+            style={{ borderColor: "rgba(5,163,199,0.2)" }}
+          >
+            <div 
+              className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 rounded-full flex items-center justify-center"
+              style={{ background: "rgba(5,163,199,0.1)" }}
+            >
+              <span className="text-3xl sm:text-4xl animate-pulse">🔍</span>
             </div>
-            <h3 className="text-lg font-semibold mb-1">Search Student Academic Records</h3>
-            <p className="text-white/70">Enter a registration number above to view and manage grades.</p>
+            <h3 className="text-base sm:text-lg font-black mb-1 text-[#1A1F29]">Search Student Academic Records</h3>
+            <p className="text-[#5A6C7D] text-sm">Enter a registration number above to view and manage grades.</p>
           </div>
-        )}  
+        )}
       </div>
     </div>
   );
@@ -301,19 +399,17 @@ function sumCredits(creditStr) {
 }
 
 function badgeClass(grade) {
-  if (["O","E","A"].includes(grade)) return "bg-emerald-500/20 text-emerald-200";
-  if (["B","C","D"].includes(grade)) return "bg-amber-500/20 text-amber-200";
-  if (["F","M","S"].includes(grade)) return "bg-rose-500/20 text-rose-200";
-  return "bg-white/20 text-white";
+  if (["O","E","A"].includes(grade)) return "bg-green-100 text-green-700";
+  if (["B","C","D"].includes(grade)) return "bg-amber-100 text-amber-700";
+  if (["F","M","S"].includes(grade)) return "bg-red-100 text-red-700";
+  return "bg-gray-100 text-gray-700";
 }
 
-function FooterStat({ label, value, color }) {
+function FooterStat({ label, value, color = "text-[#1A1F29]" }) {
   return (
     <div>
-      <small className="block text-white/70">{label}</small>
-      <strong className={`text-base ${color}`}>{value}</strong>
+      <small className="block text-[#5A6C7D] font-medium text-[10px] sm:text-xs uppercase tracking-wide">{label}</small>
+      <strong className={`text-base sm:text-lg font-black ${color}`}>{value}</strong>
     </div>
   );
 }
-
-
