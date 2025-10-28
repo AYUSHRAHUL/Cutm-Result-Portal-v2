@@ -60,12 +60,23 @@ export default function AdminBacklogPage() {
       setLoading(true);
       const regValue = regMode === "list" ? selectedReg : registration;
       const subjValue = subjectMode === "list" ? selectedSubject : subjectCode;
+      // Build minimal request body and let backend filter efficiently
       const body = regValue
-        ? { registration: regValue }
-        : { subject_code: (subjValue || "").toUpperCase(), branch, year };
+        ? { registration: regValue.trim().toUpperCase() }
+        : {
+            subject_code: (subjValue || "").toUpperCase(),
+            branch: branch || "",
+            year: year || ""
+          };
+      // Use AbortController to cancel previous slow requests when typing quickly
+      if (search.controller) {
+        try { search.controller.abort(); } catch {}
+      }
+      search.controller = new AbortController();
       const res = await fetch("/api/backlogs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: search.controller.signal,
         body: JSON.stringify(body)
       });
       const data = await res.json();
@@ -83,8 +94,9 @@ export default function AdminBacklogPage() {
     formRef.current?.querySelector('input[name="registration"]')?.focus();
   }, []);
 
+  // Debounced dynamic list loading to feel faster
   useEffect(() => {
-    (async () => {
+    const t = setTimeout(async () => {
       try {
         if (regMode !== "list") { 
           setRegList([]); 
@@ -150,7 +162,8 @@ export default function AdminBacklogPage() {
         setRegList([]);
         setSelectedReg("");
       }
-    })();
+    }, 150);
+    return () => clearTimeout(t);
   }, [branch, year, regMode]);
 
   useEffect(() => {
@@ -160,7 +173,7 @@ export default function AdminBacklogPage() {
   }, [selectedReg, regMode]);
 
   useEffect(() => {
-    (async () => {
+    const t = setTimeout(async () => {
       try {
         if (subjectMode !== "list") { setSubjectList([]); return; }
         const params = new URLSearchParams();
@@ -179,7 +192,8 @@ export default function AdminBacklogPage() {
       } catch {
         setSubjectList([]);
       }
-    })();
+    }, 150);
+    return () => clearTimeout(t);
   }, [subjectMode, branch]);
 
   const getFilteredRows = () => {

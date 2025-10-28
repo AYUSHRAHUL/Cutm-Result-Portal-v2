@@ -432,19 +432,61 @@ export async function POST(req) {
         return false;
       }
       
-      // Check if subject's branch matches student's branch
-      // The subjectBranch can be like "CSE", "ECE", "ECE/EEE", "EEE/ECE" etc.
-      const subjectBranches = subjectBranch.split('/').map(b => b.trim().toUpperCase());
-      
+      // Normalize both subject branch tokens and student branch to canonical codes
+      function normalizeBranchCode(input) {
+        if (!input) return null;
+        const up = String(input).trim().toUpperCase();
+        if (up === 'CSE' || up.includes('COMPUTER')) return 'CSE';
+        if (up === 'ECE' || up.includes('ELECTRONICS & COMMUNICATION')) return 'ECE';
+        if (up === 'EEE' || (up.includes('ELECTRICAL') && !up.includes('COMMUNICATION'))) return 'EEE';
+        if (up === 'ME' || up.includes('MECHANICAL')) return 'ME';
+        if (up === 'CIVIL' || up.includes('CIVIL')) return 'CIVIL';
+        return null;
+      }
+
+      const subjectBranchCodes = subjectBranch
+        .split('/')
+        .map(tok => normalizeBranchCode(tok))
+        .filter(Boolean);
+      const studentBranchCode = normalizeBranchCode(studentBranch) || normalizeBranchCode(studentDepartment);
+
       // If subject belongs to student's branch (even if it has multiple branches), keep in Basket IV
-      if (subjectBranches.includes(studentBranch)) {
+      if (studentBranchCode && subjectBranchCodes.includes(studentBranchCode)) {
         console.log(`DEBUG: ${subjectCode} belongs to ${subjectBranch} (includes student's branch ${studentBranch}) - keeping in Basket IV`);
         return false;
       }
       
+      // If we couldn't determine codes, don't reassign
+      if (!studentBranchCode || subjectBranchCodes.length === 0) {
+        console.log(`DEBUG: Unable to normalize branches for ${subjectCode} - keeping in original basket`);
+        return false;
+      }
+
       // If subject belongs to a different branch/department, move to Basket V
       console.log(`✅ Cross-branch detection: ${subjectCode} belongs to "${subjectBranch}" but taken by "${studentDepartment}" (${studentBranch}) student ${regNo} - MOVING TO BASKET V`);
       return true;
+    }
+
+    // Helper to check if subject's declared branch includes student's branch
+    function subjectMatchesStudentBranch(subjectCode, studentDepartment) {
+      const subjectBranch = codeDepartmentMap.get(subjectCode);
+      if (!subjectBranch) return false;
+      function normalizeBranchCode(input) {
+        if (!input) return null;
+        const up = String(input).trim().toUpperCase();
+        if (up === 'CSE' || up.includes('COMPUTER')) return 'CSE';
+        if (up === 'ECE' || up.includes('ELECTRONICS & COMMUNICATION')) return 'ECE';
+        if (up === 'EEE' || (up.includes('ELECTRICAL') && !up.includes('COMMUNICATION'))) return 'EEE';
+        if (up === 'ME' || up.includes('MECHANICAL')) return 'ME';
+        if (up === 'CIVIL' || up.includes('CIVIL')) return 'CIVIL';
+        return null;
+      }
+      const subjectBranchCodes = subjectBranch
+        .split('/')
+        .map(tok => normalizeBranchCode(tok))
+        .filter(Boolean);
+      const studentBranchCode = normalizeBranchCode(studentDepartment);
+      return !!(studentBranchCode && subjectBranchCodes.includes(studentBranchCode));
     }
     
     // Helper function to convert department name to branch code
@@ -549,16 +591,17 @@ export async function POST(req) {
           }
         }
         
-        // NEW FEATURE: Cross-branch course detection
-        // If a student from one branch takes a course that belongs to another branch's Basket IV,
-        // assign it to Basket V instead
-        if (targetBasket === "Basket IV") {
-          // Check if this course belongs to a different branch's Basket IV
-          const courseBelongsToDifferentBranch = checkIfCourseBelongsToDifferentBranch(code, actualDepartment, student.Reg_No);
-          if (courseBelongsToDifferentBranch) {
-            targetBasket = "Basket V";
-            console.log(`Cross-branch course detected: ${code} moved from Basket IV to Basket V for ${actualDepartment} student ${student.Reg_No}`);
-          }
+        // NEW FEATURE: Cross-branch course detection (bidirectional correction)
+        // 1) If Basket IV but subject belongs to another branch -> move to Basket V
+        // 2) If Basket V but subject actually belongs to student's branch -> keep/move to Basket IV
+        const courseBelongsToDifferentBranch = checkIfCourseBelongsToDifferentBranch(code, actualDepartment, student.Reg_No);
+        const courseMatchesStudentBranch = subjectMatchesStudentBranch(code, actualDepartment);
+        if (targetBasket === "Basket IV" && courseBelongsToDifferentBranch) {
+          targetBasket = "Basket V";
+          console.log(`Cross-branch course detected: ${code} moved from Basket IV to Basket V for ${actualDepartment} student ${student.Reg_No}`);
+        } else if (targetBasket === "Basket V" && courseMatchesStudentBranch) {
+          targetBasket = "Basket IV";
+          console.log(`Branch-aligned subject: ${code} moved from Basket V to Basket IV for ${actualDepartment} student ${student.Reg_No}`);
         }
         
         if (!basketProgress[targetBasket]) {
@@ -575,10 +618,10 @@ export async function POST(req) {
       // Recalculate each basket
       Object.values(basketProgress).forEach(recalcBasket);
 
-      // Calculate totals (earned only for total credits)
+      // Calculate totals (earned + failed to reflect attempted credits)
       const totalEarned = Object.values(basketProgress).reduce((s, b) => s + (Number(b.earned_credits) || 0), 0);
       const totalFailed = Object.values(basketProgress).reduce((s, b) => s + (Number(b.failed_credits) || 0), 0);
-      const totalCredits = totalEarned; // Exclude failed credits from total
+      const totalCredits = totalEarned + totalFailed; // include failed credits as requested
       const totalRequired = Object.values(basketProgress).reduce((s, b) => s + (Number(b.required_credits) || 0), 0) || (isLateralEntry ? 120 : 160);
       const percentage = totalRequired > 0 ? Math.min(100, Math.round((totalEarned / totalRequired) * 100)) : 0;
 
@@ -591,7 +634,7 @@ export async function POST(req) {
         console.log("No basket filter applied - showing all baskets");
       }
 
-      // Build student data
+      // Build student data (basket values show earned + failed)
       const studentData = {
         name: student.Name || `Student ${student.Reg_No.slice(-4)}`,
         registration: student.Reg_No,
@@ -602,14 +645,14 @@ export async function POST(req) {
         totalRequiredCredits: totalRequired,
         percentage: percentage,
         status: percentage >= 100 ? "Completed" : percentage === 0 ? "Not Started" : "In Progress",
-        // Individual basket credits (earned only)
-        basketI: (basketProgress["Basket I"]?.earned_credits || 0),
-        basketII: (basketProgress["Basket II"]?.earned_credits || 0),
-        basketIII: (basketProgress["Basket III"]?.earned_credits || 0),
-        basketIV: (basketProgress["Basket IV"]?.earned_credits || 0),
-        basketV: (basketProgress["Basket V"]?.earned_credits || 0),
+        // Individual basket credits (earned + failed)
+        basketI: (basketProgress["Basket I"]?.earned_credits || 0) + (basketProgress["Basket I"]?.failed_credits || 0),
+        basketII: (basketProgress["Basket II"]?.earned_credits || 0) + (basketProgress["Basket II"]?.failed_credits || 0),
+        basketIII: (basketProgress["Basket III"]?.earned_credits || 0) + (basketProgress["Basket III"]?.failed_credits || 0),
+        basketIV: (basketProgress["Basket IV"]?.earned_credits || 0) + (basketProgress["Basket IV"]?.failed_credits || 0),
+        basketV: (basketProgress["Basket V"]?.earned_credits || 0) + (basketProgress["Basket V"]?.failed_credits || 0),
         // FIXED: For specific basket view
-        basketCredits: basket && basket !== "All" && basket !== "" ? (basketProgress[basket]?.earned_credits || 0) : 0,
+        basketCredits: basket && basket !== "All" && basket !== "" ? ((basketProgress[basket]?.earned_credits || 0) + (basketProgress[basket]?.failed_credits || 0)) : 0,
         basketStatus: basket && basket !== "All" && basket !== "" ? (basketProgress[basket]?.status || "Not Started") : "N/A"
       };
 

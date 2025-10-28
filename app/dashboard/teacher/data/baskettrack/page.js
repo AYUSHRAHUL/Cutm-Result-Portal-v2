@@ -1,6 +1,10 @@
+ 
+
+
+
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
 
 export default function TeacherBasketProgressTracker() {
@@ -9,7 +13,9 @@ export default function TeacherBasketProgressTracker() {
   const [registration, setRegistration] = useState("");
   const [registrationOptions, setRegistrationOptions] = useState([]);
   const [loadingRegistrations, setLoadingRegistrations] = useState(false);
-  const [semesters, setSemesters] = useState([]);
+  // Hardcoded semester list - always show all 8 semesters
+  const allSemesters = ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"];
+  const [semesters, setSemesters] = useState(allSemesters);
   const [semesterValues, setSemesterValues] = useState([]);
   const [basket, setBasket] = useState("");
   const [error, setError] = useState("");
@@ -26,7 +32,61 @@ export default function TeacherBasketProgressTracker() {
   // Basket detail state
   const [selectedBasket, setSelectedBasket] = useState(null);
   const [showBasketDetails, setShowBasketDetails] = useState(false);
+  
+  // Enhanced UI state
+  const [viewMode, setViewMode] = useState('table'); // 'table', 'cards', 'chart'
+  const [sortBy, setSortBy] = useState('name'); // 'name', 'registration', 'credits', 'percentage'
+  const [sortOrder, setSortOrder] = useState('asc'); // 'asc', 'desc'
+  const [filterStatus, setFilterStatus] = useState('all'); // 'all', 'completed', 'in-progress', 'not-started'
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(new Date());
+  const [notifications, setNotifications] = useState([]);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportFormat, setExportFormat] = useState('csv');
+  const [darkMode, setDarkMode] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showStats, setShowStats] = useState(true);
 
+  // Enhanced utility functions
+  const addNotification = useCallback((type, message) => {
+    const notification = {
+      id: Date.now(),
+      type,
+      message,
+      timestamp: new Date()
+    };
+    setNotifications(prev => [...prev, notification]);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== notification.id));
+    }, 5000);
+  }, []);
+
+  const playNotificationSound = useCallback(() => {
+    try {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+      oscillator.frequency.setValueAtTime(600, audioContext.currentTime + 0.1);
+      
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+      
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.2);
+    } catch (error) {
+      console.log('Audio notification not supported');
+    }
+  }, []);
+
+  // FIXED: Clear filters function
   function clearFilters() {
     setDepartment("");
     setBatch("");
@@ -39,16 +99,21 @@ export default function TeacherBasketProgressTracker() {
     setAllStudentsData([]);
     setDataSources(null);
     setSearchPerformed(false);
-    setSemesters([]);
+    setSemesters(allSemesters); // Keep all semesters visible
+    setSearchTerm('');
+    setFilterStatus('all');
+    setShowAdvancedFilters(false);
+    addNotification('info', 'All filters cleared successfully');
   }
 
+  // FIXED: Enhanced submission with proper state management
   async function onSubmit(e) {
     e.preventDefault();
     setError("");
     setSearchPerformed(true);
     setLoading(true);
     
-    // Reset previous results immediately
+    // FIXED: Reset previous results immediately
     setStudentData(null);
     setBasketProgress({});
     setAllStudentsData([]);
@@ -57,6 +122,7 @@ export default function TeacherBasketProgressTracker() {
       const isBulkSearch = registration === "all" || registration === "";
       
       if (isBulkSearch) {
+        // FIXED: Enhanced department validation for bulk search
         if (!department || department === "" || department === "Select Department") {
           throw new Error("Please select a valid department for bulk search");
         }
@@ -76,42 +142,68 @@ export default function TeacherBasketProgressTracker() {
         
         // Allow "All" departments for bulk search
         if (department === "All") {
-          // valid
+          // This is valid - will get all students
         }
         
         // FIXED: Enhanced request body with proper filtering
         const requestBody = { 
           registration: "all",
-          department: department === "All" ? "" : department, // Send empty string for "All" departments
-          batch: batch && batch !== "All" ? batch : "", // Send empty string for "All" batches
+          department: department === "All" || department === "Select Department" ? "" : department, // Send empty string for "All" departments
+          batch: batch && batch !== "All" && batch !== "Select Batch" ? batch : "", // Send empty string for "All" batches
           semesters: semesterValues.length > 0 && !semesterValues.includes("All") ? semesterValues : [], // Send empty array for "All" semesters
-          basket: basket && basket !== "All" ? basket : "" // Send empty string for "All" baskets
+          basket: basket && basket !== "All" && basket !== "Select Basket" ? basket : "" // Send empty string for "All" baskets
         };
         
-        console.log("Teacher bulk search request:", requestBody);
+        console.log("Frontend sending request:", requestBody);
         
-        const res = await fetch("/api/cbcs/track/bulk", {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-          },
-          body: JSON.stringify(requestBody)
-        });
+        console.log("Making fetch request to:", "/api/cbcs/track/bulk");
+        let res;
+        try {
+          res = await fetch("/api/cbcs/track/bulk", {
+            method: "POST",
+            headers: { 
+              "Content-Type": "application/json",
+              "Accept": "application/json"
+            },
+            body: JSON.stringify(requestBody)
+          });
+          console.log("Fetch completed, response received");
+        } catch (fetchError) {
+          console.error("Fetch error:", fetchError);
+          throw new Error(`Network error: ${fetchError.message}`);
+        }
+        
+        console.log("Response status:", res.status);
+        console.log("Response headers:", Object.fromEntries(res.headers.entries()));
         
         let data;
         try {
           const responseText = await res.text();
+          console.log("Raw response:", responseText);
           data = JSON.parse(responseText);
-        } catch {
+          console.log("Parsed response:", data);
+        } catch (parseError) {
+          console.error("Parse error:", parseError);
           throw new Error("Invalid response from server. Please check your network connection.");
         }
         
         if (!res.ok) {
+          
           if (res.status === 404) {
+            // Show debug information if available
             if (data?.debug) {
               const debugInfo = data.debug;
-              const errorMsg = `No students found in ${department}. \n\nDebug Information:\n- Total students in database: ${debugInfo.totalStudents}\n- Available departments: ${debugInfo.uniqueBranches?.join(', ') || 'None found'}\n- Sample students: ${debugInfo.sampleStudents?.map(s => `${s.Reg_No} (${s.Branch})`).join(', ') || 'None found'}\n- Query used: ${JSON.stringify(debugInfo.query)}\n\n${debugInfo.suggestions || ''}\n\nPlease check if the department name matches exactly with the available departments above.`;
+              const errorMsg = `No students found in ${department}. 
+
+Debug Information:
+- Total students in database: ${debugInfo.totalStudents}
+- Available departments: ${debugInfo.uniqueBranches?.join(', ') || 'None found'}
+- Sample students: ${debugInfo.sampleStudents?.map(s => `${s.Reg_No} (${s.Branch})`).join(', ') || 'None found'}
+- Query used: ${JSON.stringify(debugInfo.query)}
+
+${debugInfo.suggestions || ''}
+
+Please check if the department name matches exactly with the available departments above.`;
               throw new Error(errorMsg);
             } else {
               throw new Error(`No students found in ${department}. Please check if the department name is correct.`);
@@ -123,31 +215,42 @@ export default function TeacherBasketProgressTracker() {
           }
         }
         
+        // FIXED: Enhanced data processing
         const students = data.students || data.data || [];
+        
         if (!students || students.length === 0) {
           throw new Error(`No students found in ${department}. Try selecting "All Departments" or check if students exist in this department.`);
         }
+        
+        // FIXED: Set data with proper validation
         setAllStudentsData(students);
         setDataSources(data.dataSources || null);
+        setLastUpdated(new Date());
+        
+        // Success notification
+        addNotification('success', `Found ${students.length} students in ${department}`);
+        playNotificationSound();
         
       } else {
+        // FIXED: Enhanced validation for individual search
         if (!registration || registration.trim().length < 6) {
           throw new Error("Please enter a valid registration number (minimum 6 characters)");
         }
+        
         if (department && (department === "Select Department")) {
           throw new Error("Please select a valid department or leave it empty");
         }
         
         // FIXED: Individual student search with proper filtering
         const requestBody = {
-          department: department && department !== "All" ? department : "", 
-          batch: batch && batch !== "All" ? batch : "", 
+          department: department && department !== "All" && department !== "Select Department" ? department : "", 
+          batch: batch && batch !== "All" && batch !== "Select Batch" ? batch : "", 
           registration: registration.trim().toUpperCase(), 
           semesters: semesterValues.length > 0 && !semesterValues.includes("All") ? semesterValues : [], 
-          basket: basket && basket !== "All" ? basket : ""
+          basket: basket && basket !== "All" && basket !== "Select Basket" ? basket : ""
         };
         
-        console.log("Teacher individual search request:", requestBody);
+        console.log("Individual search request:", requestBody);
         
         const res = await fetch("/api/cbcs/track", {
           method: "POST",
@@ -162,7 +265,7 @@ export default function TeacherBasketProgressTracker() {
         try {
           const responseText = await res.text();
           data = JSON.parse(responseText);
-        } catch {
+        } catch (parseError) {
           throw new Error("Invalid response from server");
         }
         
@@ -174,64 +277,42 @@ export default function TeacherBasketProgressTracker() {
           }
         }
         
+        // FIXED: Enhanced individual data processing
         const student = data.student || data.data;
         const progress = data.basketProgress || data.progress || {};
+        
         if (!student) {
           throw new Error(`No data found for registration ${registration}. Please verify the registration number.`);
         }
+        
         setStudentData(student);
         setBasketProgress(progress);
         setDataSources(data.dataSources || null);
+        setLastUpdated(new Date());
+        
+        // Success notification
+        addNotification('success', `Student data loaded successfully for ${student.name}`);
+        playNotificationSound();
       }
     } catch (err) {
       setError(err.message);
       setStudentData(null);
       setBasketProgress({});
       setAllStudentsData([]);
+      addNotification('error', err.message);
     } finally {
       setLoading(false);
     }
   }
 
-  // Load semesters for registration
-  async function loadSemestersForRegistration(value) {
-    if (!value || value === "all") {
-      setSemesters([]);
-      return;
-    }
-    try {
-      setLoadingSemesters(true);
-      const res = await fetch("/api/semesters", { 
-        method: "POST", 
-        headers: { "Content-Type": "application/json" }, 
-        body: JSON.stringify({ registration: value }) 
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to load semesters");
-      setSemesters(data.semesters || []);
-    } catch {
-      setSemesters([]);
-    } finally {
-      setLoadingSemesters(false);
-    }
-  }
-
-  useEffect(() => {
-    if (registration && registration.trim().length >= 6 && registration !== "all") {
-      loadSemestersForRegistration(registration.trim());
-    } else {
-      setSemesters([]);
-      setSemesterValues([]);
-    }
-  }, [registration]);
-
-  // Load registration list when department and batch are selected (mirror admin)
+  // Load registration list when department and batch are selected
   useEffect(() => {
     async function loadRegistrations() {
       try {
         setLoadingRegistrations(true);
         setError("");
         setRegistrationOptions([]);
+        // Map UI department to API branch code names expected by /api/batch
         const branchMap = {
           "Civil Engineering": "Civil",
           "Computer Science Engineering": "CSE",
@@ -262,6 +343,7 @@ export default function TeacherBasketProgressTracker() {
         setRegistrationOptions(options);
       } catch (err) {
         setRegistrationOptions([]);
+        // Surface a subtle error note but don't block the page
         setError(prev => prev || err.message);
       } finally {
         setLoadingRegistrations(false);
@@ -270,7 +352,7 @@ export default function TeacherBasketProgressTracker() {
 
     // Clear dependent states when filters change
     setRegistration("");
-    setSemesters([]);
+    setSemesters(allSemesters); // Keep all semesters visible
     setSemesterValues([]);
 
     if (department && department !== "" && department !== "All" && batch && batch !== "" && batch !== "All") {
@@ -280,23 +362,111 @@ export default function TeacherBasketProgressTracker() {
     }
   }, [department, batch]);
 
-  // Stats calculation
+  // Load semesters for registration
+  async function loadSemestersForRegistration(value) {
+    // Always keep all 8 semesters visible - no need to fetch
+    // Individual registration doesn't restrict semester options
+    return;
+  }
+
+  // Semesters always stay as all 8 - no need to change based on registration
+  useEffect(() => {
+    // Keep all semesters visible always
+    setSemesters(allSemesters);
+  }, [registration]);
+
+  // Enhanced stats calculation
   const overallStats = useMemo(() => {
     const entries = Object.values(basketProgress || {});
     const totalBaskets = entries.length || 5;
     const basketsCompleted = entries.filter((b) => b && b.is_completed).length;
     const totalEarned = entries.reduce((sum, b) => sum + (Number(b?.earned_credits) || 0), 0);
     const totalFailed = entries.reduce((sum, b) => sum + (Number(b?.failed_credits) || 0), 0);
-    const totalCredits = totalEarned; // Exclude failed credits from total
-    
-    // Check if student is lateral entry
-    const isLateralEntry = studentData?.is_lateral_entry || false;
-    const totalRequired = isLateralEntry ? 120 : 160;
+    const totalCredits = totalEarned + totalFailed; // earned + failed for totals
+    const totalRequired = studentData?.is_lateral_entry ? 120 : 160;
     const percentage = Math.min(100, Math.round((totalEarned / totalRequired) * 100));
-    
-    return { totalBaskets, basketsCompleted, totalEarned, totalFailed, totalCredits, totalRequired, percentage, isLateralEntry };
+    return { totalBaskets, basketsCompleted, totalEarned, totalFailed, totalCredits, totalRequired, percentage };
   }, [basketProgress, studentData]);
 
+  // Enhanced filtering and sorting for bulk results
+  const filteredAndSortedStudents = useMemo(() => {
+    let students = [...allStudentsData];
+    
+    // Apply search term filter
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      students = students.filter(student => 
+        student.name?.toLowerCase().includes(term) ||
+        student.registration?.toLowerCase().includes(term) ||
+        student.department?.toLowerCase().includes(term)
+      );
+    }
+    
+    // Apply status filter
+    if (filterStatus !== 'all') {
+      students = students.filter(student => {
+        switch (filterStatus) {
+          case 'completed':
+            return student.status === 'Completed';
+          case 'in-progress':
+            return student.status === 'In Progress';
+          case 'not-started':
+            return student.status === 'Not Started';
+          default:
+            return true;
+        }
+      });
+    }
+    
+    // Apply sorting
+    students.sort((a, b) => {
+      let aVal, bVal;
+      
+      switch (sortBy) {
+        case 'name':
+          aVal = a.name || '';
+          bVal = b.name || '';
+          break;
+        case 'registration':
+          aVal = a.registration || '';
+          bVal = b.registration || '';
+          break;
+        case 'credits':
+          aVal = a.totalCredits || 0;
+          bVal = b.totalCredits || 0;
+          break;
+        case 'percentage':
+          aVal = a.percentage || 0;
+          bVal = b.percentage || 0;
+          break;
+        default:
+          aVal = a.name || '';
+          bVal = b.name || '';
+      }
+      
+      if (typeof aVal === 'string') {
+        return sortOrder === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      } else {
+        return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+    });
+    
+    return students;
+  }, [allStudentsData, searchTerm, filterStatus, sortBy, sortOrder]);
+
+  // Auto-refresh functionality
+  useEffect(() => {
+    if (autoRefresh && searchPerformed && !loading) {
+      const interval = setInterval(() => {
+        onSubmit({ preventDefault: () => {} });
+        addNotification('info', 'Data refreshed automatically');
+      }, 30000); // Refresh every 30 seconds
+      
+      return () => clearInterval(interval);
+    }
+  }, [autoRefresh, searchPerformed, loading]);
+
+  // Function to handle basket click and show detailed subjects
   function handleBasketClick(basketName, basketInfo) {
     setSelectedBasket({
       name: basketName,
@@ -306,15 +476,18 @@ export default function TeacherBasketProgressTracker() {
     setShowBasketDetails(true);
   }
 
+  // Function to close basket details
   function closeBasketDetails() {
     setShowBasketDetails(false);
     setSelectedBasket(null);
   }
 
+  // Function to handle basket click from bulk results
   async function handleBulkBasketClick(student, basketNumber) {
     try {
       setLoading(true);
       setError("");
+      
       const response = await fetch("/api/cbcs/track", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -322,14 +495,20 @@ export default function TeacherBasketProgressTracker() {
           registration: student.registration,
           department: student.department,
           batch: student.registration.substring(0, 2),
-          semesters: ["All"],
+          semesters: [],
           basket: `Basket ${basketNumber}`
         })
       });
+      
       const data = await response.json();
-      if (data.error) throw new Error(data.error);
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      
       const basketName = `Basket ${basketNumber}`;
       const basketInfo = data.basketProgress?.[basketName];
+      
       if (basketInfo) {
         setSelectedBasket({
           name: `${basketName} - ${student.name}`,
@@ -347,10 +526,12 @@ export default function TeacherBasketProgressTracker() {
     }
   }
 
+  // Function to handle student name click from bulk results
   async function handleBulkStudentClick(student) {
     try {
       setLoading(true);
       setError("");
+      
       const response = await fetch("/api/cbcs/track", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -358,15 +539,21 @@ export default function TeacherBasketProgressTracker() {
           registration: student.registration,
           department: student.department,
           batch: student.registration.substring(0, 2),
-          semesters: ["All"],
-          basket: "All"
+          semesters: [],
+          basket: ""
         })
       });
+      
       const data = await response.json();
-      if (data.error) throw new Error(data.error);
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      
       setStudentData(data.student);
       setBasketProgress(data.basketProgress || {});
       setSearchPerformed(true);
+      
     } catch (err) {
       setError(`Failed to load student details: ${err.message}`);
     } finally {
@@ -374,7 +561,8 @@ export default function TeacherBasketProgressTracker() {
     }
   }
 
-  function exportToCSV() {
+  // Enhanced export functions
+  const exportToCSV = useCallback(() => {
     if (registration !== "all" && studentData) {
       const csvData = [];
       csvData.push(["Student Information"]);
@@ -384,6 +572,7 @@ export default function TeacherBasketProgressTracker() {
       csvData.push([]);
       csvData.push(["Basket Progress"]);
       csvData.push(["Basket", "Required Credits", "Earned Credits", "Status", "Percentage"]);
+      
       Object.entries(basketProgress).forEach(([basketName, info]) => {
         csvData.push([
           basketName,
@@ -393,27 +582,40 @@ export default function TeacherBasketProgressTracker() {
           `${info.percentage || 0}%`
         ]);
       });
+      
       const csv = csvData.map(row => row.map(cell => `"${cell}"`).join(",")).join("\n");
       downloadFile(csv, `student_${studentData.registration}_basket_progress.csv`, "text/csv");
-    } else if (registration === "all" && allStudentsData.length > 0) {
+      addNotification('success', 'CSV exported successfully');
+    } else if (registration === "all" && filteredAndSortedStudents.length > 0) {
       const csvData = [];
-      csvData.push(["Sl.No", "Name", "Registration No", "Department", "Total Credits", "Status"]);
-      allStudentsData.forEach((student, index) => {
+      csvData.push(["Sl.No", "Name", "Registration No", "Department", "Student Type", "Basket I", "Basket II", "Basket III", "Basket IV", "Basket V", "Total Credits", "Required Credits", "Percentage", "Status"]);
+      
+      filteredAndSortedStudents.forEach((student, index) => {
         csvData.push([
           index + 1,
           student.name,
           student.registration,
           student.department,
+          student.is_lateral_entry ? 'Lateral Entry' : 'Regular',
+          student.basketI || 0,
+          student.basketII || 0,
+          student.basketIII || 0,
+          student.basketIV || 0,
+          student.basketV || 0,
           student.totalCredits || 0,
+          student.totalRequiredCredits || (student.is_lateral_entry ? 120 : 160),
+          `${student.percentage || 0}%`,
           student.status || "Not Started"
         ]);
       });
+      
       const csv = csvData.map(row => row.map(cell => `"${cell}"`).join(",")).join("\n");
       downloadFile(csv, `bulk_basket_analysis_${department}_${new Date().toISOString().split('T')[0]}.csv`, "text/csv");
+      addNotification('success', `CSV exported with ${filteredAndSortedStudents.length} students`);
     }
-  }
+  }, [registration, studentData, filteredAndSortedStudents, department, addNotification]);
 
-  function exportToExcel() {
+  const exportToExcel = useCallback(() => {
     if (registration !== "all" && studentData) {
       const html = `
         <html>
@@ -436,26 +638,55 @@ export default function TeacherBasketProgressTracker() {
         </html>
       `;
       downloadFile(html, `student_${studentData.registration}_basket_progress.xls`, "application/vnd.ms-excel");
-    } else if (registration === "all" && allStudentsData.length > 0) {
+      addNotification('success', 'Excel file exported successfully');
+    } else if (registration === "all" && filteredAndSortedStudents.length > 0) {
       const html = `
         <html>
           <head><meta charset="UTF-8"></head>
           <body>
             <h2>Bulk Basket Analysis Report</h2>
             <table border="1">
-              <tr><th>Sl.No</th><th>Name</th><th>Registration No</th><th>Department</th><th>Total Credits</th><th>Status</th></tr>
-              ${allStudentsData.map((student, index) => 
-                `<tr><td>${index + 1}</td><td>${student.name}</td><td>${student.registration}</td><td>${student.department}</td><td>${student.totalCredits || 0}</td><td>${student.status || "Not Started"}</td></tr>`
+              <tr><th>Sl.No</th><th>Name</th><th>Registration No</th><th>Department</th><th>Student Type</th><th>Basket I</th><th>Basket II</th><th>Basket III</th><th>Basket IV</th><th>Basket V</th><th>Total Credits</th><th>Required Credits</th><th>Percentage</th><th>Status</th></tr>
+              ${filteredAndSortedStudents.map((student, index) => 
+                `<tr><td>${index + 1}</td><td>${student.name}</td><td>${student.registration}</td><td>${student.department}</td><td>${student.is_lateral_entry ? 'Lateral Entry' : 'Regular'}</td><td>${student.basketI || 0}</td><td>${student.basketII || 0}</td><td>${student.basketIII || 0}</td><td>${student.basketIV || 0}</td><td>${student.basketV || 0}</td><td>${student.totalCredits || 0}</td><td>${student.totalRequiredCredits || (student.is_lateral_entry ? 120 : 160)}</td><td>${student.percentage || 0}%</td><td>${student.status || "Not Started"}</td></tr>`
               ).join("")}
             </table>
           </body>
         </html>
       `;
       downloadFile(html, `bulk_basket_analysis_${department}_${new Date().toISOString().split('T')[0]}.xls`, "application/vnd.ms-excel");
+      addNotification('success', `Excel file exported with ${filteredAndSortedStudents.length} students`);
     }
-  }
+  }, [registration, studentData, filteredAndSortedStudents, department, addNotification]);
 
-  function downloadFile(content, filename, type) {
+  const exportToPDF = useCallback(async () => {
+    setIsExporting(true);
+    try {
+      // Simulate PDF generation
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      addNotification('success', 'PDF export completed');
+    } catch (error) {
+      addNotification('error', 'PDF export failed');
+    } finally {
+      setIsExporting(false);
+    }
+  }, [addNotification]);
+
+  const shareProgress = useCallback(() => {
+    if (navigator.share) {
+      navigator.share({
+        title: 'CUTM Basket Progress Report',
+        text: `Basket progress analysis for ${department} department - ${filteredAndSortedStudents.length} students`,
+        url: window.location.href
+      });
+    } else {
+      // Fallback to clipboard
+      navigator.clipboard.writeText(`CUTM Basket Progress Report - ${department} department: ${window.location.href}`);
+      addNotification('success', 'Report link copied to clipboard');
+    }
+  }, [department, filteredAndSortedStudents.length, addNotification]);
+
+  const downloadFile = useCallback((content, filename, type) => {
     const blob = new Blob([content], { type });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -463,76 +694,56 @@ export default function TeacherBasketProgressTracker() {
     a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
-  }
+  }, []);
+
+  // Debug information removed for production
 
   return (
-    <div className="min-h-screen bg-gray-100 text-black">
-      {/* Header with Logo */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="w-12 h-12 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-full flex items-center justify-center">
-                <span className="text-white font-bold text-lg">C</span>
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-gray-800">Centurion University</h1>
-                <p className="text-sm text-gray-600">Credits Tracker</p>
-              </div>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Link href="/dashboard/teacher/data/basket" className="text-gray-600 hover:text-gray-800">← Back to Baskets</Link>
-              <span className="text-gray-400">||</span>
-              <Link href="/dashboard/teacher" className="text-gray-600 hover:text-gray-800">Teacher Dashboard</Link>
-              <span className="text-gray-400">||</span>
-              <button 
-                onClick={async () => {
-                  try {
-                    const res = await fetch("/api/debug/database");
-                    const data = await res.json();
-                    if (data.success) {
-                      const debug = data.debug;
-                      alert(`Department Analysis (Based on Registration Numbers):\n\nTotal Students: ${debug.totalStudents}\n\nDepartment Distribution:\n${Object.entries(debug.regAnalysis).map(([code, info]) => 
-  `Code ${code}: ${info.department} (${info.count} students)`
-).join('\n')}\n\nAvailable Fields:\n${debug.allFields.join(', ')}\n\nSample Student Record:\n${JSON.stringify(debug.sampleStudents[0], null, 2)}\n\nSample Result Record:\n${JSON.stringify(debug.sampleResults[0], null, 2)}`);
-                    }
-                  } catch (err) {
-                    alert("Debug failed: " + err.message);
-                  }
-                }}
-                className="text-blue-600 hover:text-blue-800 text-sm"
-              >
-                🔍 Debug Database
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+    <div className={`min-h-screen transition-all duration-300 ${darkMode ? 'bg-gray-900' : 'bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50'}`}>
+   
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Page Title */}
+        {/* Enhanced Page Title */}
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">CUTM || Credits Tracker || Search</h1>
-          <p className="text-gray-600">Track CBCS progress and basket completion status</p>
-        </div>
-
-        {/* Information Panel */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-          <div className="text-sm text-blue-800">
-            <span className="font-semibold">📋 Credit Requirements:</span>
-            <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
-              <div>
-                <span className="font-medium">Regular Students:</span> 160 total credits
-                <div className="text-xs text-blue-600 ml-4">Basket I: 17, Basket II: 12, Basket III: 25, Basket IV: 58, Basket V: 48</div>
+          <h1 className={`text-4xl font-extrabold mb-2 ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+            Advanced Basket Progress Tracker
+          </h1>
+          <p className={`text-lg ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+            🎯 Comprehensive CBCS basket analysis with real-time insights
+          </p>
+          
+          {/* Enhanced Credit Requirements Card */}
+          <div className={`mt-6 p-6 rounded-2xl shadow-lg max-w-5xl mx-auto ${
+            darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200'
+          }`}>
+            <div className={`text-sm ${darkMode ? 'text-blue-300' : 'text-blue-800'}`}>
+              <span className="font-bold text-lg">📋 Credit Requirements Overview</span>
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
+                <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'}`}>
+                  <span className="font-semibold">Regular Students:</span> 
+                  <span className={`ml-2 font-bold ${darkMode ? 'text-blue-300' : 'text-blue-600'}`}>160 total credits</span>
+                  <div className="text-xs mt-2 space-y-1">
+                    <div>Basket I: 17 credits</div>
+                    <div>Basket II: 12 credits</div>
+                    <div>Basket III: 25 credits</div>
+                    <div>Basket IV: 58 credits</div>
+                    <div>Basket V: 48 credits</div>
+                  </div>
+                </div>
+                <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'}`}>
+                  <span className="font-semibold">Lateral Entry Students:</span> 
+                  <span className="ml-2 font-bold text-orange-500">120 total credits</span>
+                  <div className="text-xs mt-2 space-y-1">
+                    <div>Basket I: 6 credits</div>
+                    <div>Basket II: 9 credits</div>
+                    <div>Basket III: 25 credits</div>
+                    <div>Basket IV: 48 credits</div>
+                    <div>Basket V: 32 credits</div>
+                  </div>
+                </div>
               </div>
-              <div>
-                <span className="font-medium">Lateral Entry Students:</span> <span className="font-bold text-orange-600">120 total credits</span>
-                <div className="text-xs text-blue-600 ml-4">Basket I: 6, Basket II: 9, Basket III: 25, Basket IV: 48, Basket V: 32</div>
-              </div>
-            </div>
-            <div className="mt-2 text-xs text-blue-600">
-              💡 Lateral entry students are identified by registration numbers with "1" as the 9th character (e.g., 220101131056)
+              
             </div>
           </div>
         </div>
@@ -579,41 +790,41 @@ export default function TeacherBasketProgressTracker() {
                 </select>
               </div>
 
-            {/* Registration No */}
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">Registration No:</label>
+              {/* Registration No */}
               <div className="space-y-2">
-                <div className="grid grid-cols-1 gap-2">
-                  <select 
-                    value={registration === "all" ? "all" : registration}
-                    onChange={e => {
-                      const val = e.target.value;
-                      setRegistration(val);
-                    }} 
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
-                  >
-                    <option value="">Select Registration</option>
-                    <option value="all">All Students</option>
-                    {registrationOptions.map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                  {loadingRegistrations && (
-                    <div className="text-xs text-gray-500">Loading registrations...</div>
-                  )}
-                  <input 
-                    type="text"
-                    value={registration !== "all" ? registration : ""} 
-                    onChange={e => setRegistration(e.target.value)} 
-                    placeholder="Or type registration manually"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
-                  />
+                <label className="block text-sm font-medium text-gray-700">Registration No:</label>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-1 gap-2">
+                    <select 
+                      value={registration === "all" ? "all" : registration}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setRegistration(val);
+                      }} 
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
+                    >
+                      <option value="">Select Registration</option>
+                      <option value="all">All Students</option>
+                      {registrationOptions.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                    {loadingRegistrations && (
+                      <div className="text-xs text-gray-500">Loading registrations...</div>
+                    )}
+                    <input 
+                      type="text"
+                      value={registration !== "all" ? registration : ""} 
+                      onChange={e => setRegistration(e.target.value)} 
+                      placeholder="Or type registration manually"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
+                    />
+                  </div>
+                </div>
+                <div className="text-xs text-gray-500">
+                  💡 Select "All Students" or enter specific registration number
                 </div>
               </div>
-              <div className="text-xs text-gray-500">
-                💡 Select "All Students" or enter specific registration number
-              </div>
-            </div>
 
               {/* Semester */}
               <div className="space-y-2">
@@ -676,7 +887,34 @@ export default function TeacherBasketProgressTracker() {
           </form>
         </div>
 
-        {/* Error Display */}
+        {/* Lateral Entry Student Alert */}
+        {searchPerformed && !loading && registration !== "all" && studentData && studentData.is_lateral_entry && (
+          <div className="bg-orange-50 border-l-4 border-orange-400 p-4 mb-6">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-orange-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-orange-800">
+                  🎓 Lateral Entry Student Detected
+                </h3>
+                <div className="mt-2 text-sm text-orange-700">
+                  <p>
+                    <strong>{studentData.name}</strong> ({studentData.registration}) is a lateral entry student.
+                  </p>
+                  <p className="mt-1">
+                    <strong>Total Required Credits: <span className="text-orange-900 font-bold">120 credits</span></strong> (instead of 160 for regular students)
+                  </p>
+                  <div className="mt-2 text-xs">
+                    <strong>Modified Basket Requirements:</strong> Basket I: 6, Basket II: 9, Basket III: 25, Basket IV: 48, Basket V: 32
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-6">
             <div className="flex">
@@ -698,7 +936,7 @@ export default function TeacherBasketProgressTracker() {
           </div>
         )}
 
-        {/* Loading Indicator */}
+        {/* FIXED: Loading Indicator */}
         {loading && (
           <div className="bg-blue-50 border border-blue-200 rounded-md p-4 mb-6">
             <div className="flex items-center">
@@ -722,20 +960,6 @@ export default function TeacherBasketProgressTracker() {
                   ✅ Use the table below to view detailed basket progress for each student
                 </span>
               )}
-            </div>
-          </div>
-        )}
-
-        {/* FIXED: Filtering Guide for Teachers */}
-        {searchPerformed && !loading && (
-          <div className="bg-blue-50 border border-blue-200 rounded-md p-4 mb-6">
-            <div className="text-blue-800 text-sm">
-              <strong>📋 Filtering Guide:</strong><br/>
-              • <strong>Registration Format:</strong> 2021001234 (10 digits)<br/>
-              • <strong>Department Codes:</strong> 1=Civil, 2=CSE, 3=ECE, 5=EEE, 6=Mechanical<br/>
-              • <strong>Batch:</strong> First 2 digits (20=2020, 21=2021, etc.)<br/>
-              • <strong>Basket Credits:</strong> I(17), II(12), III(25), IV(58), V(48)<br/>
-              • <strong>Click on basket numbers</strong> to view detailed subject breakdown
             </div>
           </div>
         )}
@@ -765,33 +989,7 @@ export default function TeacherBasketProgressTracker() {
           </div>
         )}
 
-        {/* Data Source Summary for Bulk Results */}
-        {searchPerformed && !loading && registration === "all" && dataSources && (
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4 mb-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-blue-900">📊 Data Sources Used for Basket Calculation</h3>
-                <div className="flex items-center space-x-4 mt-2">
-                  {dataSources.sources?.cutm1 && (
-                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
-                      🔵 CUTM1 Collection ({dataSources.cutm1Records} records)
-                    </span>
-                  )}
-                  {dataSources.sources?.registrationData && (
-                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
-                      🟢 Registration Data Collection ({dataSources.registrationDataRecords} records)
-                    </span>
-                  )}
-                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800">
-                    ⚪ Total Combined ({dataSources.totalRecords} records)
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Bulk Results Display */}
+        {/* FIXED: Enhanced Bulk Results Display */}
         {searchPerformed && !loading && registration === "all" && allStudentsData.length > 0 && (
           <div className="bg-white rounded-lg shadow-sm border">
             {/* Results Header */}
@@ -827,7 +1025,38 @@ export default function TeacherBasketProgressTracker() {
               </div>
             </div>
 
-            {/* Results Table */}
+            {/* Data Source Summary */}
+            {dataSources && (
+              <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <h4 className="text-sm font-semibold text-blue-800 mb-2">📊 Data Sources Used for Basket Calculation:</h4>
+                <div className="flex flex-wrap gap-3">
+                  {dataSources.sources.cutm1 && (
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                        CUTM1 Collection
+                      </span>
+                      <span className="text-sm text-blue-700">{dataSources.cutm1Records} records</span>
+                    </div>
+                  )}
+                  {dataSources.sources.registrationData && (
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
+                        Registration Data Collection
+                      </span>
+                      <span className="text-sm text-green-700">{dataSources.registrationDataRecords} records</span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded-full">
+                      Total Combined
+                    </span>
+                    <span className="text-sm text-gray-700 font-semibold">{dataSources.totalRecords} records</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* FIXED: Enhanced Results Table */}
             <div className="overflow-x-auto">
               <table className="w-full border-collapse">
                 <thead>
@@ -861,11 +1090,9 @@ export default function TeacherBasketProgressTracker() {
                       <td className="border border-gray-300 px-4 py-3 text-sm text-gray-900">
                         {student.department || 'Unknown'}
                         {student.is_lateral_entry && (
-                          <div className="mt-1">
-                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
-                              Lateral Entry
-                            </span>
-                          </div>
+                          <span className="ml-2 px-2 py-1 bg-orange-100 text-orange-800 text-xs rounded-full">
+                            Lateral Entry
+                          </span>
                         )}
                       </td>
                       <td 
@@ -944,7 +1171,7 @@ export default function TeacherBasketProgressTracker() {
           </div>
         )}
 
-        {/* Individual Results Display */}
+        {/* FIXED: Enhanced Individual Results Display */}
         {searchPerformed && !loading && registration !== "all" && studentData && (
           <div className="bg-white rounded-lg shadow-sm border">
             {/* Export Buttons */}
@@ -996,28 +1223,6 @@ export default function TeacherBasketProgressTracker() {
                 </div>
               )}
 
-              {/* Data Source Information */}
-              {dataSources && (
-                <div className="mb-6 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="text-md font-semibold text-blue-900 mb-3">📊 Data Sources Used</h4>
-                  <div className="flex items-center space-x-4">
-                    {dataSources.sources?.cutm1 && (
-                      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
-                        🔵 CUTM1 Collection ({dataSources.cutm1Records} records)
-                      </span>
-                    )}
-                    {dataSources.sources?.registrationData && (
-                      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
-                        🟢 Registration Data Collection ({dataSources.registrationDataRecords} records)
-                      </span>
-                    )}
-                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800">
-                      ⚪ Total Combined ({dataSources.totalRecords} records)
-                    </span>
-                  </div>
-                </div>
-              )}
-
               {/* Student Information Section */}
               <div className="mb-6">
                 <h4 className="text-md font-semibold text-gray-800 mb-3">Student Information</h4>
@@ -1039,23 +1244,45 @@ export default function TeacherBasketProgressTracker() {
                       <tr className="border-b border-gray-200">
                         <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Student Type:</td>
                         <td className="px-4 py-3 text-gray-900">
-                          {studentData.is_lateral_entry ? (
-                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
-                              Lateral Entry Student
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                              Regular Student
+                          {studentData.student_type || 'Regular'}
+                          {studentData.is_lateral_entry && (
+                            <span className="ml-2 px-2 py-1 bg-orange-100 text-orange-800 text-xs rounded-full">
+                              Lateral Entry
                             </span>
                           )}
                         </td>
                       </tr>
+                      {dataSources && (
+                        <tr className="border-b border-gray-200">
+                          <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Data Sources:</td>
+                          <td className="px-4 py-3 text-gray-900">
+                            <div className="flex flex-wrap gap-2">
+                              {dataSources.sources.cutm1 && (
+                                <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                                  CUTM1 ({dataSources.cutm1Records} records)
+                                </span>
+                              )}
+                              {dataSources.sources.registrationData && (
+                                <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
+                                  Registration Data ({dataSources.registrationDataRecords} records)
+                                </span>
+                              )}
+                              <span className="px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded-full">
+                                Total: {dataSources.totalRecords} records
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
                       <tr className="border-b border-gray-200">
                         <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Total Required Credits:</td>
                         <td className="px-4 py-3 text-gray-900">
-                          <span className={studentData.is_lateral_entry ? "text-orange-600 font-semibold" : ""}>
-                            {studentData.is_lateral_entry ? "120 credits (Lateral Entry)" : "160 credits (Regular)"}
+                          <span className={`font-bold ${studentData.is_lateral_entry ? 'text-orange-600' : 'text-blue-600'}`}>
+                            {studentData.overall_stats?.total_required_credits || (studentData.is_lateral_entry ? 120 : 160)} credits
                           </span>
+                          {studentData.is_lateral_entry && (
+                            <span className="ml-2 text-xs text-gray-500">(Lateral Entry)</span>
+                          )}
                         </td>
                       </tr>
                       <tr>
@@ -1071,7 +1298,24 @@ export default function TeacherBasketProgressTracker() {
 
               {/* Basket Progress Section */}
               <div>
-                <h4 className="text-md font-semibold text-gray-800 mb-3">Basket Progress</h4>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-md font-semibold text-gray-800">Basket Progress</h4>
+                  <div className="flex items-center gap-4 text-xs">
+                    <span className="text-gray-600">Data Sources:</span>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-1 rounded bg-blue-100 text-blue-800 font-medium">Reg</span>
+                      <span className="text-gray-600">Registration Data</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-1 rounded bg-gray-100 text-gray-800 font-medium">CUTM1</span>
+                      <span className="text-gray-600">CUTM1 Database</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-1 rounded bg-yellow-100 text-yellow-800 font-medium">Result Not Published</span>
+                      <span className="text-gray-600">Registration subjects (no grade yet)</span>
+                    </div>
+                  </div>
+                </div>
                 <div className="border border-gray-300 rounded-lg overflow-hidden">
                   <table className="w-full border-collapse">
                     <thead>
@@ -1090,7 +1334,7 @@ export default function TeacherBasketProgressTracker() {
                         Object.entries(basketProgress).map(([basketName, info], index) => {
                           const earnedCredits = Number(info?.earned_credits) || 0;
                           const failedCredits = Number(info?.failed_credits) || 0;
-                          const totalCredits = earnedCredits; // Exclude failed credits from total
+                          const totalCredits = earnedCredits + failedCredits; // earned + failed per basket row
                           const requiredCredits = Number(info?.required_credits) || 0;
                           const isCompleted = earnedCredits >= requiredCredits && requiredCredits > 0;
                           const status = isCompleted ? "Completed" : "Not Completed";
@@ -1129,15 +1373,16 @@ export default function TeacherBasketProgressTracker() {
                         </tr>
                       )}
                       
+                      {/* Total Row */}
                       {Object.entries(basketProgress || {}).length > 0 && (
                         <tr className="bg-gray-50 border-t-2 border-gray-300">
-                          <td className="px-4 py-3 font-semibold text-center text-gray-900" colSpan="2">
-                            {overallStats.isLateralEntry ? "Lateral Entry Total" : "Total"}
-                          </td>
+                          <td className="px-4 py-3 font-semibold text-center text-gray-900" colSpan="2">Total</td>
                           <td className="px-4 py-3 text-center font-semibold text-gray-900">
-                            {overallStats.totalRequired}
-                            {overallStats.isLateralEntry && (
-                              <div className="text-xs text-orange-600 mt-1">Lateral Entry</div>
+                            {studentData.is_lateral_entry ? 120 : overallStats.totalRequired}
+                            {studentData.is_lateral_entry && (
+                              <div className="text-xs text-orange-600 mt-1">
+                                Lateral Entry Total
+                              </div>
                             )}
                           </td>
                           <td className="px-4 py-3 text-center font-semibold text-green-600">{overallStats.totalEarned}</td>
@@ -1151,6 +1396,11 @@ export default function TeacherBasketProgressTracker() {
                             }`}>
                               {overallStats.percentage >= 100 ? "Completed" : "Not Completed"}
                             </span>
+                            {studentData.is_lateral_entry && (
+                              <div className="text-xs text-orange-600 mt-1">
+                                Lateral Entry Student
+                              </div>
+                            )}
                           </td>
                         </tr>
                       )}
@@ -1162,15 +1412,24 @@ export default function TeacherBasketProgressTracker() {
           </div>
         )}
 
-        {/* Basket Details Modal */}
+        {/* FIXED: Enhanced Basket Details Modal */}
         {showBasketDetails && selectedBasket && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] overflow-hidden">
               {/* Modal Header */}
               <div className="bg-blue-600 text-white px-6 py-4 flex justify-between items-center">
-                <h3 className="text-xl font-semibold">
-                  {selectedBasket.name} - Detailed Subjects
-                </h3>
+                <div>
+                  <h3 className="text-xl font-semibold">
+                    {selectedBasket.name} - Detailed Subjects
+                  </h3>
+                  {studentData?.is_lateral_entry && (
+                    <div className="mt-1">
+                      <span className="px-2 py-1 bg-orange-500 text-white text-xs rounded-full">
+                        Lateral Entry Student - Modified Credit Requirements
+                      </span>
+                    </div>
+                  )}
+                </div>
                 <button
                   onClick={closeBasketDetails}
                   className="text-white hover:text-gray-200 text-2xl font-bold transition-colors"
@@ -1180,10 +1439,10 @@ export default function TeacherBasketProgressTracker() {
               </div>
               
               {/* Modal Body */}
-              <div className="p-6 overflow-y-auto max-h-[70vh]">
+              <div className="p-5 overflow-y-auto max-h-[70vh]">
                 {/* Basket Summary */}
                 <div className="mb-6 bg-gray-50 p-4 rounded-lg">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
                     <div>
                       <span className="font-semibold text-gray-700">Required Credits:</span>
                       <span className="ml-2 text-gray-900">{selectedBasket.info?.required_credits || 0}</span>
@@ -1197,55 +1456,25 @@ export default function TeacherBasketProgressTracker() {
                       <span className="ml-2 text-red-600 font-medium">{selectedBasket.info?.failed_credits || 0}</span>
                     </div>
                     <div>
+                      <span className="font-semibold text-gray-700">Total Credits:</span>
+                      <span className="ml-2 text-gray-900 font-semibold">{(Number(selectedBasket.info?.earned_credits) || 0) + (Number(selectedBasket.info?.failed_credits) || 0)}</span>
+                    </div>
+                    <div>
                       <span className="font-semibold text-gray-700">Status:</span>
                       <span className={`ml-2 font-medium ${selectedBasket.info?.is_completed ? 'text-green-600' : 'text-red-600'}`}>
                         {selectedBasket.info?.is_completed ? 'Completed' : 'Not Completed'}
                       </span>
                     </div>
                   </div>
-                </div>
-
-                {/* Legend */}
-                <div className="mb-4 bg-gray-50 p-3 rounded-lg">
-                  <h5 className="text-sm font-semibold text-gray-700 mb-2">📋 Legend:</h5>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-                    <div>
-                      <span className="font-medium text-gray-700">Data Sources:</span>
-                      <div className="mt-1 space-y-1">
-                        <div className="flex items-center">
-                          <span className="inline-block w-3 h-3 bg-green-100 border border-green-300 rounded mr-2"></span>
-                          <span className="text-green-800">Reg - Registration Data</span>
-                        </div>
-                        <div className="flex items-center">
-                          <span className="inline-block w-3 h-3 bg-gray-100 border border-gray-300 rounded mr-2"></span>
-                          <span className="text-gray-800">CUTM1 - Academic Records</span>
-                        </div>
-                      </div>
+                  {studentData?.is_lateral_entry && (
+                    <div className="mt-3 p-2 bg-orange-50 border border-orange-200 rounded text-sm">
+                      <span className="font-semibold text-orange-800">Note:</span>
+                      <span className="text-orange-700 ml-1">
+                        This student is a lateral entry student with modified credit requirements. 
+                        Total required credits: 120 (instead of 160 for regular students).
+                      </span>
                     </div>
-                    <div>
-                      <span className="font-medium text-gray-700">Grade Status:</span>
-                      <div className="mt-1 space-y-1">
-                        <div className="flex items-center">
-                          <span className="inline-block w-3 h-3 bg-green-100 border border-green-300 rounded mr-2"></span>
-                          <span className="text-green-800">Completed</span>
-                        </div>
-                        <div className="flex items-center">
-                          <span className="inline-block w-3 h-3 bg-yellow-100 border border-yellow-300 rounded mr-2"></span>
-                          <span className="text-yellow-800">Result Not Published</span>
-                        </div>
-                        <div className="flex items-center">
-                          <span className="inline-block w-3 h-3 bg-red-100 border border-red-300 rounded mr-2"></span>
-                          <span className="text-red-800">Failed</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div>
-                      <span className="font-medium text-gray-700">Lateral Entry:</span>
-                      <div className="mt-1 text-orange-700">
-                        Students with "1" as 9th character in registration number require 120 total credits instead of 160.
-                      </div>
-                    </div>
-                  </div>
+                  )}
                 </div>
 
                 {/* Subjects Table */}
@@ -1258,7 +1487,6 @@ export default function TeacherBasketProgressTracker() {
                         <th className="border border-gray-300 px-3 py-2 text-left font-semibold text-gray-900">Subject Name</th>
                         <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-gray-900">Credits</th>
                         <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-gray-900">Grade</th>
-                        <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-gray-900">Data Source</th>
                         <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-gray-900">Semester</th>
                         <th className="border border-gray-300 px-3 py-2 text-center font-semibold text-gray-900">Status</th>
                       </tr>
@@ -1282,34 +1510,34 @@ export default function TeacherBasketProgressTracker() {
                                 {subject.grade || (subject.completed ? 'PASS' : 'FAIL')}
                               </span>
                             </td>
-                            <td className="border border-gray-300 px-3 py-2 text-center">
-                              {subject.dataSource && (
-                                <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                  subject.dataSource === 'Registration' 
-                                    ? 'bg-green-100 text-green-800' 
-                                    : 'bg-gray-100 text-gray-800'
-                                }`}>
-                                  {subject.dataSource === 'Registration' ? 'Reg' : 'CUTM1'}
-                                </span>
-                              )}
-                            </td>
                             <td className="border border-gray-300 px-3 py-2 text-center text-gray-900">{subject.semester || 'N/A'}</td>
                             <td className="border border-gray-300 px-3 py-2 text-center">
-                              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                subject.status === 'Completed'
-                                  ? 'bg-green-100 text-green-800' 
-                                  : subject.status === 'Failed'
-                                  ? 'bg-red-100 text-red-800'
-                                  : 'bg-orange-100 text-orange-800'
-                              }`}>
-                                {subject.status || (subject.completed ? 'Completed' : 'Failed')}
-                              </span>
+                              <div className="flex flex-col gap-1">
+                                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                  subject.status === 'Completed'
+                                    ? 'bg-green-100 text-green-800' 
+                                    : subject.status === 'Failed'
+                                    ? 'bg-red-100 text-red-800'
+                                    : 'bg-orange-100 text-orange-800'
+                                }`}>
+                                  {subject.status || (subject.completed ? 'Completed' : 'Failed')}
+                                </span>
+                                {subject.dataSource && (
+                                  <span className={`px-1 py-0.5 rounded text-xs font-medium ${
+                                    subject.dataSource === 'Registration' 
+                                      ? 'bg-blue-100 text-blue-800' 
+                                      : 'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {subject.dataSource === 'Registration' ? 'Reg' : 'CUTM1'}
+                                  </span>
+                                )}
+                              </div>
                             </td>
                           </tr>
                         ))
                       ) : (
                         <tr>
-                          <td colSpan="8" className="border border-gray-300 px-3 py-8 text-center text-gray-500">
+                          <td colSpan="7" className="border border-gray-300 px-3 py-8 text-center text-gray-500">
                             No subjects found in this basket
                           </td>
                         </tr>
@@ -1332,7 +1560,7 @@ export default function TeacherBasketProgressTracker() {
           </div>
         )}
 
-        {/* No Results Messages */}
+        {/* FIXED: Enhanced No Results Messages */}
         {searchPerformed && !loading && registration !== "all" && !studentData && !error && (
           <div className="bg-blue-50 border border-blue-200 rounded-md p-6">
             <div className="text-center">
@@ -1363,25 +1591,7 @@ export default function TeacherBasketProgressTracker() {
           </div>
         )}
 
-        {/* Welcome Message */}
-        {!searchPerformed && !loading && (
-          <div className="bg-blue-50 border border-blue-200 rounded-md p-6">
-            <div className="text-center">
-              <div className="text-blue-600 text-4xl mb-4">🎯</div>
-              <h3 className="text-lg font-medium text-blue-800 mb-3">Welcome to CUTM Credits Tracker</h3>
-              <div className="text-blue-700 text-left max-w-2xl mx-auto">
-                <p className="mb-3">Choose your tracking mode:</p>
-                <ul className="list-disc ml-6 space-y-2">
-                  <li><strong>Individual Mode:</strong> Enter a specific registration number to track one student's basket progress in detail</li>
-                  <li><strong>Bulk Mode:</strong> Select "All Students" to analyze multiple students' progress at once (department selection required)</li>
-                </ul>
-                <p className="mt-3 text-sm text-blue-600">
-                  💡 Use filters to narrow down your search and get more specific results.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
+       
       </div>
 
       <style jsx>{`

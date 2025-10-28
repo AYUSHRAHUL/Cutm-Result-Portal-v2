@@ -104,6 +104,8 @@ export default function AdminCBCSBasketPage() {
   }
 
   function openEditModal(item) {
+    setError("");
+    setSuccess("");
     setEditForm({
       Branch: item.Branch || "",
       Basket: item.Basket || "",
@@ -123,13 +125,18 @@ export default function AdminCBCSBasketPage() {
     if (!editModal.item) return;
     try {
       setLoading(true);
+      setError("");
+      // Fallback to original values if user leaves fields blank
       const payload = {
-        Branch: (editForm.Branch || '').trim(),
-        Basket: (editForm.Basket || '').trim(),
-        SubjectCode: (editForm.SubjectCode || '').trim(),
-        SubjectName: (editForm.SubjectName || '').trim(),
-        Credits: (editForm.Credits ?? '').toString().trim(),
+        Branch: ((editForm.Branch || editModal.item.Branch) || '').trim(),
+        Basket: ((editForm.Basket || editModal.item.Basket) || '').trim(),
+        SubjectCode: ((editForm.SubjectCode || editModal.item["Subject Code"] || editModal.item.SubjectCode) || '').trim().toUpperCase(),
+        SubjectName: ((editForm.SubjectName || editModal.item.Subject_name || editModal.item.Subject_Name) || '').trim(),
+        Credits: (editForm.Credits ?? editModal.item.Credits ?? '').toString().trim(),
       };
+      if (!payload.Branch || !payload.SubjectCode || !payload.SubjectName) {
+        throw new Error("Branch, Subject Code and Subject Name are required");
+      }
       const res = await fetch(`/api/cbcs/${editModal.item._id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -138,8 +145,11 @@ export default function AdminCBCSBasketPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Update failed");
       setSuccess("Subject updated successfully");
-      closeEditModal();
-      await fetchItems();
+      // Briefly show success inside modal, then close and refresh
+      setTimeout(async () => {
+        closeEditModal();
+        await fetchItems();
+      }, 800);
     } catch (err) {
       setError(err.message);
     } finally { setLoading(false); }
@@ -361,6 +371,14 @@ export default function AdminCBCSBasketPage() {
                 <h3>Edit Subject</h3>
                 <button onClick={closeEditModal} className="modal-close">&times;</button>
               </div>
+              {success && (
+                <div className="modal-success">
+                  ✓ {success}
+                </div>
+              )}
+              {error && (
+                <div className="modal-error">⚠️ {error}</div>
+              )}
               <div className="modal-body">
                 <div className="form-group">
                   <label>Branch</label>
@@ -515,6 +533,8 @@ export default function AdminCBCSBasketPage() {
         .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 1px solid #dee2e6; }
         .modal-header h3 { margin: 0; color: #2c3e50; }
         .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: #6c757d; }
+        .modal-success { margin: 12px 20px 0; background: #d4edda; color: #155724; border: 1px solid #c3e6cb; border-radius: 8px; padding: 10px 12px; font-weight: 600; }
+        .modal-error { margin: 12px 20px 0; background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 8px; padding: 10px 12px; font-weight: 600; }
         .modal-body { padding: 20px; }
         .modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 20px; border-top: 1px solid #dee2e6; }
         .text-muted { color: #6c757d; font-size: 0.875em; }

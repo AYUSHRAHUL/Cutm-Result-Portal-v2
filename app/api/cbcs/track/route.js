@@ -341,39 +341,58 @@ export async function POST(req) {
     // Function to check if a course belongs to a different branch's Basket IV
     // Uses the Branch field from CBCS database
     function checkIfCourseBelongsToDifferentBranch(subjectCode, studentDepartment) {
-      // Get the subject's branch from the database
       const subjectBranch = codeDepartmentMap.get(subjectCode);
-      
       console.log(`DEBUG: Checking ${subjectCode} - Student: ${studentDepartment}, Subject Branch: ${subjectBranch}`);
-      
-      // If subject branch is not found, don't reassign
       if (!subjectBranch) {
         console.log(`DEBUG: ${subjectCode} has no branch info - keeping in original basket`);
         return false;
       }
-      
-      // Normalize student department to branch code for comparison
-      const studentBranch = getBranchFromDepartment(studentDepartment);
-      
-      // If we can't determine student branch, don't reassign
-      if (!studentBranch) {
-        console.log(`DEBUG: Cannot determine branch for ${studentDepartment} - keeping in original basket`);
+      function normalizeBranchCode(input) {
+        if (!input) return null;
+        const up = String(input).trim().toUpperCase();
+        if (up === 'CSE' || up.includes('COMPUTER')) return 'CSE';
+        if (up === 'ECE' || up.includes('ELECTRONICS & COMMUNICATION')) return 'ECE';
+        if (up === 'EEE' || (up.includes('ELECTRICAL') && !up.includes('COMMUNICATION'))) return 'EEE';
+        if (up === 'ME' || up.includes('MECHANICAL')) return 'ME';
+        if (up === 'CIVIL' || up.includes('CIVIL')) return 'CIVIL';
+        return null;
+      }
+      const subjectBranchCodes = subjectBranch
+        .split('/')
+        .map(tok => normalizeBranchCode(tok))
+        .filter(Boolean);
+      const studentBranchCode = normalizeBranchCode(studentDepartment) || normalizeBranchCode(getBranchFromDepartment(studentDepartment));
+      if (studentBranchCode && subjectBranchCodes.includes(studentBranchCode)) {
+        console.log(`DEBUG: ${subjectCode} belongs to ${subjectBranch} (includes student's branch ${studentBranchCode}) - keeping in Basket IV`);
         return false;
       }
-      
-      // Check if subject's branch matches student's branch
-      // The subjectBranch can be like "CSE", "ECE", "ECE/EEE", "EEE/ECE" etc.
-      const subjectBranches = subjectBranch.split('/').map(b => b.trim().toUpperCase());
-      
-      // If subject belongs to student's branch (even if it has multiple branches), keep in Basket IV
-      if (subjectBranches.includes(studentBranch)) {
-        console.log(`DEBUG: ${subjectCode} belongs to ${subjectBranch} (includes student's branch ${studentBranch}) - keeping in Basket IV`);
+      if (!studentBranchCode || subjectBranchCodes.length === 0) {
+        console.log(`DEBUG: Unable to normalize branches for ${subjectCode} - keeping in original basket`);
         return false;
       }
-      
-      // If subject belongs to a different branch/department, move to Basket V
-      console.log(`✅ Cross-branch detection: ${subjectCode} belongs to "${subjectBranch}" but taken by "${studentDepartment}" (${studentBranch}) student - MOVING TO BASKET V`);
+      console.log(`✅ Cross-branch detection: ${subjectCode} belongs to "${subjectBranch}" but taken by "${studentDepartment}" (${studentBranchCode}) student - MOVING TO BASKET V`);
       return true;
+    }
+
+    function subjectMatchesStudentBranch(subjectCode, studentDepartment) {
+      const subjectBranch = codeDepartmentMap.get(subjectCode);
+      if (!subjectBranch) return false;
+      function normalizeBranchCode(input) {
+        if (!input) return null;
+        const up = String(input).trim().toUpperCase();
+        if (up === 'CSE' || up.includes('COMPUTER')) return 'CSE';
+        if (up === 'ECE' || up.includes('ELECTRONICS & COMMUNICATION')) return 'ECE';
+        if (up === 'EEE' || (up.includes('ELECTRICAL') && !up.includes('COMMUNICATION'))) return 'EEE';
+        if (up === 'ME' || up.includes('MECHANICAL')) return 'ME';
+        if (up === 'CIVIL' || up.includes('CIVIL')) return 'CIVIL';
+        return null;
+      }
+      const subjectBranchCodes = subjectBranch
+        .split('/')
+        .map(tok => normalizeBranchCode(tok))
+        .filter(Boolean);
+      const studentBranchCode = normalizeBranchCode(studentDepartment);
+      return !!(studentBranchCode && subjectBranchCodes.includes(studentBranchCode));
     }
     
     // Helper function to convert department name to branch code
@@ -427,16 +446,15 @@ export async function POST(req) {
         }
       }
       
-      // NEW FEATURE: Cross-branch course detection
-      // If a student from one branch takes a course that belongs to another branch's Basket IV,
-      // assign it to Basket V instead
-      if (targetBasket === "Basket IV") {
-        // Check if this course belongs to a different branch's Basket IV
-        const courseBelongsToDifferentBranch = checkIfCourseBelongsToDifferentBranch(code, actualDepartment);
-        if (courseBelongsToDifferentBranch) {
-          targetBasket = "Basket V";
-          console.log(`Cross-branch course detected: ${code} moved from Basket IV to Basket V for ${actualDepartment} student`);
-        }
+      // Cross-branch course detection with bidirectional correction
+      const courseBelongsToDifferentBranch = checkIfCourseBelongsToDifferentBranch(code, actualDepartment);
+      const courseMatchesStudentBranch = subjectMatchesStudentBranch(code, actualDepartment);
+      if (targetBasket === "Basket IV" && courseBelongsToDifferentBranch) {
+        targetBasket = "Basket V";
+        console.log(`Cross-branch course detected: ${code} moved from Basket IV to Basket V for ${actualDepartment} student`);
+      } else if (targetBasket === "Basket V" && courseMatchesStudentBranch) {
+        targetBasket = "Basket IV";
+        console.log(`Branch-aligned subject: ${code} moved from Basket V to Basket IV for ${actualDepartment} student`);
       }
       
       if (!basketProgress[targetBasket]) {

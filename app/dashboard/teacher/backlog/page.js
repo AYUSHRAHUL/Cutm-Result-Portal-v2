@@ -61,11 +61,21 @@ export default function TeacherBacklogPage() {
       const regValue = regMode === "list" ? selectedReg : registration;
       const subjValue = subjectMode === "list" ? selectedSubject : subjectCode;
       const body = regValue
-        ? { registration: regValue }
-        : { subject_code: (subjValue||"").toUpperCase(), branch, year };
+        ? { registration: regValue.trim().toUpperCase() }
+        : {
+            subject_code: (subjValue||"").toUpperCase(),
+            branch: branch || "",
+            year: year || ""
+          };
+      // Cancel previous request if still in-flight
+      if (search.controller) {
+        try { search.controller.abort(); } catch {}
+      }
+      search.controller = new AbortController();
       const res = await fetch("/api/backlogs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: search.controller.signal,
         body: JSON.stringify(body)
       });
       const data = await res.json();
@@ -83,30 +93,77 @@ export default function TeacherBacklogPage() {
     formRef.current?.querySelector('input[name="registration"]')?.focus();
   }, []);
 
-  // Load registration list when branch/year change and list mode
+  // Load registration list (mirror admin logic): query all, filter by batch/branch via Reg_No
   useEffect(() => {
-    (async () => {
+    const t = setTimeout(async () => {
       try {
-        if (regMode !== "list") { setRegList([]); return; }
-        if (!branch && !year) { setRegList([]); return; }
+        if (regMode !== "list") { 
+          setRegList([]); 
+          setSelectedReg("");
+          return; 
+        }
+        if (!branch && !year) { 
+          setRegList([]); 
+          setSelectedReg("");
+          return; 
+        }
+
         const res = await fetch("/api/students", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ department: branch || "All", batch: year || "All" })
+          body: JSON.stringify({ department: "All", batch: "All" })
         });
         const data = await res.json();
         if (res.ok) {
-          const list = (data.students || data.records || data.result || [])
-            .map(r => r.Reg_No || r.registration).filter(Boolean);
+          let students = data.students || data.records || data.result || [];
+
+          if (branch && branch !== "") {
+            const branchCodeMap = {
+              "Civil": "1",
+              "CSE": "2",
+              "ECE": "3",
+              "EEE": "5",
+              "Mechanical": "6"
+            };
+            const expectedBranchCode = branchCodeMap[branch];
+            students = students.filter(student => {
+              const regNo = student.Reg_No || student.registration;
+              if (!regNo || regNo.length < 8) return false;
+              const regBranchCode = regNo.charAt(7);
+              return regBranchCode === expectedBranchCode;
+            });
+          }
+
+          if (year && year !== "") {
+            const yy = String(year).slice(-2);
+            students = students.filter(student => {
+              const regNo = student.Reg_No || student.registration;
+              if (!regNo || regNo.length < 2) return false;
+              return regNo.slice(0, 2) === yy;
+            });
+          }
+
+          const list = students
+            .map(r => r.Reg_No || r.registration)
+            .filter(Boolean)
+            .sort();
           setRegList(Array.from(new Set(list)));
-        } else { setRegList([]); }
-      } catch { setRegList([]); }
-    })();
+          setSelectedReg("");
+        } else {
+          setRegList([]);
+          setSelectedReg("");
+        }
+      } catch {
+        setRegList([]);
+        setSelectedReg("");
+      }
+    }, 150);
+    return () => clearTimeout(t);
   }, [branch, year, regMode]);
 
   // Load subject list from CBCS when list mode
   useEffect(() => {
-    (async () => {
+    const t = setTimeout(async () => {
       try {
         if (subjectMode !== "list") { setSubjectList([]); return; }
         const params = new URLSearchParams();
@@ -121,7 +178,8 @@ export default function TeacherBacklogPage() {
           setSubjectList(uniq);
         } else { setSubjectList([]); }
       } catch { setSubjectList([]); }
-    })();
+    }, 150);
+    return () => clearTimeout(t);
   }, [subjectMode, branch]);
 
   // Get filtered and sorted rows

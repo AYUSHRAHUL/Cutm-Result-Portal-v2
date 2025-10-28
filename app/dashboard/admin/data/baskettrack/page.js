@@ -378,7 +378,7 @@ Please check if the department name matches exactly with the available departmen
     const basketsCompleted = entries.filter((b) => b && b.is_completed).length;
     const totalEarned = entries.reduce((sum, b) => sum + (Number(b?.earned_credits) || 0), 0);
     const totalFailed = entries.reduce((sum, b) => sum + (Number(b?.failed_credits) || 0), 0);
-    const totalCredits = totalEarned; // Exclude failed credits from total
+    const totalCredits = totalEarned + totalFailed; // earned + failed for totals
     const totalRequired = studentData?.is_lateral_entry ? 120 : 160;
     const percentage = Math.min(100, Math.round((totalEarned / totalRequired) * 100));
     return { totalBaskets, basketsCompleted, totalEarned, totalFailed, totalCredits, totalRequired, percentage };
@@ -1330,7 +1330,7 @@ Please check if the department name matches exactly with the available departmen
                         Object.entries(basketProgress).map(([basketName, info], index) => {
                           const earnedCredits = Number(info?.earned_credits) || 0;
                           const failedCredits = Number(info?.failed_credits) || 0;
-                          const totalCredits = earnedCredits; // Exclude failed credits from total
+                          const totalCredits = earnedCredits + failedCredits; // earned + failed per basket row
                           const requiredCredits = Number(info?.required_credits) || 0;
                           const isCompleted = earnedCredits >= requiredCredits && requiredCredits > 0;
                           const status = isCompleted ? "Completed" : "Not Completed";
@@ -1435,10 +1435,10 @@ Please check if the department name matches exactly with the available departmen
               </div>
               
               {/* Modal Body */}
-              <div className="p-6 overflow-y-auto max-h-[70vh]">
+              <div className="p-5 overflow-y-auto max-h-[70vh]">
                 {/* Basket Summary */}
                 <div className="mb-6 bg-gray-50 p-4 rounded-lg">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
                     <div>
                       <span className="font-semibold text-gray-700">Required Credits:</span>
                       <span className="ml-2 text-gray-900">{selectedBasket.info?.required_credits || 0}</span>
@@ -1450,6 +1450,10 @@ Please check if the department name matches exactly with the available departmen
                     <div>
                       <span className="font-semibold text-gray-700">Failed Credits:</span>
                       <span className="ml-2 text-red-600 font-medium">{selectedBasket.info?.failed_credits || 0}</span>
+                    </div>
+                    <div>
+                      <span className="font-semibold text-gray-700">Total Credits:</span>
+                      <span className="ml-2 text-gray-900 font-semibold">{(Number(selectedBasket.info?.earned_credits) || 0) + (Number(selectedBasket.info?.failed_credits) || 0)}</span>
                     </div>
                     <div>
                       <span className="font-semibold text-gray-700">Status:</span>
