@@ -25,12 +25,23 @@ export async function POST(req) {
       );
     }
 
-    // Additional validation for teachers: must use name-based email, not number-based
+    // Local-part validation based on role
+    const local = email.split('@')[0];
     if (role === 'teacher') {
-      const emailPrefix = email.split('@')[0];
-      if (/^\d+$/.test(emailPrefix)) {
+      // Teachers: local-part must be alphabetic (allow dots and hyphens), no pure numbers
+      const teacherOk = /^[a-zA-Z][a-zA-Z.-]*$/.test(local);
+      if (!teacherOk) {
         return NextResponse.json(
-          { success: false, error: "Teachers must use name-based email addresses (e.g., johnsmith@cutm.ac.in), not number-based emails." },
+          { success: false, error: "For teachers, use a name-based email like john.smith@cutm.ac.in (letters, dots, hyphens). Numbers-only are not allowed." },
+          { status: 400 }
+        );
+      }
+    } else {
+      // Students: local-part must be numeric only
+      const studentOk = /^\d+$/.test(local);
+      if (!studentOk) {
+        return NextResponse.json(
+          { success: false, error: "For students, use registration-number email like 220101130056@cutm.ac.in (digits only before @)." },
           { status: 400 }
         );
       }
@@ -61,25 +72,8 @@ export async function POST(req) {
       type: 'registration'
     });
 
-    // Generate institutional email based on role
-    let institutionalEmail;
-    if (role === 'teacher') {
-      // For teachers: use name (e.g., "John Smith" -> "johnsmith@cutm.ac.in")
-      institutionalEmail = `${name.replace(/\s+/g, '').toLowerCase()}@cutm.ac.in`;
-    } else {
-      // For students: use registration number format (e.g., "220101130056@cutm.ac.in")
-      // Extract registration number from email if it's in the format number@cutm.ac.in
-      const emailPrefix = email.split('@')[0];
-      if (/^\d+$/.test(emailPrefix)) {
-        institutionalEmail = `${emailPrefix}@cutm.ac.in`;
-      } else {
-        // Fallback to name-based email for students
-        institutionalEmail = `${name.replace(/\s+/g, '').toLowerCase()}@cutm.ac.in`;
-      }
-    }
-
-    // Send OTP only to institutional email
-    const emailsToSend = [institutionalEmail].filter(Boolean);
+    // Send OTP only to the entered email address
+    const emailsToSend = [email];
     const emailResults = await sendOTPToMultipleEmails(emailsToSend, otp, 'registration');
 
     // Check if any emails were sent successfully
@@ -97,7 +91,6 @@ export async function POST(req) {
     return NextResponse.json({
       success: true,
       message: `OTP sent to ${successfulEmails.length} email address(es)`,
-      institutionalEmail,
       emailsSent: successfulEmails.length
     });
 

@@ -378,7 +378,7 @@ Please check if the department name matches exactly with the available departmen
     const basketsCompleted = entries.filter((b) => b && b.is_completed).length;
     const totalEarned = entries.reduce((sum, b) => sum + (Number(b?.earned_credits) || 0), 0);
     const totalFailed = entries.reduce((sum, b) => sum + (Number(b?.failed_credits) || 0), 0);
-    const totalCredits = totalEarned + totalFailed; // FIXED: Include failed credits in total
+    const totalCredits = totalEarned; // Exclude failed credits from total
     const totalRequired = studentData?.is_lateral_entry ? 120 : 160;
     const percentage = Math.min(100, Math.round((totalEarned / totalRequired) * 100));
     return { totalBaskets, basketsCompleted, totalEarned, totalFailed, totalCredits, totalRequired, percentage };
@@ -1330,7 +1330,7 @@ Please check if the department name matches exactly with the available departmen
                         Object.entries(basketProgress).map(([basketName, info], index) => {
                           const earnedCredits = Number(info?.earned_credits) || 0;
                           const failedCredits = Number(info?.failed_credits) || 0;
-                          const totalCredits = earnedCredits + failedCredits; // FIXED: Include failed credits in total
+                          const totalCredits = earnedCredits; // Exclude failed credits from total
                           const requiredCredits = Number(info?.required_credits) || 0;
                           const isCompleted = earnedCredits >= requiredCredits && requiredCredits > 0;
                           const status = isCompleted ? "Completed" : "Not Completed";

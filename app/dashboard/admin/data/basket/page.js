@@ -46,6 +46,13 @@ export default function AdminCBCSBasketPage() {
   }
 
   useEffect(() => { fetchItems(); }, []);
+  // Auto-hide success after a few seconds
+  useEffect(() => {
+    if (success) {
+      const t = setTimeout(() => setSuccess(""), 3000);
+      return () => clearTimeout(t);
+    }
+  }, [success]);
   
   // Trigger search when search term changes
   useEffect(() => {
@@ -242,6 +249,17 @@ export default function AdminCBCSBasketPage() {
         {success && <div className="alert alert-success mb-4">{success}</div>}
         {error && <div className="alert alert-error mb-4">{error}</div>}
 
+        {/* Success Toast */}
+        {success && (
+          <div className="toast-success">
+            <div className="toast-content">
+              <span className="toast-check">✓</span>
+              <span className="toast-text">{success}</span>
+              <button onClick={() => setSuccess("")} className="toast-close">×</button>
+            </div>
+          </div>
+        )}
+
         {/* Stats */}
         <div className="flex flex-wrap gap-4 mb-6">
           <div className="stat-card"><div className="stat-number">{totalSubjects}</div><div className="stat-label">Total Subjects</div></div>
@@ -368,7 +386,8 @@ export default function AdminCBCSBasketPage() {
                 </div>
                 <div className="form-group">
                   <label>Credits</label>
-                  <input type="number" value={editForm.Credits} onChange={e => setEditForm({...editForm, Credits: e.target.value})} className="form-control" />
+                  <input value={editForm.Credits} onChange={e => setEditForm({...editForm, Credits: e.target.value})} className="form-control" placeholder="e.g., 3 or 1+2+0" />
+                  <small className="text-muted">You can use formats like 3 or 1+2+0</small>
                 </div>
               </div>
               <div className="modal-footer">
@@ -414,7 +433,8 @@ export default function AdminCBCSBasketPage() {
                     </div>
                     <div className="form-group">
                       <label>Credits</label>
-                      <input type="number" value={addForm.Credits} onChange={e => setAddForm({...addForm, Credits: e.target.value})} className="form-control" placeholder="e.g., 3" />
+                      <input value={addForm.Credits} onChange={e => setAddForm({...addForm, Credits: e.target.value})} className="form-control" placeholder="e.g., 3 or 1+2+0" />
+                      <small className="text-muted">You can use formats like 3 or 1+2+0</small>
                     </div>
                   </>
                 ) : (
@@ -483,6 +503,13 @@ export default function AdminCBCSBasketPage() {
         .alert { padding: 15px; border-radius: 8px; }
         .alert-success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
         .alert-error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .toast-success { position: fixed; right: 20px; bottom: 20px; z-index: 3000; animation: slideIn 0.3s ease-out; }
+        .toast-content { display: flex; align-items: center; gap: 10px; background: #10b981; color: #fff; padding: 12px 16px; border-radius: 10px; box-shadow: 0 10px 20px rgba(0,0,0,0.15); }
+        .toast-check { font-weight: 700; background: rgba(255,255,255,0.2); width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; }
+        .toast-text { font-weight: 600; }
+        .toast-close { background: transparent; border: none; color: #fff; font-size: 18px; cursor: pointer; margin-left: 4px; opacity: 0.9; }
+        .toast-close:hover { opacity: 1; }
+        @keyframes slideIn { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
         .modal-content { background: white; border-radius: 10px; width: 90%; max-width: 500px; max-height: 90vh; overflow-y: auto; }
         .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 1px solid #dee2e6; }

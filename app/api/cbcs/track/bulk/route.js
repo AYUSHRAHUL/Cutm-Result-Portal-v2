@@ -575,10 +575,10 @@ export async function POST(req) {
       // Recalculate each basket
       Object.values(basketProgress).forEach(recalcBasket);
 
-      // Calculate totals (including failed subjects)
+      // Calculate totals (earned only for total credits)
       const totalEarned = Object.values(basketProgress).reduce((s, b) => s + (Number(b.earned_credits) || 0), 0);
       const totalFailed = Object.values(basketProgress).reduce((s, b) => s + (Number(b.failed_credits) || 0), 0);
-      const totalCredits = totalEarned + totalFailed; // Include both earned and failed
+      const totalCredits = totalEarned; // Exclude failed credits from total
       const totalRequired = Object.values(basketProgress).reduce((s, b) => s + (Number(b.required_credits) || 0), 0) || (isLateralEntry ? 120 : 160);
       const percentage = totalRequired > 0 ? Math.min(100, Math.round((totalEarned / totalRequired) * 100)) : 0;
 
@@ -602,12 +602,12 @@ export async function POST(req) {
         totalRequiredCredits: totalRequired,
         percentage: percentage,
         status: percentage >= 100 ? "Completed" : percentage === 0 ? "Not Started" : "In Progress",
-        // Individual basket credits (including failed subjects)
-        basketI: (basketProgress["Basket I"]?.earned_credits || 0) + (basketProgress["Basket I"]?.failed_credits || 0),
-        basketII: (basketProgress["Basket II"]?.earned_credits || 0) + (basketProgress["Basket II"]?.failed_credits || 0),
-        basketIII: (basketProgress["Basket III"]?.earned_credits || 0) + (basketProgress["Basket III"]?.failed_credits || 0),
-        basketIV: (basketProgress["Basket IV"]?.earned_credits || 0) + (basketProgress["Basket IV"]?.failed_credits || 0),
-        basketV: (basketProgress["Basket V"]?.earned_credits || 0) + (basketProgress["Basket V"]?.failed_credits || 0),
+        // Individual basket credits (earned only)
+        basketI: (basketProgress["Basket I"]?.earned_credits || 0),
+        basketII: (basketProgress["Basket II"]?.earned_credits || 0),
+        basketIII: (basketProgress["Basket III"]?.earned_credits || 0),
+        basketIV: (basketProgress["Basket IV"]?.earned_credits || 0),
+        basketV: (basketProgress["Basket V"]?.earned_credits || 0),
         // FIXED: For specific basket view
         basketCredits: basket && basket !== "All" && basket !== "" ? (basketProgress[basket]?.earned_credits || 0) : 0,
         basketStatus: basket && basket !== "All" && basket !== "" ? (basketProgress[basket]?.status || "Not Started") : "N/A"

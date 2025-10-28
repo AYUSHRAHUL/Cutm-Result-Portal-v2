@@ -53,8 +53,8 @@ export default function RegisterPage() {
           return;
         }
 
-        setInstitutionalEmail(data.institutionalEmail);
-        setSuccess(`✅ OTP sent to ${data.emailsSent} email address(es)`);
+        setInstitutionalEmail("");
+        setSuccess(`✅ OTP sent to your email address`);
         setStep(2);
       } catch (err) {
         console.error("OTP send error:", err);
@@ -349,7 +349,7 @@ export default function RegisterPage() {
                       />
                     </div>
                     <p className="text-[#5A6C7D] text-[0.65rem] sm:text-xs mt-1 font-medium">
-                      Only @cutm.ac.in or @centurionuniv.edu.in emails allowed
+                      Allowed domains: @cutm.ac.in, @centurionuniv.edu.in. Students: digits-only before @ (e.g., 220101130056@cutm.ac.in). Teachers: name-based (letters, dots, hyphens) before @ (e.g., john.smith@cutm.ac.in).
                     </p>
                   </div>
 
@@ -551,11 +551,6 @@ export default function RegisterPage() {
                     <p className="text-[#05A3C7] font-black text-xs sm:text-sm break-all">
                       {form.email}
                     </p>
-                    {institutionalEmail && (
-                      <p className="text-[#05A3C7] font-black text-xs sm:text-sm break-all">
-                        {institutionalEmail}
-                      </p>
-                    )}
                   </div>
 
                   <div>
