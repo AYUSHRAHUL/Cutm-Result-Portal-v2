@@ -26,13 +26,15 @@ export default function TeacherBacklogPage() {
   function exportCSV() {
     if (rows.length === 0) return;
     
-    const headers = ["Registration", "Name", "Subject", "Code", "Semester", "Grade"];
+    const headers = ["Reg No", "Name", "Branch", "Batch", "Semester", "Subject Code", "Subject Name", "Grade"];
     const csvRows = rows.map(b => [
       b.Reg_No || b.registration || '',
       b.Name || '',
-      b.Subject_Name || '',
-      b.Subject_Code || b.subject_code || '',
+      b.Branch || '',
+      b.Batch || '',
       b.Sem || '',
+      b.Subject_Code || b.subject_code || '',
+      b.Subject_Name || '',
       b.Grade || ''
     ].map(field => {
       const str = String(field).replace(/"/g, '""');
@@ -437,7 +439,7 @@ export default function TeacherBacklogPage() {
                     background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
                   }}
                 >
-                  {["Reg","Name","Subject","Code","Sem","Grade"].map(h => (
+                  {["Reg No","Name","Branch","Batch","Semester","Subject Code","Subject Name","Grade"].map(h => (
                     <th key={h} className="px-4 py-3 text-left uppercase tracking-wider font-black text-xs whitespace-nowrap">
                       {h}
                     </th>
@@ -447,7 +449,7 @@ export default function TeacherBacklogPage() {
               <tbody>
                 {filteredRows.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-3 py-8 lg:py-10 text-center text-[#5A6C7D] font-medium">
+                    <td colSpan={8} className="px-3 py-8 lg:py-10 text-center text-[#5A6C7D] font-medium">
                       {rows.length === 0 ? "No backlog results" : "No results match the current filters"}
                     </td>
                   </tr>
@@ -456,17 +458,19 @@ export default function TeacherBacklogPage() {
                   <tr key={i} className="border-t-2 border-[#05A3C7]/10 hover:bg-[#05A3C7]/5 transition-colors">
                     <td className="px-4 py-3 text-[#1A1F29] font-medium whitespace-nowrap">{b.Reg_No || b.registration || '-'}</td>
                     <td className="px-4 py-3 text-[#1A1F29] font-medium">{b.Name || '-'}</td>
-                    <td className="px-4 py-3 text-[#1A1F29] font-medium">{b.Subject_Name || '-'}</td>
-                    <td className="px-4 py-3">
-                      <code className="text-[#05A3C7] bg-[#05A3C7]/10 px-2 py-1 rounded font-bold whitespace-nowrap">
-                        {b.Subject_Code || b.subject_code}
-                      </code>
-                    </td>
+                    <td className="px-4 py-3 text-[#1A1F29] font-medium">{b.Branch || '-'}</td>
+                    <td className="px-4 py-3 text-[#1A1F29] font-medium whitespace-nowrap">{b.Batch || '-'}</td>
                     <td className="px-4 py-3">
                       <span className="px-3 py-1 rounded-full text-xs bg-[#05A3C7]/10 text-[#05A3C7] font-bold whitespace-nowrap">
                         {b.Sem || '-'}
                       </span>
                     </td>
+                    <td className="px-4 py-3">
+                      <code className="text-[#05A3C7] bg-[#05A3C7]/10 px-2 py-1 rounded font-bold whitespace-nowrap">
+                        {b.Subject_Code || b.subject_code || '-'}
+                      </code>
+                    </td>
+                    <td className="px-4 py-3 text-[#1A1F29] font-medium">{b.Subject_Name || '-'}</td>
                     <td className="px-4 py-3">
                       <span className="px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 whitespace-nowrap">
                         {b.Grade || '-'}

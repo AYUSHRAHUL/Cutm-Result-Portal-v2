@@ -9,7 +9,9 @@ export default function BasketProgressTracker() {
   const [registration, setRegistration] = useState("");
   const [registrationOptions, setRegistrationOptions] = useState([]);
   const [loadingRegistrations, setLoadingRegistrations] = useState(false);
-  const [semesters, setSemesters] = useState([]);
+  // Hardcoded semester list - always show all 8 semesters
+  const allSemesters = ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"];
+  const [semesters, setSemesters] = useState(allSemesters);
   const [semesterValues, setSemesterValues] = useState([]);
   const [basket, setBasket] = useState("");
   const [error, setError] = useState("");
@@ -93,7 +95,7 @@ export default function BasketProgressTracker() {
     setAllStudentsData([]);
     setDataSources(null);
     setSearchPerformed(false);
-    setSemesters([]);
+    setSemesters(allSemesters); // Keep all semesters visible
     setSearchTerm('');
     setFilterStatus('all');
     setShowAdvancedFilters(false);
@@ -346,7 +348,7 @@ Please check if the department name matches exactly with the available departmen
 
     // Clear dependent states when filters change
     setRegistration("");
-    setSemesters([]);
+    setSemesters(allSemesters); // Keep all semesters visible
     setSemesterValues([]);
 
     if (department && department !== "" && department !== "All" && batch && batch !== "" && batch !== "All") {
@@ -358,35 +360,15 @@ Please check if the department name matches exactly with the available departmen
 
   // Load semesters for registration
   async function loadSemestersForRegistration(value) {
-    if (!value || value === "all") {
-      setSemesters([]);
-      return;
-    }
-    
-    try {
-      setLoadingSemesters(true);
-      const res = await fetch("/api/semesters", { 
-        method: "POST", 
-        headers: { "Content-Type": "application/json" }, 
-        body: JSON.stringify({ registration: value }) 
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to load semesters");
-      setSemesters(data.semesters || []);
-    } catch {
-      setSemesters([]);
-    } finally {
-      setLoadingSemesters(false);
-    }
+    // Always keep all 8 semesters visible - no need to fetch
+    // Individual registration doesn't restrict semester options
+    return;
   }
 
+  // Semesters always stay as all 8 - no need to change based on registration
   useEffect(() => {
-    if (registration && registration.trim().length >= 6 && registration !== "all") {
-      loadSemestersForRegistration(registration.trim());
-    } else {
-      setSemesters([]);
-      setSemesterValues([]);
-    }
+    // Keep all semesters visible always
+    setSemesters(allSemesters);
   }, [registration]);
 
   // Enhanced stats calculation
@@ -714,57 +696,7 @@ Please check if the department name matches exactly with the available departmen
 
   return (
     <div className={`min-h-screen transition-all duration-300 ${darkMode ? 'bg-gray-900' : 'bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50'}`}>
-      {/* Enhanced Header */}
-      <div className={`${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white/80 backdrop-blur-sm'} shadow-lg border-b`}>
-        <div className="max-w-7xl mx-auto px-4 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 bg-gradient-to-r from-blue-500 to-purple-500 rounded-xl flex items-center justify-center shadow-lg">
-                <span className="text-white text-xl font-bold">📊</span>
-              </div>
-              <div>
-                <h1 className={`text-3xl font-extrabold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-                  CUTM Basket Tracker
-                </h1>
-                <p className={`mt-1 text-sm ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                  🎯 Advanced CBCS basket progress analysis and management
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setDarkMode(!darkMode)}
-                className={`p-2 rounded-lg transition-all duration-300 ${
-                  darkMode ? 'bg-gray-700 text-yellow-400 hover:bg-gray-600' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-                title="Toggle dark mode"
-              >
-                {darkMode ? '☀️' : '🌙'}
-              </button>
-              <Link
-                href="/dashboard/admin/data/basket"
-                className={`inline-flex items-center px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
-                  darkMode 
-                    ? 'bg-gray-700 text-white hover:bg-gray-600 border border-gray-600' 
-                    : 'bg-gradient-to-r from-blue-500 to-purple-500 text-white hover:from-blue-600 hover:to-purple-600 shadow-lg'
-                }`}
-              >
-                ← Back to Baskets
-              </Link>
-              <Link
-                href="/dashboard/admin"
-                className={`inline-flex items-center px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
-                  darkMode 
-                    ? 'bg-gray-700 text-white hover:bg-gray-600 border border-gray-600' 
-                    : 'bg-gradient-to-r from-gray-500 to-gray-600 hover:from-gray-600 hover:to-gray-700 text-white shadow-lg'
-                }`}
-              >
-                Admin Dashboard
-              </Link>
-            </div>
-          </div>
-        </div>
-      </div>
+   
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 py-8">
@@ -807,10 +739,7 @@ Please check if the department name matches exactly with the available departmen
                   </div>
                 </div>
               </div>
-              <div className={`mt-4 text-xs p-3 rounded-lg ${darkMode ? 'bg-gray-700' : 'bg-white/40'}`}>
-                💡 <strong>Special Note:</strong> CUTM1046 is assigned to Basket IV for ECE students, Basket V for CSE students. 
-                Lateral entry students are identified by registration numbers with "1" as the 9th character.
-              </div>
+              
             </div>
           </div>
         </div>
@@ -1577,11 +1506,13 @@ Please check if the department name matches exactly with the available departmen
                             <td className="border border-gray-300 px-3 py-2 text-center">
                               <div className="flex flex-col gap-1">
                                 <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                  subject.completed 
+                                  subject.status === 'Completed'
                                     ? 'bg-green-100 text-green-800' 
-                                    : 'bg-red-100 text-red-800'
+                                    : subject.status === 'Failed'
+                                    ? 'bg-red-100 text-red-800'
+                                    : 'bg-orange-100 text-orange-800'
                                 }`}>
-                                  {subject.completed ? 'Completed' : 'Failed'}
+                                  {subject.status || (subject.completed ? 'Completed' : 'Failed')}
                                 </span>
                                 {subject.dataSource && (
                                   <span className={`px-1 py-0.5 rounded text-xs font-medium ${
@@ -1652,25 +1583,7 @@ Please check if the department name matches exactly with the available departmen
           </div>
         )}
 
-        {/* Welcome Message */}
-        {!searchPerformed && !loading && (
-          <div className="bg-blue-50 border border-blue-200 rounded-md p-6">
-            <div className="text-center">
-              <div className="text-blue-600 text-4xl mb-4">🎯</div>
-              <h3 className="text-lg font-medium text-blue-800 mb-3">Welcome to CUTM Credits Tracker</h3>
-              <div className="text-blue-700 text-left max-w-2xl mx-auto">
-                <p className="mb-3">Choose your tracking mode:</p>
-                <ul className="list-disc ml-6 space-y-2">
-                  <li><strong>Individual Mode:</strong> Enter a specific registration number to track one student's basket progress in detail</li>
-                  <li><strong>Bulk Mode:</strong> Select "All Students" to analyze multiple students' progress at once (department selection required)</li>
-                </ul>
-                <p className="mt-3 text-sm text-blue-600">
-                  💡 Use filters to narrow down your search and get more specific results.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
+       
       </div>
 
       <style jsx>{`

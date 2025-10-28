@@ -808,7 +808,7 @@ export default function UserDashboard() {
               animation: 'titleSlide 1.5s ease-out',
               position: 'relative'
             }}>
-              Welcome to CUTM Result Portal
+              Welcome to CUTM Academic Tracker
           </h1>
             <p style={{
               fontSize: '1.25rem',

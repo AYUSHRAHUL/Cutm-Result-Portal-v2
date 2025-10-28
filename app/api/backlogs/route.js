@@ -97,13 +97,60 @@ export async function POST(req) {
 
     console.log("Backlog search query:", JSON.stringify(query));
 
-    const backlogs = await cutm.find(query).project({ _id: 0 }).sort({ Sem: 1, Subject_Code: 1 }).toArray();
+    // Get backlogs with Name and Branch fields
+    const backlogs = await cutm.find(query).project({ 
+      _id: 0, 
+      Reg_No: 1, 
+      Name: 1, 
+      Branch: 1,
+      Sem: 1,
+      Subject_Code: 1,
+      Subject_Name: 1,
+      Grade: 1
+    }).sort({ Sem: 1, Subject_Code: 1 }).toArray();
     
-    console.log(`Found ${backlogs.length} backlog records`);
+    // Helper function to derive branch from Reg_No
+    function getBranchFromRegNo(regNo) {
+      if (!regNo || regNo.length < 8) return 'N/A';
+      const deptCode = regNo.charAt(7);
+      const branchMap = {
+        '1': 'Civil Engineering',
+        '2': 'Computer Science Engineering',
+        '3': 'Electronics & Communication Engineering',
+        '4': 'Electronics & Communication Engineering', // Alternative code
+        '5': 'Electrical & Electronics Engineering',
+        '6': 'Mechanical Engineering',
+        '7': 'Mechanical Engineering', // Alternative code
+        '8': 'Computer Science Engineering', // Alternative code
+        '9': 'Civil Engineering' // Alternative code
+      };
+      return branchMap[deptCode] || 'N/A';
+    }
+    
+    // Extract batch from Reg_No for each record and derive Branch if missing
+    const backlogsWithBatch = backlogs.map(record => {
+      let batch = 'N/A';
+      if (record.Reg_No && record.Reg_No.length >= 2) {
+        const batchDigits = record.Reg_No.slice(0, 2);
+        batch = `20${batchDigits}`;
+      }
+      
+      // Derive branch from Reg_No if not in the record
+      const branch = record.Branch || getBranchFromRegNo(record.Reg_No);
+      
+      return {
+        ...record,
+        Batch: batch,
+        Branch: branch
+      };
+    });
+    
+    console.log(`Found ${backlogsWithBatch.length} backlog records`);
+    console.log(`Sample records:`, backlogsWithBatch.slice(0, 2));
     
     return NextResponse.json({ 
-      backlogs,
-      total: backlogs.length,
+      backlogs: backlogsWithBatch,
+      total: backlogsWithBatch.length,
       registration: registration || "auto-filled"
     });
   } catch (err) {

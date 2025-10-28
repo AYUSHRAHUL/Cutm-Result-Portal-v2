@@ -64,7 +64,7 @@ export default function HomePage() {
   const heroSlides = [
     {
       title: "Academic Excellence",
-      subtitle: "CUTM Result Portal",
+      subtitle: "CUTM ACADEMIC TRACKER",
       description: "Access your academic results instantly with our comprehensive portal system",
       badge: "Result Portal"
     },
@@ -224,9 +224,9 @@ export default function HomePage() {
               </div>
               <div className="flex flex-col">
                 <span className="font-black text-xl text-[#1A1F29]">
-                  CUTM Portal
+                  CUTM 
                 </span>
-                <span className="text-xs font-bold" style={{ color: '#05A3C7' }}>Academic Excellence</span>
+                <span className="text-xs font-bold" style={{ color: '#05A3C7' }}>ACADEMIC TRACKER</span>
               </div>
             </a>
 
@@ -634,7 +634,7 @@ export default function HomePage() {
                   WebkitBackgroundClip: 'text',
                   WebkitTextFillColor: 'transparent'
                 }}>
-              About CUTM Portal
+              About CUTM ACADEMIC TRACKER
             </h2>
             <p className="text-xl max-w-2xl mx-auto font-medium text-[#5A6C7D]">
               Transforming academic result management through innovative technology

@@ -105,7 +105,7 @@ export default function LoginPage() {
           <h1 className="text-4xl xl:text-5xl font-black text-center mb-4 xl:mb-6 leading-tight">
             Welcome to
             <br />
-            <span className="text-[#F18F01]">CUTM Portal</span>
+            <span className="text-[#F18F01]">CUTM Academic Tracker</span>
           </h1>
 
           <p className="text-lg xl:text-xl text-center text-white/90 mb-8 xl:mb-12 max-w-md font-medium leading-relaxed">

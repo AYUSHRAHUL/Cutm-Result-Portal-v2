@@ -393,16 +393,70 @@ export async function POST(req) {
     );
 
     const codeMap = new Map();
+    const codeDepartmentMap = new Map(); // NEW: Map subject codes to their departments
     if (codes.length > 0) {
       const cbcsDocs = await db
         .collection("cbcs")
         .find({ "Subject Code": { $in: codes } })
-        .project({ _id: 0, "Subject Code": 1, Basket: 1 })
+        .project({ _id: 0, "Subject Code": 1, Basket: 1, Branch: 1, Department: 1 })
         .toArray();
       cbcsDocs.forEach((d) => {
         const code = String(d["Subject Code"]).toUpperCase().trim();
         codeMap.set(code, String(d.Basket || "").trim());
+        // Store department info from Branch field (or Department if available)
+        const dept = String(d.Branch || d.Department || "").trim();
+        codeDepartmentMap.set(code, dept);
       });
+    }
+
+    // Function to check if a course belongs to a different branch's Basket IV
+    // Uses the Branch field from CBCS database
+    function checkIfCourseBelongsToDifferentBranch(subjectCode, studentDepartment, regNo) {
+      // Get the subject's branch from the database
+      const subjectBranch = codeDepartmentMap.get(subjectCode);
+      
+      console.log(`DEBUG: Checking ${subjectCode} (${regNo}) - Student: ${studentDepartment}, Subject Branch: ${subjectBranch}`);
+      
+      // If subject branch is not found, don't reassign
+      if (!subjectBranch) {
+        console.log(`DEBUG: ${subjectCode} has no branch info - keeping in original basket`);
+        return false;
+      }
+      
+      // Normalize student department to branch code for comparison
+      const studentBranch = getBranchFromDepartment(studentDepartment);
+      
+      // If we can't determine student branch, don't reassign
+      if (!studentBranch) {
+        console.log(`DEBUG: Cannot determine branch for ${studentDepartment} - keeping in original basket`);
+        return false;
+      }
+      
+      // Check if subject's branch matches student's branch
+      // The subjectBranch can be like "CSE", "ECE", "ECE/EEE", "EEE/ECE" etc.
+      const subjectBranches = subjectBranch.split('/').map(b => b.trim().toUpperCase());
+      
+      // If subject belongs to student's branch (even if it has multiple branches), keep in Basket IV
+      if (subjectBranches.includes(studentBranch)) {
+        console.log(`DEBUG: ${subjectCode} belongs to ${subjectBranch} (includes student's branch ${studentBranch}) - keeping in Basket IV`);
+        return false;
+      }
+      
+      // If subject belongs to a different branch/department, move to Basket V
+      console.log(`✅ Cross-branch detection: ${subjectCode} belongs to "${subjectBranch}" but taken by "${studentDepartment}" (${studentBranch}) student ${regNo} - MOVING TO BASKET V`);
+      return true;
+    }
+    
+    // Helper function to convert department name to branch code
+    function getBranchFromDepartment(dept) {
+      if (!dept) return null;
+      const upper = dept.toUpperCase();
+      if (upper.includes('COMPUTER') || upper.includes('CSE')) return 'CSE';
+      if (upper.includes('ELECTRONICS & COMMUNICATION') || upper.includes('ECE')) return 'ECE';
+      if (upper.includes('ELECTRICAL') || upper.includes('EEE')) return 'EEE';
+      if (upper.includes('MECHANICAL') || upper.includes('ME')) return 'ME';
+      if (upper.includes('CIVIL')) return 'CIVIL';
+      return null;
     }
 
     // Process each student
@@ -492,6 +546,18 @@ export async function POST(req) {
             targetBasket = "Basket IV";
           } else {
             targetBasket = "Basket IV"; // Default to Basket IV for other departments
+          }
+        }
+        
+        // NEW FEATURE: Cross-branch course detection
+        // If a student from one branch takes a course that belongs to another branch's Basket IV,
+        // assign it to Basket V instead
+        if (targetBasket === "Basket IV") {
+          // Check if this course belongs to a different branch's Basket IV
+          const courseBelongsToDifferentBranch = checkIfCourseBelongsToDifferentBranch(code, actualDepartment, student.Reg_No);
+          if (courseBelongsToDifferentBranch) {
+            targetBasket = "Basket V";
+            console.log(`Cross-branch course detected: ${code} moved from Basket IV to Basket V for ${actualDepartment} student ${student.Reg_No}`);
           }
         }
         
