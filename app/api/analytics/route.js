@@ -159,7 +159,8 @@ function getDepartmentStats(data) {
     '2': 'Computer Science Engineering',
     '3': 'Electronics & Communication Engineering',
     '5': 'Electrical & Electronics Engineering',
-    '6': 'Mechanical Engineering'
+    '6': 'Mechanical Engineering',
+    '7': 'AIML'
   };
   
   const stats = {};
@@ -367,7 +368,8 @@ function getDepartmentPerformanceHeatmap(data) {
     '2': 'Computer Science Engineering', 
     '3': 'Electronics & Communication Engineering',
     '5': 'Electrical & Electronics Engineering',
-    '6': 'Mechanical Engineering'
+    '6': 'Mechanical Engineering',
+    '7': 'AIML'
   };
   
   const gradePoints = { 'O': 10, 'E': 9, 'A': 8, 'B': 7, 'C': 6, 'D': 5, 'F': 0, 'S': 0, 'I': 0, 'M': 0, 'R': 0 };
@@ -510,7 +512,8 @@ function getCreditDistributionByDepartment(data) {
     '2': 'Computer Science Engineering',
     '3': 'Electronics & Communication Engineering', 
     '5': 'Electrical & Electronics Engineering',
-    '6': 'Mechanical Engineering'
+    '6': 'Mechanical Engineering',
+    '7': 'AIML'
   };
   
   const deptCredits = {};
@@ -629,7 +632,8 @@ function getPerformanceComparisonMatrix(data) {
     '2': 'Computer Science Engineering',
     '3': 'Electronics & Communication Engineering',
     '5': 'Electrical & Electronics Engineering', 
-    '6': 'Mechanical Engineering'
+    '6': 'Mechanical Engineering',
+    '7': 'AIML'
   };
   
   const matrix = {};

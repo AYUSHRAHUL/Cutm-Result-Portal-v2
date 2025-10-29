@@ -437,7 +437,7 @@ export default function AdminCBCSIndex() {
                     <div className="text-xs sm:text-sm text-gray-600 font-medium">Semesters</div>
                   </div>
                   <div className="bg-orange-50 rounded-lg p-3 sm:p-4 text-center">
-                    <div className="text-xl sm:text-2xl font-black text-orange-600">5</div>
+                    <div className="text-xl sm:text-2xl font-black text-orange-600">6</div>
                     <div className="text-xs sm:text-sm text-gray-600 font-medium">Departments</div>
                   </div>
                 </div>
@@ -506,6 +506,7 @@ export default function AdminCBCSIndex() {
                     <option value="3">ECE</option>
                     <option value="5">EEE</option>
                     <option value="6">Mechanical</option>
+                    <option value="7">AIML</option>
                   </select>
                 </div>
                 

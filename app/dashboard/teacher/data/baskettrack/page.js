@@ -133,7 +133,8 @@ export default function TeacherBasketProgressTracker() {
           "Computer Science Engineering",
           "Electronics & Communication Engineering", 
           "Electrical & Electronics Engineering",
-          "Mechanical Engineering"
+          "Mechanical Engineering",
+          "AIML"
         ];
         
         if (!validDepartments.includes(department)) {
@@ -319,6 +320,7 @@ Please check if the department name matches exactly with the available departmen
           "Electronics & Communication Engineering": "ECE",
           "Electrical & Electronics Engineering": "EEE",
           "Mechanical Engineering": "Mechanical",
+          "AIML": "AIML",
         };
         const branch = department && department !== "All" ? branchMap[department] : undefined;
         const hasBatch = batch && batch !== "All";
@@ -770,6 +772,7 @@ Please check if the department name matches exactly with the available departmen
                   <option value="Electronics & Communication Engineering">Electronics & Communication Engineering</option>
                   <option value="Electrical & Electronics Engineering">Electrical & Electronics Engineering</option>
                   <option value="Mechanical Engineering">Mechanical Engineering</option>
+                  <option value="AIML">AIML</option>
                 </select>
                 <div className="text-xs text-gray-500">
                   💡 Department selection is mandatory for "All Students" search

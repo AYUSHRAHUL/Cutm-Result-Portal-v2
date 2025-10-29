@@ -120,7 +120,7 @@ export async function POST(req) {
         '4': 'Electronics & Communication Engineering', // Alternative code
         '5': 'Electrical & Electronics Engineering',
         '6': 'Mechanical Engineering',
-        '7': 'Mechanical Engineering', // Alternative code
+        '7': 'AIML',
         '8': 'Computer Science Engineering', // Alternative code
         '9': 'Civil Engineering' // Alternative code
       };
@@ -160,7 +160,7 @@ export async function POST(req) {
 }
 
 function branchCode(name) {
-  const map = { Civil: '1', CSE: '2', ECE: '3', EEE: '5', Mechanical: '6' };
+  const map = { Civil: '1', CSE: '2', ECE: '3', EEE: '5', Mechanical: '6', AIML: '7' };
   return map[name] || null;
 }
 

@@ -69,7 +69,7 @@ export default function TeacherCBCSBasketPage() {
         {/* Stats */}
         <div className="flex flex-wrap gap-4 mb-6">
           <div className="stat-card"><div className="stat-number">{totalSubjects}</div><div className="stat-label">Total Subjects</div></div>
-          <div className="stat-card"><div className="stat-number">{5}</div><div className="stat-label">Branches</div></div>
+          <div className="stat-card"><div className="stat-number">{6}</div><div className="stat-label">Branches</div></div>
           <div className="stat-card"><div className="stat-number">{baskets.length}</div><div className="stat-label">Baskets</div></div>
         </div>
 
@@ -88,6 +88,7 @@ export default function TeacherCBCSBasketPage() {
                   <option value="ECE">ECE</option>
                   <option value="MECHANICAL">MECHANICAL</option>
                   <option value="CSE">CSE</option>
+                  <option value="AIML">AIML</option>
                 </select>
               </div>
               <div className="form-group">

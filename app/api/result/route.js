@@ -176,6 +176,7 @@ export async function POST(req) {
     function normalizeBranch(value) {
       const s = String(value || "").toUpperCase();
       if (!s) return "";
+      if (/(AIML|ARTIFICIAL\s*INTELLIGENCE)/.test(s)) return "AIML";
       if (/(CSE|COMPUTER\s*SCIENCE)/.test(s)) return "Computer Science and Engineering";
       if (/(ECE|ELECTRONICS\s*AND\s*COMMUNICATION)/.test(s)) return "Electronics and Communication Engineering";
       if (/(EEE|ELECTRICAL\s*AND\s*ELECTRONICS)/.test(s)) return "Electrical and Electronics Engineering";
@@ -226,7 +227,7 @@ export async function POST(req) {
       '4': 'Electronics and Communication Engineering', // alternative code
       '5': 'Electrical and Electronics Engineering',
       '6': 'Mechanical Engineering',
-      '7': 'Mechanical Engineering', // alternative code
+      '7': 'AIML', // AIML branch
       '8': 'Computer Science and Engineering', // alternative code
       '9': 'Civil Engineering', // alternative code
     };

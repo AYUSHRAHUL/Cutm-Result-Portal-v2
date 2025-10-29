@@ -189,7 +189,7 @@ export async function POST(req) {
       '3': 'Electronics & Communication Engineering',
       '5': 'Electrical & Electronics Engineering',
       '6': 'Mechanical Engineering',
-      '7': 'Mechanical Engineering', // Alternative code for ME
+      '7': 'AIML', // AIML
       '8': 'Computer Science Engineering', // Alternative code for CSE
       '9': 'Civil Engineering' // Alternative code for Civil
     };
@@ -350,6 +350,7 @@ export async function POST(req) {
       function normalizeBranchCode(input) {
         if (!input) return null;
         const up = String(input).trim().toUpperCase();
+        if (up === 'AIML' || up.includes('ARTIFICIAL')) return 'AIML';
         if (up === 'CSE' || up.includes('COMPUTER')) return 'CSE';
         if (up === 'ECE' || up.includes('ELECTRONICS & COMMUNICATION')) return 'ECE';
         if (up === 'EEE' || (up.includes('ELECTRICAL') && !up.includes('COMMUNICATION'))) return 'EEE';
@@ -380,6 +381,7 @@ export async function POST(req) {
       function normalizeBranchCode(input) {
         if (!input) return null;
         const up = String(input).trim().toUpperCase();
+        if (up === 'AIML' || up.includes('ARTIFICIAL')) return 'AIML';
         if (up === 'CSE' || up.includes('COMPUTER')) return 'CSE';
         if (up === 'ECE' || up.includes('ELECTRONICS & COMMUNICATION')) return 'ECE';
         if (up === 'EEE' || (up.includes('ELECTRICAL') && !up.includes('COMMUNICATION'))) return 'EEE';
@@ -399,6 +401,7 @@ export async function POST(req) {
     function getBranchFromDepartment(dept) {
       if (!dept) return null;
       const upper = dept.toUpperCase();
+      if (upper.includes('AIML') || upper.includes('ARTIFICIAL')) return 'AIML';
       if (upper.includes('COMPUTER') || upper.includes('CSE')) return 'CSE';
       if (upper.includes('ELECTRONICS & COMMUNICATION') || upper.includes('ECE')) return 'ECE';
       if (upper.includes('ELECTRICAL') || upper.includes('EEE')) return 'EEE';

@@ -120,6 +120,7 @@ export default function AdminBatchPage() {
                     <option value="ECE">Electronics & Communication Engineering</option>
                     <option value="EEE">Electrical & Electronics Engineering</option>
                     <option value="Mechanical">Mechanical Engineering</option>
+                    <option value="AIML">AIML</option>
                   </select>
                 </div>
                 <div>

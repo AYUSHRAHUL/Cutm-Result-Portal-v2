@@ -30,7 +30,7 @@ export async function POST(req) {
 }
 
 function branchCode(name) {
-  const map = { Civil: '1', CSE: '2', ECE: '3', EEE: '5', Mechanical: '6' };
+  const map = { Civil: '1', CSE: '2', ECE: '3', EEE: '5', Mechanical: '6', AIML: '7' };
   return map[name] || null;
 }
 

@@ -125,7 +125,8 @@ export default function AdminBacklogPage() {
               "CSE": "2", 
               "ECE": "3",
               "EEE": "5",
-              "Mechanical": "6"
+              "Mechanical": "6",
+              "AIML": "7"
             };
             
             const expectedBranchCode = branchCodeMap[branch];
@@ -299,6 +300,7 @@ export default function AdminBacklogPage() {
                     <option value="ECE">ECE</option>
                     <option value="EEE">EEE</option>
                     <option value="Mechanical">Mechanical</option>
+                    <option value="AIML">AIML</option>
                   </select>
                 </div>
                 <div className="flex flex-col gap-2 sm:gap-3">
@@ -379,6 +381,7 @@ export default function AdminBacklogPage() {
                   <option value="ECE">ECE</option>
                   <option value="EEE">EEE</option>
                   <option value="Mechanical">Mechanical</option>
+                  <option value="AIML">AIML</option>
                 </select>
                 <select 
                   className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]" 
