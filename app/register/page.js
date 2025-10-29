@@ -205,6 +205,55 @@ export default function RegisterPage() {
               progress, and connect with the university ecosystem.
             </p>
 
+
+            <div className="space-y-3 xl:space-y-4 w-full max-w-md">
+            {[
+              {
+                icon: (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    className="w-5 h-5 xl:w-6 xl:h-6"
+                  >
+                    <path d="M11.7 2.805a.75.75 0 0 1 .6 0A60.65 60.65 0 0 1 22.83 8.72a.75.75 0 0 1-.231 1.337 49.948 49.948 0 0 0-9.902 3.912l-.003.002c-.114.06-.227.119-.34.18a.75.75 0 0 1-.707 0A50.88 50.88 0 0 0 7.5 12.173v-.224c0-.131.067-.248.172-.311a54.615 54.615 0 0 1 4.653-2.52.75.75 0 0 0-.65-1.352 56.123 56.123 0 0 0-4.78 2.589 1.858 1.858 0 0 0-.859 1.228 49.803 49.803 0 0 0-4.634-1.527.75.75 0 0 1-.231-1.337A60.653 60.653 0 0 1 11.7 2.805Z" />
+                    <path d="M13.06 15.473a48.45 48.45 0 0 1 7.666-3.282c.134 1.414.22 2.843.255 4.284a.75.75 0 0 1-.46.711 47.87 47.87 0 0 0-8.105 4.342.75.75 0 0 1-.832 0 47.87 47.87 0 0 0-8.104-4.342.75.75 0 0 1-.461-.71c.035-1.442.121-2.87.255-4.286.921.304 1.83.634 2.726.99v1.27a1.5 1.5 0 0 0-.14 2.508c-.09.38-.222.753-.397 1.11.452.213.901.434 1.346.66a6.727 6.727 0 0 0 .551-1.607 1.5 1.5 0 0 0 .14-2.67v-.645a48.549 48.549 0 0 1 3.44 1.667 2.25 2.25 0 0 0 2.12 0Z" />
+                  </svg>
+                ),
+                text: "Instant Result Access",
+              },
+              {
+                icon: (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    className="w-5 h-5 xl:w-6 xl:h-6"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M12 1.5a5.25 5.25 0 0 0-5.25 5.25v3a3 3 0 0 0-3 3v6.75a3 3 0 0 0 3 3h10.5a3 3 0 0 0 3-3v-6.75a3 3 0 0 0-3-3v-3c0-2.9-2.35-5.25-5.25-5.25Zm3.75 8.25v-3a3.75 3.75 0 1 0-7.5 0v3h7.5Z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                ),
+                text: "Secure & Private",
+              },
+            ].map((feature, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-3 xl:gap-4 p-3 xl:p-4 rounded-xl backdrop-blur-sm bg-white/10 border border-white/20 hover:bg-white/20 transition-all duration-300 hover:scale-105"
+              >
+                <div className="flex-shrink-0 w-10 h-10 xl:w-12 xl:h-12 rounded-lg bg-white/20 flex items-center justify-center">
+                  {feature.icon}
+                </div>
+                <span className="text-base xl:text-lg font-bold">
+                  {feature.text}
+                </span>
+              </div>
+            ))}
+          </div>
+
             {/* Bottom Stats */}
             <div className="mt-8 xl:mt-12 grid grid-cols-3 gap-6 xl:gap-8 w-full max-w-md">
               {[
@@ -730,6 +779,10 @@ export default function RegisterPage() {
                 © {new Date().getFullYear()} CUTM Portal. All rights reserved.
               </p>
             </div>
+
+            <p className="text-[0.65rem] sm:text-xs text-[#A8B2BC] font-medium">
+                1
+              </p>
           </div>
         </div>
       </div>
