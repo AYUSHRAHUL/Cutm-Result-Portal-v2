@@ -341,7 +341,7 @@ function getAdvancedAnalytics(allData, cutm1Data) {
 
 function getGradeCreditCorrelation(data) {
   const correlationData = [];
-  const gradePoints = { 'O': 10, 'A+': 9, 'A': 8, 'B+': 7, 'B': 6, 'C': 5, 'P': 4, 'F': 0, 'S': 0, 'M': 0, 'I': 0, 'R': 0 };
+  const gradePoints = { 'O': 10, 'E': 9, 'A': 8, 'B': 7, 'C': 6, 'D': 5, 'F': 0, 'S': 0, 'I': 0, 'M': 0, 'R': 0 };
   
   data.forEach(record => {
     if (record.Grade && record.Credits && gradePoints[record.Grade.toUpperCase()]) {
@@ -370,7 +370,7 @@ function getDepartmentPerformanceHeatmap(data) {
     '6': 'Mechanical Engineering'
   };
   
-  const gradePoints = { 'O': 10, 'A+': 9, 'A': 8, 'B+': 7, 'B': 6, 'C': 5, 'P': 4, 'F': 0, 'S': 0, 'M': 0, 'I': 0, 'R': 0 };
+  const gradePoints = { 'O': 10, 'E': 9, 'A': 8, 'B': 7, 'C': 6, 'D': 5, 'F': 0, 'S': 0, 'I': 0, 'M': 0, 'R': 0 };
   const heatmapData = {};
   
   data.forEach(record => {
@@ -433,7 +433,7 @@ function getSemesterProgressAnalysis(data) {
 
 function getSubjectDifficultyAnalysis(data) {
   const subjectStats = {};
-  const gradePoints = { 'O': 10, 'A+': 9, 'A': 8, 'B+': 7, 'B': 6, 'C': 5, 'P': 4, 'F': 0, 'S': 0, 'M': 0, 'I': 0, 'R': 0 };
+  const gradePoints = { 'O': 10, 'E': 9, 'A': 8, 'B': 7, 'C': 6, 'D': 5, 'F': 0, 'S': 0, 'I': 0, 'M': 0, 'R': 0 };
   
   data.forEach(record => {
     if (record.Subject_Code && record.Grade) {
@@ -465,7 +465,7 @@ function getSubjectDifficultyAnalysis(data) {
 
 function getStudentPerformanceDistribution(data) {
   const studentPerformance = {};
-  const gradePoints = { 'O': 10, 'A+': 9, 'A': 8, 'B+': 7, 'B': 6, 'C': 5, 'P': 4, 'F': 0, 'S': 0, 'M': 0, 'I': 0, 'R': 0 };
+  const gradePoints = { 'O': 10, 'E': 9, 'A': 8, 'B': 7, 'C': 6, 'D': 5, 'F': 0, 'S': 0, 'I': 0, 'M': 0, 'R': 0 };
   
   data.forEach(record => {
     if (record.Reg_No && record.Grade) {
@@ -539,7 +539,7 @@ function getCreditDistributionByDepartment(data) {
 
 function getGradeTrendsOverTime(data) {
   const trends = {};
-  const gradePoints = { 'O': 10, 'A+': 9, 'A': 8, 'B+': 7, 'B': 6, 'C': 5, 'P': 4, 'F': 0, 'S': 0, 'M': 0, 'I': 0, 'R': 0 };
+  const gradePoints = { 'O': 10, 'E': 9, 'A': 8, 'B': 7, 'C': 6, 'D': 5, 'F': 0, 'S': 0, 'I': 0, 'M': 0, 'R': 0 };
   
   data.forEach(record => {
     if (record.Sem && record.Grade) {
@@ -568,7 +568,7 @@ function getGradeTrendsOverTime(data) {
 
 function getTopPerformingStudents(data) {
   const studentPerformance = {};
-  const gradePoints = { 'O': 10, 'A+': 9, 'A': 8, 'B+': 7, 'B': 6, 'C': 5, 'P': 4, 'F': 0, 'S': 0, 'M': 0, 'I': 0, 'R': 0 };
+  const gradePoints = { 'O': 10, 'E': 9, 'A': 8, 'B': 7, 'C': 6, 'D': 5, 'F': 0, 'S': 0, 'I': 0, 'M': 0, 'R': 0 };
   
   data.forEach(record => {
     if (record.Reg_No && record.Grade) {
@@ -633,7 +633,7 @@ function getPerformanceComparisonMatrix(data) {
   };
   
   const matrix = {};
-  const gradePoints = { 'O': 10, 'A+': 9, 'A': 8, 'B+': 7, 'B': 6, 'C': 5, 'P': 4, 'F': 0, 'S': 0, 'M': 0, 'I': 0, 'R': 0 };
+  const gradePoints = { 'O': 10, 'E': 9, 'A': 8, 'B': 7, 'C': 6, 'D': 5, 'F': 0, 'S': 0, 'I': 0, 'M': 0, 'R': 0 };
   
   data.forEach(record => {
     if (record.Reg_No && record.Reg_No.length >= 8 && record.Sem && record.Grade) {

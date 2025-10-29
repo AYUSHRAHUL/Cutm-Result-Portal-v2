@@ -106,9 +106,54 @@ export default function RegisterPage() {
             zoom: 0.67;
           }
         }
+        
+        /* Mobile optimizations */
+        @media (max-width: 768px) {
+          body {
+            -webkit-text-size-adjust: 100%;
+            -ms-text-size-adjust: 100%;
+          }
+          
+          input, select, textarea {
+            font-size: 16px !important; /* Prevents zoom on iOS */
+          }
+          
+          .touch-manipulation {
+            touch-action: manipulation;
+          }
+        }
+        
+        /* Prevent horizontal scroll */
+        html, body {
+          overflow-x: hidden;
+        }
+        
+        /* Better mobile spacing */
+        @media (max-width: 640px) {
+          .mobile-padding {
+            padding-left: 1rem;
+            padding-right: 1rem;
+          }
+        }
+        
+        /* Fix mobile layout issues */
+        @media (max-width: 1023px) {
+          .min-h-screen {
+            min-height: 100vh;
+          }
+          
+          .flex-col {
+            flex-direction: column;
+          }
+        }
+        
+        /* Ensure proper background coverage */
+        .bg-gradient-to-br {
+          background-attachment: fixed;
+        }
       `}</style>
 
-      <div className="min-h-screen flex overflow-hidden bg-gradient-to-br from-[#F5F8FA] via-[#E8F4F8] to-[#D1E9F6]">
+      <div className="auth-page min-h-screen flex flex-col lg:flex-row overflow-hidden">
         {/* Left Side - Branding Section (Hidden on mobile) */}
         <div className="hidden lg:flex lg:w-1/2 relative bg-gradient-to-br from-[#05A3C7] via-[#04748F] to-[#023945] overflow-hidden">
           {/* Animated Background */}
@@ -181,7 +226,7 @@ export default function RegisterPage() {
         </div>
 
         {/* Right Side - Registration Form */}
-        <div className="w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-6 lg:p-8 xl:p-12 relative bg-gradient-to-br from-[#F5F8FA] via-[#E8F4F8] to-[#D1E9F6]">
+        <div className="w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-6 lg:p-8 xl:p-12 relative min-h-screen lg:min-h-0">
           {/* Background Decorations */}
           <div className="absolute inset-0 overflow-hidden pointer-events-none">
             <div
@@ -220,7 +265,7 @@ export default function RegisterPage() {
             </div>
 
             <div
-              className="rounded-2xl sm:rounded-3xl border-2 p-6 sm:p-8 lg:p-10 shadow-2xl bg-white"
+              className="rounded-2xl sm:rounded-3xl border-2 p-6 sm:p-8 lg:p-10 shadow-2xl bg-white mobile-padding"
               style={{
                 borderColor: "rgba(5,163,199,0.2)",
               }}
@@ -348,9 +393,7 @@ export default function RegisterPage() {
                         }}
                       />
                     </div>
-                    <p className="text-[#5A6C7D] text-[0.65rem] sm:text-xs mt-1 font-medium">
-                      Allowed domains: @cutm.ac.in, @centurionuniv.edu.in. Students: digits-only before @ (e.g., 220101130056@cutm.ac.in). Teachers: name-based (letters, dots, hyphens) before @ (e.g., john.smith@cutm.ac.in).
-                    </p>
+                   
                   </div>
 
                   {/* Password */}
@@ -544,7 +587,7 @@ export default function RegisterPage() {
               {/* Step 2: OTP Verification */}
               {step === 2 && (
                 <form onSubmit={handleSubmit} className="space-y-5 sm:space-y-6">
-                  <div className="text-center mb-4 sm:mb-6 p-3 sm:p-4 rounded-xl bg-[#05A3C7]/5 border-2 border-[#05A3C7]/20">
+                  <div className="text-center mb-4 sm:mb-6 p-3 sm:p-4 rounded-xl bg-[#05A3C7]/5 border-2 border-[#05A3C7]/20 break-words">
                     <p className="text-[#2E4057] text-xs sm:text-sm font-bold mb-2">
                       OTP sent to:
                     </p>
@@ -660,7 +703,7 @@ export default function RegisterPage() {
             </div>
 
             {/* Footer Links */}
-            <div className="mt-5 sm:mt-6 lg:mt-8 text-center space-y-2">
+            <div className="mt-5 sm:mt-6 lg:mt-8 text-center space-y-2 mobile-padding">
               <div className="flex items-center justify-center gap-3 sm:gap-4 lg:gap-6 text-xs sm:text-sm flex-wrap">
                 <a
                   href="/terms"

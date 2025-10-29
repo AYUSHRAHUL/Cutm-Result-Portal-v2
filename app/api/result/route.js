@@ -4,17 +4,17 @@ import { jwtVerify } from "jose";
 
 // 🧮 Map CUTM grades to numeric values
 const GRADE_MAP = {
-  O: 10,
-  E: 9,
-  A: 8,
-  B: 7,
-  C: 6,
-  D: 5,
-  F: 0,
-  S: 0, // Supplementary
-  M: 0, // Malpractice
-  I: 0, // Incomplete
-  R: 0, // Reappear
+  O: 10, // Outstanding
+  E: 9,  // Excellent
+  A: 8,  // Very Good
+  B: 7,  // Good
+  C: 6,  // Average
+  D: 5,  // Below Average
+  S: 0,  // Supplementary
+  F: 0,  // Fail
+  I: 0,  // Incomplete
+  M: 0,  // Malpractice
+  R: 0,  // Reappear
 };
 
 // Helper to safely parse credits like "3+1" or "3"
@@ -138,6 +138,7 @@ export async function POST(req) {
         Subject_Name: 1,
         Credits: 1,
         Grade: 1,
+        Subject_Type: 1,
       })
       .toArray();
 
@@ -148,9 +149,111 @@ export async function POST(req) {
     const { sgpa } = calculateSGPA(subjects);
     const cgpa = await calculateCGPA(db, registration);
 
+    // Try to fetch stable student metadata across all records for this registration
+    const meta = await cutm.findOne(
+      { Reg_No: registration.toUpperCase() },
+      { projection: { _id: 0, Name: 1, Course: 1, Branch: 1, Department: 1 } }
+    );
+    const allMeta = await cutm
+      .find({ Reg_No: registration.toUpperCase() })
+      .project({ _id: 0, Branch: 1, Department: 1 })
+      .toArray();
+
+    // Name
+    const firstRecord = subjects[0];
+    const studentName = (meta?.Name || firstRecord?.Name || "").toString();
+
+    // Batch from registration (first 2 digits)
+    const batchMatch = registration.match(/^(\d{2})/);
+    const batch = batchMatch ? `20${batchMatch[1]}` : "";
+
+    // Prefer explicit fields if available
+    let branch = meta?.Branch || meta?.Department || "";
+    // Institute course for UG is B.Tech; override noisy values
+    let course = "B.Tech";
+
+    // Normalize branch names to a canonical format
+    function normalizeBranch(value) {
+      const s = String(value || "").toUpperCase();
+      if (!s) return "";
+      if (/(CSE|COMPUTER\s*SCIENCE)/.test(s)) return "Computer Science and Engineering";
+      if (/(ECE|ELECTRONICS\s*AND\s*COMMUNICATION)/.test(s)) return "Electronics and Communication Engineering";
+      if (/(EEE|ELECTRICAL\s*AND\s*ELECTRONICS)/.test(s)) return "Electrical and Electronics Engineering";
+      if (/(MECH|MECHANICAL)/.test(s)) return "Mechanical Engineering";
+      if (/(CIVIL|CE\b)/.test(s)) return "Civil Engineering";
+      return value;
+    }
+    // If branch empty or unreliable, compute the most frequent branch/department across records
+    function pickMostFrequent(arr) {
+      const counts = new Map();
+      for (const v of arr) {
+        const k = normalizeBranch(v);
+        if (!k) continue;
+        counts.set(k, (counts.get(k) || 0) + 1);
+      }
+      let best = ""; let bestCount = 0;
+      counts.forEach((c, k) => { if (c > bestCount) { best = k; bestCount = c; } });
+      return best;
+    }
+    if (!branch) {
+      const freq = pickMostFrequent([...(allMeta?.map(m => m.Branch) || []), ...(allMeta?.map(m => m.Department) || [])]);
+      if (freq) branch = freq;
+    }
+
+    // Fallback: infer from registration department code
+    const deptCode = registration?.substring(4, 6) || "";
+    const deptMap = {
+      '01': { branch: 'Computer Science and Engineering' },
+      '02': { branch: 'Mechanical Engineering' },
+      '03': { branch: 'Civil Engineering' },
+      '04': { branch: 'Electrical and Electronics Engineering' },
+      '13': { branch: 'Electronics and Communication Engineering' },
+    };
+    if (!branch || !course) {
+      const mapped = deptMap[deptCode];
+      if (mapped) {
+        branch = branch || mapped.branch;
+      }
+    }
+
+    // Additional rule: CUTM 8th-character mapping (authoritative)
+    // 0-based indexing -> index 7 is the 8th character
+    const idx8 = registration?.[7];
+    const idx8Map = {
+      '1': 'Civil Engineering',
+      '2': 'Computer Science and Engineering',
+      '3': 'Electronics and Communication Engineering',
+      '4': 'Electronics and Communication Engineering', // alternative code
+      '5': 'Electrical and Electronics Engineering',
+      '6': 'Mechanical Engineering',
+      '7': 'Mechanical Engineering', // alternative code
+      '8': 'Computer Science and Engineering', // alternative code
+      '9': 'Civil Engineering', // alternative code
+    };
+    if (idx8 && idx8Map[idx8]) {
+      branch = idx8Map[idx8];
+    }
+
+    // Final fallback: infer from subject code
+    if ((!branch || !course) && firstRecord?.Subject_Code) {
+      const code = String(firstRecord.Subject_Code).toUpperCase();
+      if (!branch && (code.includes('CSE') || /\bCS\b/.test(code))) { branch = 'Computer Science and Engineering'; }
+      else if (!branch && (code.includes('ECE') || /\bEC\b/.test(code))) { branch = 'Electronics and Communication Engineering'; }
+      else if (!branch && /\bME\b/.test(code)) { branch = 'Mechanical Engineering'; }
+      else if (!branch && (code.includes('CIVIL') || /\bCE\b/.test(code))) { branch = 'Civil Engineering'; }
+      else if (!branch && (code.includes('EEE') || /\bEE\b/.test(code))) { branch = 'Electrical and Electronics Engineering'; }
+    }
+
+    // Sensible defaults if still missing
+    branch = normalizeBranch(branch) || 'Engineering';
+
     return NextResponse.json({
       registration,
       semester: dbSemester, // Return the database format
+      name: studentName,
+      batch,
+      branch,
+      course,
       subjects,
       sgpa,
       cgpa,

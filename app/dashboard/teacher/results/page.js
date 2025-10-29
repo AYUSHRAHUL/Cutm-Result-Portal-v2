@@ -25,7 +25,7 @@ export default function TeacherResultsPage() {
   
   function gradeToPoints(grade) {
     const g = String(grade || "").toUpperCase().trim();
-    const map = { "O":10, "A+":9, "A":8, "B+":7, "B":6, "C":5, "P":4, "D":4, "F":0, "E":0, "NA":0 };
+    const map = { "O":10, "E":9, "A":8, "B":7, "C":6, "D":5, "S":0, "F":0, "I":0, "M":0, "R":0 };
     return map[g] ?? 0;
   }
   
@@ -90,52 +90,34 @@ export default function TeacherResultsPage() {
 
   async function loadResult(e) {
     e.preventDefault();
-    setError(""); setSubjects([]); setSgpa(null); setCgpa(null); setAllResults([]);
-    if (!registration || !semester) { setError("Enter registration and choose a semester"); return; }
+    setError("");
+    if (!registration || !semester) { 
+      setError("Enter registration and choose a semester"); 
+      return; 
+    }
+    
     try {
       setLoading(true);
-      if (semester === "ALL") {
-        const fetched = [];
-        for (const sem of semesters) {
-          const r = await fetch("/api/result", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ registration, semester: sem }) });
-          const d = await r.json();
-          if (r.ok && d?.subjects?.length) {
-            const termCr = (d.subjects||[]).reduce((acc,s)=>acc+parseCredits(s.Credits),0);
-            const termSg = d.sgpa ?? computeSgpa(d.subjects);
-            fetched.push({ semester: sem, subjects: d.subjects, sgpa: termSg, termCredits: termCr });
-          }
-        }
-        if (fetched.length === 0) throw new Error("No results found for any semester");
-        const semNum = (s)=>{ const m=String(s).match(/\d+/); return m?Number(m[0]):Number(s); };
-        fetched.sort((a,b)=>(semNum(a.semester)||0)-(semNum(b.semester)||0));
-        let cumC=0, cumP=0;
-        const results = fetched.map(row=>{ cumC+=row.termCredits; cumP+=row.termCredits*(row.sgpa||0); const cg=cumC>0?Number((cumP/cumC).toFixed(2)):row.sgpa; return { semester: row.semester, subjects: row.subjects, sgpa: row.sgpa, cgpa: cg }; });
-        setAllResults(results);
-      } else {
-        const res = await fetch("/api/result", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ registration, semester }) });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "No result found");
-        const list = data.subjects || [];
-        setSubjects(list);
-        const currentSg = data.sgpa ?? computeSgpa(list);
-        setSgpa(currentSg);
-        const target = (()=>{ const m=String(semester).match(/\d+/); return m?Number(m[0]):Number(semester); })();
-        let cumC=0, cumP=0;
-        for (const sem of semesters) {
-          const n = (()=>{ const m=String(sem).match(/\d+/); return m?Number(m[0]):Number(sem); })();
-          if (!Number.isFinite(n) || !Number.isFinite(target) || n>target) continue;
-          const rr = await fetch("/api/result", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ registration, semester: sem }) });
-          const dd = await rr.json();
-          if (rr.ok && dd?.subjects?.length) {
-            const termCr = (dd.subjects||[]).reduce((acc,s)=>acc+parseCredits(s.Credits),0);
-            const termSg = dd.sgpa ?? computeSgpa(dd.subjects);
-            cumC += termCr; cumP += termCr * termSg;
-          }
-        }
-        setCgpa(cumC>0 ? Number((cumP/cumC).toFixed(2)) : currentSg);
+      
+      // Redirect to results view page
+      // If semester is "ALL", pass all semesters as comma-separated string
+      let semesterParam = semester;
+      if (semester === "ALL" && semesters.length > 0) {
+        semesterParam = semesters.join(',');
       }
-    } catch (err) { setError(err.message); }
-    finally { setLoading(false); }
+      
+      const params = new URLSearchParams({
+        reg: registration,
+        sem: semesterParam
+      });
+      
+      window.location.href = `/dashboard/teacher/results/view?${params.toString()}`;
+      
+    } catch (err) { 
+      setError(err.message); 
+    } finally { 
+      setLoading(false); 
+    }
   }
 
   useEffect(() => {
@@ -224,18 +206,7 @@ export default function TeacherResultsPage() {
               ) : "View Result"}
             </button>
             
-            <button 
-              type="button" 
-              onClick={exportCSV} 
-              className="rounded-xl border-2 text-[#05A3C7] font-black px-4 py-3 hover:bg-[#05A3C7]/5 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation" 
-              style={{ 
-                borderColor: "rgba(5,163,199,0.3)",
-                minHeight: "48px"
-              }}
-              disabled={subjects.length===0 && allResults.length===0}
-            >
-              📥 Export CSV
-            </button>
+           
           </div>
         </form>
 

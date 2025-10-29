@@ -32,7 +32,7 @@ export default function TeacherBasketProgressTracker() {
   // Basket detail state
   const [selectedBasket, setSelectedBasket] = useState(null);
   const [showBasketDetails, setShowBasketDetails] = useState(false);
-  
+
   // Enhanced UI state
   const [viewMode, setViewMode] = useState('table'); // 'table', 'cards', 'chart'
   const [sortBy, setSortBy] = useState('name'); // 'name', 'registration', 'credits', 'percentage'
@@ -160,13 +160,13 @@ export default function TeacherBasketProgressTracker() {
         let res;
         try {
           res = await fetch("/api/cbcs/track/bulk", {
-            method: "POST",
-            headers: { 
-              "Content-Type": "application/json",
-              "Accept": "application/json"
-            },
-            body: JSON.stringify(requestBody)
-          });
+          method: "POST",
+          headers: { 
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          },
+          body: JSON.stringify(requestBody)
+        });
           console.log("Fetch completed, response received");
         } catch (fetchError) {
           console.error("Fetch error:", fetchError);
@@ -729,8 +729,8 @@ Please check if the department name matches exactly with the available departmen
                     <div>Basket III: 25 credits</div>
                     <div>Basket IV: 58 credits</div>
                     <div>Basket V: 48 credits</div>
-                  </div>
-                </div>
+              </div>
+              </div>
                 <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'}`}>
                   <span className="font-semibold">Lateral Entry Students:</span> 
                   <span className="ml-2 font-bold text-orange-500">120 total credits</span>
@@ -740,7 +740,7 @@ Please check if the department name matches exactly with the available departmen
                     <div>Basket III: 25 credits</div>
                     <div>Basket IV: 48 credits</div>
                     <div>Basket V: 32 credits</div>
-                  </div>
+            </div>
                 </div>
               </div>
               
@@ -790,41 +790,41 @@ Please check if the department name matches exactly with the available departmen
                 </select>
               </div>
 
-              {/* Registration No */}
+            {/* Registration No */}
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Registration No:</label>
               <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Registration No:</label>
-                <div className="space-y-2">
-                  <div className="grid grid-cols-1 gap-2">
-                    <select 
-                      value={registration === "all" ? "all" : registration}
-                      onChange={e => {
-                        const val = e.target.value;
-                        setRegistration(val);
-                      }} 
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
-                    >
-                      <option value="">Select Registration</option>
-                      <option value="all">All Students</option>
-                      {registrationOptions.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
-                    {loadingRegistrations && (
-                      <div className="text-xs text-gray-500">Loading registrations...</div>
-                    )}
-                    <input 
-                      type="text"
-                      value={registration !== "all" ? registration : ""} 
-                      onChange={e => setRegistration(e.target.value)} 
-                      placeholder="Or type registration manually"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
-                    />
-                  </div>
-                </div>
-                <div className="text-xs text-gray-500">
-                  💡 Select "All Students" or enter specific registration number
+                <div className="grid grid-cols-1 gap-2">
+                  <select 
+                    value={registration === "all" ? "all" : registration}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setRegistration(val);
+                    }} 
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
+                  >
+                    <option value="">Select Registration</option>
+                    <option value="all">All Students</option>
+                    {registrationOptions.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                  {loadingRegistrations && (
+                    <div className="text-xs text-gray-500">Loading registrations...</div>
+                  )}
+                  <input 
+                    type="text"
+                    value={registration !== "all" ? registration : ""} 
+                    onChange={e => setRegistration(e.target.value)} 
+                    placeholder="Or type registration manually"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
+                  />
                 </div>
               </div>
+              <div className="text-xs text-gray-500">
+                💡 Select "All Students" or enter specific registration number
+              </div>
+            </div>
 
               {/* Semester */}
               <div className="space-y-2">
@@ -1091,8 +1091,8 @@ Please check if the department name matches exactly with the available departmen
                         {student.department || 'Unknown'}
                         {student.is_lateral_entry && (
                           <span className="ml-2 px-2 py-1 bg-orange-100 text-orange-800 text-xs rounded-full">
-                            Lateral Entry
-                          </span>
+                              Lateral Entry
+                            </span>
                         )}
                       </td>
                       <td 
@@ -1260,8 +1260,8 @@ Please check if the department name matches exactly with the available departmen
                               {dataSources.sources.cutm1 && (
                                 <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
                                   CUTM1 ({dataSources.cutm1Records} records)
-                                </span>
-                              )}
+                            </span>
+                          )}
                               {dataSources.sources.registrationData && (
                                 <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
                                   Registration Data ({dataSources.registrationDataRecords} records)
@@ -1271,8 +1271,8 @@ Please check if the department name matches exactly with the available departmen
                                 Total: {dataSources.totalRecords} records
                               </span>
                             </div>
-                          </td>
-                        </tr>
+                        </td>
+                      </tr>
                       )}
                       <tr className="border-b border-gray-200">
                         <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Total Required Credits:</td>
@@ -1419,9 +1419,9 @@ Please check if the department name matches exactly with the available departmen
               {/* Modal Header */}
               <div className="bg-blue-600 text-white px-6 py-4 flex justify-between items-center">
                 <div>
-                  <h3 className="text-xl font-semibold">
-                    {selectedBasket.name} - Detailed Subjects
-                  </h3>
+                <h3 className="text-xl font-semibold">
+                  {selectedBasket.name} - Detailed Subjects
+                </h3>
                   {studentData?.is_lateral_entry && (
                     <div className="mt-1">
                       <span className="px-2 py-1 bg-orange-500 text-white text-xs rounded-full">
@@ -1473,7 +1473,7 @@ Please check if the department name matches exactly with the available departmen
                         This student is a lateral entry student with modified credit requirements. 
                         Total required credits: 120 (instead of 160 for regular students).
                       </span>
-                    </div>
+                </div>
                   )}
                 </div>
 
@@ -1526,11 +1526,11 @@ Please check if the department name matches exactly with the available departmen
                                   <span className={`px-1 py-0.5 rounded text-xs font-medium ${
                                     subject.dataSource === 'Registration' 
                                       ? 'bg-blue-100 text-blue-800' 
-                                      : 'bg-gray-100 text-gray-800'
-                                  }`}>
-                                    {subject.dataSource === 'Registration' ? 'Reg' : 'CUTM1'}
-                                  </span>
-                                )}
+                                    : 'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {subject.dataSource === 'Registration' ? 'Reg' : 'CUTM1'}
+                                </span>
+                              )}
                               </div>
                             </td>
                           </tr>

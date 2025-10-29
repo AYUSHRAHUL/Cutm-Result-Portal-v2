@@ -331,7 +331,7 @@ function analyzeStudentPerformance(records) {
   Object.entries(studentPerformance).forEach(([regNo, data]) => {
     if (data.grades.length >= 5) { // Only students with sufficient data
       const gradePoints = data.grades.map(grade => {
-        const gradeMap = { 'A+': 10, 'A': 9, 'B+': 8, 'B': 7, 'C+': 6, 'C': 5, 'D': 4, 'F': 0, 'S': 0, 'M': 0, 'I': 0, 'R': 0 };
+        const gradeMap = { 'O': 10, 'E': 9, 'A': 8, 'B': 7, 'C': 6, 'D': 5, 'F': 0, 'S': 0, 'I': 0, 'M': 0, 'R': 0 };
         return gradeMap[grade] || 0;
       });
       
