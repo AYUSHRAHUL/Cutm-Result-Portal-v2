@@ -109,50 +109,19 @@ export default function AdminBacklogPage() {
           return; 
         }
         
-        const res = await fetch("/api/students", {
+        // Use backend that includes branch_overrides for accurate lists
+        const res = await fetch("/api/batch", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ department: "All", batch: "All" })
+          body: JSON.stringify({ branch, batch: year })
         });
         const data = await res.json();
-        
         if (res.ok) {
-          let students = data.students || data.records || data.result || [];
-          
-          if (branch && branch !== "") {
-            const branchCodeMap = {
-              "Civil": "1",
-              "CSE": "2", 
-              "ECE": "3",
-              "EEE": "5",
-              "Mechanical": "6",
-              "AIML": "7"
-            };
-            
-            const expectedBranchCode = branchCodeMap[branch];
-            students = students.filter(student => {
-              const regNo = student.Reg_No || student.registration;
-              if (!regNo || regNo.length < 8) return false;
-              const regBranchCode = regNo.charAt(7);
-              return regBranchCode === expectedBranchCode;
-            });
-          }
-          
-          if (year && year !== "") {
-            const yearPattern = year.slice(-2);
-            students = students.filter(student => {
-              const regNo = student.Reg_No || student.registration;
-              if (!regNo || regNo.length < 2) return false;
-              const regYear = regNo.slice(0, 2);
-              return regYear === yearPattern;
-            });
-          }
-          
+          const students = data.records || [];
           const list = students
             .map(r => r.Reg_No || r.registration)
             .filter(Boolean)
             .sort();
-          
           setRegList(Array.from(new Set(list)));
           setSelectedReg("");
         } else {

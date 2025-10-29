@@ -217,7 +217,19 @@ export async function POST(req) {
       }
     }
 
-    // Additional rule: CUTM 8th-character mapping (authoritative)
+    // Check branch override first (authoritative)
+    async function getOverriddenBranch(db, reg) {
+      try {
+        const ov = await db.collection("branch_overrides").findOne({ reg }, { projection: { branch: 1 } });
+        return ov?.branch || null;
+      } catch { return null; }
+    }
+    const ovBranch = await getOverriddenBranch(db, registration.toUpperCase());
+    if (ovBranch) {
+      branch = ovBranch;
+    }
+
+    // Additional rule: CUTM 8th-character mapping (authoritative when no override)
     // 0-based indexing -> index 7 is the 8th character
     const idx8 = registration?.[7];
     const idx8Map = {
@@ -231,7 +243,7 @@ export async function POST(req) {
       '8': 'Computer Science and Engineering', // alternative code
       '9': 'Civil Engineering', // alternative code
     };
-    if (idx8 && idx8Map[idx8]) {
+    if (!ovBranch && idx8 && idx8Map[idx8]) {
       branch = idx8Map[idx8];
     }
 

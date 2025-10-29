@@ -127,6 +127,14 @@ export async function POST(req) {
       return branchMap[deptCode] || 'N/A';
     }
     
+    // Load branch overrides for all registrations in this result
+    const regSet = Array.from(new Set(backlogs.map(r => r.Reg_No).filter(Boolean)));
+    let overrides = new Map();
+    try {
+      const ovDocs = await db.collection("branch_overrides").find({ reg: { $in: regSet } }).project({ reg: 1, branch: 1 }).toArray();
+      overrides = new Map(ovDocs.map(d => [d.reg, d.branch]));
+    } catch {}
+
     // Extract batch from Reg_No for each record and derive Branch if missing
     const backlogsWithBatch = backlogs.map(record => {
       let batch = 'N/A';
@@ -136,7 +144,7 @@ export async function POST(req) {
       }
       
       // Derive branch from Reg_No if not in the record
-      const branch = record.Branch || getBranchFromRegNo(record.Reg_No);
+      const branch = overrides.get(record.Reg_No) || record.Branch || getBranchFromRegNo(record.Reg_No);
       
       return {
         ...record,

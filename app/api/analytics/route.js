@@ -57,6 +57,15 @@ async function getAnalyticsData(db) {
   // Get data from both CUTM1 and RegistrationData collections
   const cutm1Data = await db.collection("CUTM1").find({}).toArray();
   const regData = await db.collection("RegistrationData").find({}).toArray();
+  // Load branch overrides map for all registrations involved
+  const regSet = Array.from(new Set([...cutm1Data, ...regData].map(r => r.Reg_No).filter(Boolean)));
+  let overridesMap = new Map();
+  if (regSet.length > 0) {
+    try {
+      const ovDocs = await db.collection("branch_overrides").find({ reg: { $in: regSet } }).project({ reg: 1, branch: 1 }).toArray();
+      overridesMap = new Map(ovDocs.map(d => [d.reg, d.branch]));
+    } catch {}
+  }
   
   // Combine data
   const allData = [...cutm1Data, ...regData];
@@ -80,7 +89,7 @@ async function getAnalyticsData(db) {
   // Only add charts if we have data
   if (allData.length > 0) {
     // Department Distribution (if we have registration numbers)
-    const departmentStats = getDepartmentStats(allData);
+    const departmentStats = getDepartmentStats(allData, overridesMap);
     if (departmentStats.length > 0) {
       analytics.departmentStats = departmentStats;
     }
@@ -125,7 +134,7 @@ async function getAnalyticsData(db) {
     
     // Advanced analytics only if we have substantial data
     if (cutm1Data.length > 10) {
-      const advancedAnalytics = getAdvancedAnalytics(allData, cutm1Data);
+      const advancedAnalytics = getAdvancedAnalytics(allData, cutm1Data, overridesMap);
       
       // Only add advanced analytics if they have meaningful data
       if (advancedAnalytics.gradeCreditCorrelation.length > 0) {
@@ -153,7 +162,7 @@ async function getAnalyticsData(db) {
   return analytics;
 }
 
-function getDepartmentStats(data) {
+function getDepartmentStats(data, overridesMap = new Map()) {
   const deptMap = {
     '1': 'Civil Engineering',
     '2': 'Computer Science Engineering',
@@ -168,8 +177,8 @@ function getDepartmentStats(data) {
   
   data.forEach(record => {
     if (record.Reg_No && record.Reg_No.length >= 8) {
-      const deptCode = record.Reg_No.charAt(7);
-      const deptName = deptMap[deptCode] || 'Unknown';
+      const override = overridesMap.get(record.Reg_No);
+      const deptName = override || (deptMap[record.Reg_No.charAt(7)] || 'Unknown');
       const studentKey = `${deptName}-${record.Reg_No}`; // Create unique key for each student
       
       if (!uniqueStudents.has(studentKey)) {
@@ -306,13 +315,13 @@ function parseCredits(creditStr) {
 }
 
 // Advanced Analytics Functions
-function getAdvancedAnalytics(allData, cutm1Data) {
+function getAdvancedAnalytics(allData, cutm1Data, overridesMap = new Map()) {
   return {
     // 1. Grade vs Credit Correlation
     gradeCreditCorrelation: getGradeCreditCorrelation(cutm1Data),
     
     // 2. Department Performance Heatmap
-    departmentPerformanceHeatmap: getDepartmentPerformanceHeatmap(allData),
+    departmentPerformanceHeatmap: getDepartmentPerformanceHeatmap(allData, overridesMap),
     
     // 3. Semester Progress Analysis
     semesterProgressAnalysis: getSemesterProgressAnalysis(allData),
@@ -324,7 +333,7 @@ function getAdvancedAnalytics(allData, cutm1Data) {
     studentPerformanceDistribution: getStudentPerformanceDistribution(cutm1Data),
     
     // 6. Credit Distribution by Department
-    creditDistributionByDepartment: getCreditDistributionByDepartment(allData),
+    creditDistributionByDepartment: getCreditDistributionByDepartment(allData, overridesMap),
     
     // 7. Grade Trends Over Time
     gradeTrendsOverTime: getGradeTrendsOverTime(cutm1Data),
@@ -336,7 +345,7 @@ function getAdvancedAnalytics(allData, cutm1Data) {
     subjectPopularityTrends: getSubjectPopularityTrends(allData),
     
     // 10. Performance Comparison Matrix
-    performanceComparisonMatrix: getPerformanceComparisonMatrix(allData)
+    performanceComparisonMatrix: getPerformanceComparisonMatrix(allData, overridesMap)
   };
 }
 
@@ -362,7 +371,7 @@ function getGradeCreditCorrelation(data) {
   return correlationData.slice(0, 100); // Limit for performance
 }
 
-function getDepartmentPerformanceHeatmap(data) {
+function getDepartmentPerformanceHeatmap(data, overridesMap = new Map()) {
   const deptMap = {
     '1': 'Civil Engineering',
     '2': 'Computer Science Engineering', 
@@ -377,8 +386,8 @@ function getDepartmentPerformanceHeatmap(data) {
   
   data.forEach(record => {
     if (record.Reg_No && record.Reg_No.length >= 8 && record.Grade && record.Sem) {
-      const deptCode = record.Reg_No.charAt(7);
-      const deptName = deptMap[deptCode] || 'Unknown';
+      const override = overridesMap.get(record.Reg_No);
+      const deptName = override || (deptMap[record.Reg_No.charAt(7)] || 'Unknown');
       const grade = record.Grade.toUpperCase();
       const points = gradePoints[grade] || 0;
       
@@ -506,7 +515,7 @@ function getStudentPerformanceDistribution(data) {
   }));
 }
 
-function getCreditDistributionByDepartment(data) {
+function getCreditDistributionByDepartment(data, overridesMap = new Map()) {
   const deptMap = {
     '1': 'Civil Engineering',
     '2': 'Computer Science Engineering',
@@ -520,8 +529,8 @@ function getCreditDistributionByDepartment(data) {
   
   data.forEach(record => {
     if (record.Reg_No && record.Reg_No.length >= 8 && record.Credits) {
-      const deptCode = record.Reg_No.charAt(7);
-      const deptName = deptMap[deptCode] || 'Unknown';
+      const override = overridesMap.get(record.Reg_No);
+      const deptName = override || (deptMap[record.Reg_No.charAt(7)] || 'Unknown');
       const credits = parseCredits(record.Credits);
       
       if (!deptCredits[deptName]) {
@@ -626,7 +635,7 @@ function getSubjectPopularityTrends(data) {
     .slice(0, 10);
 }
 
-function getPerformanceComparisonMatrix(data) {
+function getPerformanceComparisonMatrix(data, overridesMap = new Map()) {
   const deptMap = {
     '1': 'Civil Engineering',
     '2': 'Computer Science Engineering',
@@ -641,8 +650,8 @@ function getPerformanceComparisonMatrix(data) {
   
   data.forEach(record => {
     if (record.Reg_No && record.Reg_No.length >= 8 && record.Sem && record.Grade) {
-      const deptCode = record.Reg_No.charAt(7);
-      const deptName = deptMap[deptCode] || 'Unknown';
+      const override = overridesMap.get(record.Reg_No);
+      const deptName = override || (deptMap[record.Reg_No.charAt(7)] || 'Unknown');
       const sem = record.Sem;
       const grade = record.Grade.toUpperCase();
       const points = gradePoints[grade] || 0;

@@ -269,6 +269,13 @@ export default function AdminDashboard() {
             >
               Comprehensive data visualization and insights with Chart.js integration.
             </ModuleCard>
+          <ModuleCard 
+            title="Branch Change" 
+            icon="🔁" 
+            onClick={() => go("/dashboard/admin/branch-change")}
+          >
+            Override a student's branch by Reg_No; applies across all panels.
+          </ModuleCard>
           </div>
         </div>
       </section>

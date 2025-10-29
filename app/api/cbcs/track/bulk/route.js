@@ -155,10 +155,9 @@ export async function POST(req) {
     const db = client.db("cutm1");
     console.log("Bulk API - MongoDB connection established");
 
-    // Build query for students with proper filtering
+    // Build query for students with proper filtering (supports overrides)
     let query = {};
-    
-    // FIXED: Apply department filter using registration number pattern
+
     if (department && department !== "All" && department !== "Select Department" && department !== "") {
       // Map department names to department codes (8th character in registration)
       const deptMap = {
@@ -170,30 +169,42 @@ export async function POST(req) {
         'AIML': '7'
       };
       const deptCode = deptMap[department];
-      
+
+      const orConds = [];
       if (deptCode) {
-        // Filter by department code in registration number (8th character)
-        query.Reg_No = { $regex: `^.{7}${deptCode}` };
-        console.log(`Applied department filter: ${department} -> code ${deptCode}, regex: ^.{7}${deptCode}`);
-      } else {
-        console.log(`Department not found in map: ${department}`);
+        orConds.push({ Reg_No: { $regex: `^.{7}${deptCode}` } });
       }
-    } else if (registration === "all" && (!department || department === "All" || department === "Select Department" || department === "")) {
-      // If registration is "all" and no specific department, get all students
+      // Include overrides for this department
+      try {
+        const ovDocs = await db.collection("branch_overrides").find({ branch: department }).project({ reg: 1 }).toArray();
+        const regs = ovDocs.map(d => d.reg).filter(Boolean);
+        if (regs.length > 0) orConds.push({ Reg_No: { $in: regs } });
+      } catch {}
+
+      if (orConds.length > 0) {
+        query.$or = orConds;
+        console.log(`Applied department filter with overrides for ${department}`);
+      }
+    } else if (registration === "all") {
       console.log("No department filter applied - getting all students");
     }
     
     // FIXED: Apply batch filter
     if (batch && batch !== "All" && batch !== "") {
-      // Combine batch and department filters
-      if (query.Reg_No && query.Reg_No.$regex) {
-        // If department filter is already applied, combine with batch
-        // Department filter: ^.{7}${deptCode} -> should become ^${batch}.{5}${deptCode}
-        const deptCode = query.Reg_No.$regex.slice(-1); // Get the department code
+      // Combine batch with existing OR of regex/$in if present
+      if (query.$or) {
+        query.$and = [
+          { $or: query.$or },
+          { Reg_No: { $regex: `^${batch}` } }
+        ];
+        delete query.$or;
+        console.log(`Combined batch filter (${batch}) with department/override conditions`);
+      } else if (query.Reg_No && query.Reg_No.$regex) {
+        // Rare case if only regex placed directly
+        const deptCode = query.Reg_No.$regex.slice(-1);
         query.Reg_No = { $regex: `^${batch}.{5}${deptCode}` };
-        console.log(`Combined batch + department filter: batch ${batch}, dept code ${deptCode}, regex: ^${batch}.{5}${deptCode}`);
+        console.log(`Combined batch + department regex: ^${batch}.{5}${deptCode}`);
       } else {
-        // Just batch filter
         query.Reg_No = { $regex: `^${batch}` };
         console.log(`Applied batch filter only: ^${batch}`);
       }
@@ -534,6 +545,14 @@ export async function POST(req) {
 
       // Get department from registration number
       let actualDepartment = getDepartmentFromRegNo(student.Reg_No);
+
+      // Override from admin configuration if exists
+      try {
+        const ov = await db.collection("branch_overrides").findOne({ reg: String(student.Reg_No) });
+        if (ov?.branch) {
+          actualDepartment = ov.branch;
+        }
+      } catch {}
       
       // If department is still "Unknown", try to get from student info
       if (actualDepartment === 'Unknown' && student.Branch) {

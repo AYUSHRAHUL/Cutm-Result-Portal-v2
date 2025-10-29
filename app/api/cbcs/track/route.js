@@ -196,6 +196,14 @@ export async function POST(req) {
     
     // If department code is not found, try to get from student info
     let actualDepartment = deptMap[deptCode];
+
+    // Override branch if admin set one
+    try {
+      const ov = await db.collection("branch_overrides").findOne({ reg });
+      if (ov?.branch) {
+        actualDepartment = ov.branch;
+      }
+    } catch {}
     
     if (!actualDepartment) {
       // Try to get department from student info if available
