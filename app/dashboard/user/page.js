@@ -52,7 +52,7 @@ export default function UserDashboard() {
         setLoadingStatus(loadingMessages[messageIndex].status);
         messageIndex++;
       }
-    }, 900);
+    }, 500);
 
     const loadingTimer = setTimeout(() => {
       clearInterval(messageInterval);
