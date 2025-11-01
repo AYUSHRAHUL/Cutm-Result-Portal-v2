@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 
 // ✅ Enhanced SEO Metadata
 export const metadata = {
-  title: "CUTM Result Portal | Official AOD & Backlog Portal",
+  title: "CUTM Acadmic Tracker",
   description:
     "Access your CUTM results, AOD (Analysis of Data) reports, and backlog details easily through the official CUTM Result Portal. Designed for students of Centurion University.",
   keywords: [

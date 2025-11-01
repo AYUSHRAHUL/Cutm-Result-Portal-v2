@@ -9,7 +9,7 @@ export default function AnalyticsPage() {
       <div className="fixed top-0 left-0 h-1.5 bg-gradient-to-r from-blue-500 via-emerald-500 to-blue-500 z-40 animate-pulse" style={{ width: "100%", opacity: 0.2 }} />
 
       {/* Header */}
-      <section className="pt-16 pb-8 text-center">
+      {/* <section className="pt-16 pb-8 text-center">
         <div className="mx-auto max-w-5xl px-6">
           <div className="w-28 h-28 rounded-full mx-auto mb-6 flex items-center justify-center text-white text-4xl shadow-[0_0_40px_rgba(59,130,246,0.5)] bg-gradient-to-br from-blue-500 to-blue-600 relative overflow-hidden hover:scale-105 transition-transform duration-300">
             <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,transparent,rgba(255,255,255,0.3),transparent)] animate-[spin_4s_linear_infinite]" />
@@ -23,7 +23,7 @@ export default function AnalyticsPage() {
             <span className="w-3 h-3 bg-emerald-400 rounded-full animate-pulse" /> Real-time Analytics
           </div>
         </div>
-      </section>
+      </section> */}
 
       {/* Analytics Content */}
       <section className="py-8">

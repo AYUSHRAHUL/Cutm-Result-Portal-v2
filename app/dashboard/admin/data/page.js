@@ -191,7 +191,7 @@ export default function AdminCBCSIndex() {
       <div className="max-w-6xl mx-auto px-3 sm:px-4 lg:px-6 pt-6 sm:pt-8 lg:pt-12">
         {/* Header */}
         <div className="mb-6 sm:mb-8 text-center">
-          <h1 
+          <h2 
             className="text-2xl sm:text-3xl md:text-4xl font-black mb-2"
             style={{
               background: "linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)",
@@ -200,8 +200,8 @@ export default function AdminCBCSIndex() {
               backgroundClip: "text",
             }}
           >
-            📚 Data Management
-          </h1>
+            📚 CBCS Management
+          </h2>
           <p className="text-[#5A6C7D] text-sm sm:text-base font-medium">
             Manage CBCS subjects and registration data
           </p>

@@ -359,7 +359,7 @@ export default function HomePage() {
               <div className="flex flex-wrap gap-3">
                 {[
                   { name: 'CBCS Tracking' },
-                  { name: 'Reasult Tracking' },
+                  { name: 'Result Tracking' },
                   { name: 'Backlog Tracking' },
                   
                 ].map((tag, i) => (
