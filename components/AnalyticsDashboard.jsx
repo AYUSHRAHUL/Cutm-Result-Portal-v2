@@ -34,6 +34,12 @@ export default function AnalyticsDashboard() {
   const [selectedSubjectToAdd, setSelectedSubjectToAdd] = useState(""); // Subject selection state for dropdown
   const [basketSubjects, setBasketSubjects] = useState([]); // Basket subjects from cbcs collection
   const [loadingBasketSubjects, setLoadingBasketSubjects] = useState(false);
+  
+  // Subject Comparison specific filters and data
+  const [subjectComparisonBatch, setSubjectComparisonBatch] = useState("all");
+  const [subjectComparisonBranch, setSubjectComparisonBranch] = useState("all");
+  const [subjectComparisonData, setSubjectComparisonData] = useState([]);
+  const [loadingSubjectComparison, setLoadingSubjectComparison] = useState(false);
   const [overviewBatchFilter, setOverviewBatchFilter] = useState("all"); // Separate filter for Department Distribution only
   const [filteredDepartmentStats, setFilteredDepartmentStats] = useState(null); // Separate state for filtered department stats
   
@@ -349,6 +355,103 @@ export default function AnalyticsDashboard() {
     setFilteredData(filtered);
   }, [analyticsData, searchTerm, selectedBatch, selectedBranch]);
 
+  // ====================== Subject Passing Comparison ======================
+  // Fetch subject comparison data with filters
+  useEffect(() => {
+    if (selectedSubjects.length === 0) {
+      setSubjectComparisonData([]);
+      return;
+    }
+
+    const abortController = new AbortController();
+    
+    const fetchSubjectComparison = async () => {
+      try {
+        setLoadingSubjectComparison(true);
+        
+        // Build query parameters
+        const params = new URLSearchParams();
+        if (subjectComparisonBatch && subjectComparisonBatch !== "all") {
+          params.set("batch", subjectComparisonBatch);
+        }
+        if (subjectComparisonBranch && subjectComparisonBranch !== "all") {
+          params.set("branch", subjectComparisonBranch);
+        }
+        params.set("subjects", selectedSubjects.join(","));
+        
+        const response = await fetch(`/api/analytics/subject-comparison?${params.toString()}`, {
+          method: "GET",
+          credentials: "include",
+          signal: abortController.signal,
+        });
+        
+        if (!response.ok) {
+          throw new Error("Failed to fetch subject comparison data");
+        }
+        
+        const result = await response.json();
+        
+        if (result.success && result.data) {
+          // Map API response to our format
+          const comparisonData = selectedSubjects.map((subjectCode) => {
+            const normalizedCode = String(subjectCode).trim().toUpperCase();
+            const subData = result.data.find((s) => {
+              const normalizedSubject = String(s.subject || "").trim().toUpperCase();
+              return normalizedSubject === normalizedCode;
+            });
+            
+            if (!subData) {
+              return {
+                subject: subjectCode,
+                passRate: 0,
+                failRate: 0,
+                totalStudents: 0,
+                passed: 0,
+                failed: 0,
+                average: 0,
+                hasData: false
+              };
+            }
+            
+            const failedCount = subData.failed || 0;
+            const totalStudents = subData.totalStudents || 0;
+            const passedCount = subData.passed || (totalStudents - failedCount);
+            const passRate = parseFloat(subData.passRate || 0);
+            const failRate = totalStudents > 0 ? parseFloat(((failedCount / totalStudents) * 100).toFixed(1)) : 0;
+            
+            return {
+              subject: subjectCode,
+              passRate: passRate,
+              failRate: failRate,
+              totalStudents: totalStudents,
+              passed: passedCount,
+              failed: failedCount,
+              average: parseFloat(subData.average || 0),
+              hasData: true
+            };
+          });
+          
+          setSubjectComparisonData(comparisonData);
+        } else {
+          setSubjectComparisonData([]);
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          console.error("Error fetching subject comparison:", err);
+          setSubjectComparisonData([]);
+        }
+      } finally {
+        setLoadingSubjectComparison(false);
+      }
+    };
+    
+    fetchSubjectComparison();
+    
+    return () => {
+      abortController.abort();
+    };
+  }, [selectedSubjects, subjectComparisonBatch, subjectComparisonBranch]);
+
   if (loading)
     return (
       <div className="flex flex-col items-center justify-center h-96 text-white">
@@ -422,104 +525,6 @@ export default function AnalyticsDashboard() {
       { name: "Failed", value: passingStats.fail, fill: "#ef4444" },
     ];
   }
-
-  // ====================== Subject Passing Comparison ======================
-  const getSubjectComparisonData = () => {
-    // Use subjectDifficultyAnalysis from API which has passRate and gradeDistribution
-    // Subjects come from basket subjects (selectedSubjects contains subject codes)
-    if (!currentData?.subjectDifficultyAnalysis || selectedSubjects.length === 0) {
-      console.log("No subject data available:", {
-        hasData: !!currentData?.subjectDifficultyAnalysis,
-        selectedCount: selectedSubjects.length,
-        subjects: selectedSubjects
-      });
-      return [];
-    }
-
-    const availableSubjects = currentData.subjectDifficultyAnalysis || [];
-    console.log("Getting subject comparison data:", {
-      selectedSubjects,
-      availableSubjectsCount: availableSubjects.length,
-      availableSubjects: availableSubjects.map(s => s.subject).slice(0, 10) // First 10 for debugging
-    });
-
-    // Process ALL selected subjects, don't filter out
-    const comparisonData = selectedSubjects.map((subjectCode) => {
-      // Normalize subject code for matching
-      const normalizedCode = String(subjectCode).trim().toUpperCase();
-      
-      // Try multiple matching strategies - exact match first, then partial
-      let subData = availableSubjects.find((s) => {
-        const normalizedSubject = String(s.subject || "").trim().toUpperCase();
-        return normalizedSubject === normalizedCode;
-      });
-
-      // If exact match not found, try partial matching (but be careful)
-      if (!subData) {
-        subData = availableSubjects.find((s) => {
-          const normalizedSubject = String(s.subject || "").trim().toUpperCase();
-          // Try if either contains the other (for cases like CUTM1058 vs CUTM1058X)
-          return normalizedSubject.includes(normalizedCode) || normalizedCode.includes(normalizedSubject);
-        });
-      }
-
-      console.log(`Subject ${subjectCode}:`, {
-        normalizedCode,
-        found: !!subData,
-        matchedSubject: subData?.subject,
-        passRate: subData?.passRate,
-        totalStudents: subData?.totalStudents
-      });
-
-      // If no data found, return zero values but keep the subject in the list
-      if (!subData) {
-        console.warn(`No data found for subject: ${subjectCode}. Showing with 0 values.`);
-        return { 
-          subject: subjectCode, 
-          passRate: 0, 
-          failRate: 0,
-          totalStudents: 0,
-          passed: 0,
-          failed: 0,
-          average: 0,
-          hasData: false
-        };
-      }
-
-      // Calculate failed count from gradeDistribution
-      const gradeDistribution = subData.gradeDistribution || {};
-      const failedGrades = ['F', 'S', 'M', 'I', 'R'];
-      const failedCount = failedGrades.reduce((sum, grade) => {
-        return sum + (gradeDistribution[grade] || 0);
-      }, 0);
-      
-      const totalStudents = subData.totalStudents || 0;
-      const passedCount = totalStudents - failedCount;
-      const passRate = parseFloat(subData.passRate || 0);
-      const failRate = totalStudents > 0 ? ((failedCount / totalStudents) * 100).toFixed(1) : 0;
-
-      return {
-        subject: subjectCode,
-        passRate: passRate,
-        failRate: parseFloat(failRate),
-        totalStudents: totalStudents,
-        passed: passedCount,
-        failed: failedCount,
-        average: parseFloat(subData.average || 0),
-        hasData: true
-      };
-    });
-
-    // Log summary
-    const withData = comparisonData.filter(item => item.hasData).length;
-    const withoutData = comparisonData.filter(item => !item.hasData).length;
-    console.log(`Subject comparison summary: ${withData} with data, ${withoutData} without data`);
-    
-    // Return ALL subjects, don't filter - let the UI show which ones have data
-    return comparisonData;
-  };
-
-  const subjectComparisonData = getSubjectComparisonData();
 
   // Add subject to comparison list
   const handleAddSubject = () => {
@@ -987,8 +992,8 @@ export default function AnalyticsDashboard() {
                   <div className="flex items-center gap-2">
                     <label className="text-white/70 text-sm font-medium">Batch:</label>
               <FilterSelect
-                value={selectedBatch}
-                onChange={setSelectedBatch}
+                value={subjectComparisonBatch}
+                onChange={setSubjectComparisonBatch}
                 options={batches}
                 label="Batch"
               />
@@ -996,8 +1001,8 @@ export default function AnalyticsDashboard() {
                   <div className="flex items-center gap-2">
                     <label className="text-white/70 text-sm font-medium">Branch:</label>
               <FilterSelect
-                value={selectedBranch}
-                onChange={setSelectedBranch}
+                value={subjectComparisonBranch}
+                onChange={setSubjectComparisonBranch}
                 options={branches}
                 label="Branch"
               />
@@ -1125,24 +1130,71 @@ export default function AnalyticsDashboard() {
 
             {selectedSubjects.length > 0 ? (
               <>
+                {/* Loading State */}
+                {loadingSubjectComparison && (
+                  <div className="mb-4 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg text-center">
+                    <div className="inline-block w-6 h-6 border-2 border-blue-300 border-t-transparent rounded-full animate-spin mr-3"></div>
+                    <span className="text-blue-300 font-semibold">Loading subject comparison data...</span>
+                  </div>
+                )}
+                
                 {/* Warning for subjects without data */}
-                {subjectComparisonData.filter(s => !s.hasData).length > 0 && (
-                  <div className="mb-4 p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg">
-                    <p className="text-sm text-orange-300 font-semibold mb-1">
-                      ⚠️ {subjectComparisonData.filter(s => !s.hasData).length} subject(s) have no result data
-                    </p>
-                    <div className="text-xs text-orange-200/80">
-                      Subjects without data: {subjectComparisonData.filter(s => !s.hasData).map(s => s.subject).join(", ")}
+                {!loadingSubjectComparison && subjectComparisonData.length > 0 && subjectComparisonData.filter(s => !s.hasData).length > 0 && (
+                  <div className="mb-4 p-4 bg-orange-500/10 border border-orange-500/30 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <svg className="w-5 h-5 text-orange-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      <div className="flex-1">
+                        <p className="text-sm text-orange-300 font-semibold mb-2">
+                          {subjectComparisonData.filter(s => !s.hasData).length} subject(s) have no result data
+                        </p>
+                        <div className="text-xs text-orange-200/80 bg-orange-500/10 p-2 rounded border border-orange-500/20">
+                          <strong>Subjects without data:</strong> {subjectComparisonData.filter(s => !s.hasData).map(s => {
+                            const subject = basketSubjects.find(bs => bs.code === s.subject);
+                            return subject ? `${s.subject} - ${subject.name}` : s.subject;
+                          }).join(", ")}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
                 
-                {subjectComparisonData.filter(s => s.hasData).length > 0 ? (
+                {/* Success message when data is loaded */}
+                {!loadingSubjectComparison && subjectComparisonData.filter(s => s.hasData).length > 0 && (
+                  <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span className="text-sm text-emerald-300 font-semibold">
+                        ✓ Loaded comparison data for {subjectComparisonData.filter(s => s.hasData).length} subject(s)
+                      </span>
+                    </div>
+                  </div>
+                )}
+                
+                {!loadingSubjectComparison && subjectComparisonData.filter(s => s.hasData).length > 0 ? (
                   <>
-                {/* Summary Cards for Comparison */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                  <div className="bg-white/5 rounded-xl p-4 border border-white/10 text-center">
-                    <p className="text-white/70 text-sm mb-1">Total Subjects</p>
+                {/* Section Title */}
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="text-xl font-bold text-white/90 flex items-center gap-2">
+                    <svg className="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    Comparison Results
+                  </h3>
+                </div>
+                
+                {/* Enhanced Summary Cards for Comparison */}
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+                  <div className="bg-white/5 rounded-xl p-4 border border-white/10 text-center hover:bg-white/10 transition-all">
+                    <div className="flex items-center justify-center mb-2">
+                      <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                      </svg>
+                    </div>
+                    <p className="text-white/70 text-xs mb-1">Total Subjects</p>
                     <p className="text-2xl font-bold text-white">{selectedSubjects.length}</p>
                     {subjectComparisonData.length < selectedSubjects.length && (
                       <p className="text-xs text-yellow-400 mt-1">
@@ -1150,8 +1202,13 @@ export default function AnalyticsDashboard() {
                       </p>
                     )}
                   </div>
-                  <div className="bg-emerald-500/10 rounded-xl p-4 border border-emerald-500/20 text-center">
-                    <p className="text-emerald-200 text-sm mb-1">Avg Pass Rate</p>
+                  <div className="bg-emerald-500/10 rounded-xl p-4 border border-emerald-500/20 text-center hover:bg-emerald-500/15 transition-all">
+                    <div className="flex items-center justify-center mb-2">
+                      <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <p className="text-emerald-200 text-xs mb-1">Avg Pass Rate</p>
                     <p className="text-2xl font-bold text-emerald-400">
                       {(() => {
                         const subjectsWithData = subjectComparisonData.filter(s => s.hasData);
@@ -1169,8 +1226,13 @@ export default function AnalyticsDashboard() {
                       </p>
                     )}
                   </div>
-                  <div className="bg-red-500/10 rounded-xl p-4 border border-red-500/20 text-center">
-                    <p className="text-red-200 text-sm mb-1">Avg Fail Rate</p>
+                  <div className="bg-red-500/10 rounded-xl p-4 border border-red-500/20 text-center hover:bg-red-500/15 transition-all">
+                    <div className="flex items-center justify-center mb-2">
+                      <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <p className="text-red-200 text-xs mb-1">Avg Fail Rate</p>
                     <p className="text-2xl font-bold text-red-400">
                       {(() => {
                         const subjectsWithData = subjectComparisonData.filter(s => s.hasData);
@@ -1188,26 +1250,74 @@ export default function AnalyticsDashboard() {
                       </p>
                     )}
                   </div>
-                  <div className="bg-blue-500/10 rounded-xl p-4 border border-blue-500/20 text-center">
-                    <p className="text-blue-200 text-sm mb-1">Total Students</p>
+                  <div className="bg-blue-500/10 rounded-xl p-4 border border-blue-500/20 text-center hover:bg-blue-500/15 transition-all">
+                    <div className="flex items-center justify-center mb-2">
+                      <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                      </svg>
+                    </div>
+                    <p className="text-blue-200 text-xs mb-1">Total Students</p>
                     <p className="text-2xl font-bold text-blue-400">
-                      {subjectComparisonData.reduce((sum, s) => sum + s.totalStudents, 0)}
+                      {subjectComparisonData.reduce((sum, s) => sum + s.totalStudents, 0).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="bg-yellow-500/10 rounded-xl p-4 border border-yellow-500/20 text-center hover:bg-yellow-500/15 transition-all">
+                    <div className="flex items-center justify-center mb-2">
+                      <svg className="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                      </svg>
+                    </div>
+                    <p className="text-yellow-200 text-xs mb-1">Avg Grade</p>
+                    <p className="text-2xl font-bold text-yellow-400">
+                      {(() => {
+                        const subjectsWithData = subjectComparisonData.filter(s => s.hasData && s.average > 0);
+                        return subjectsWithData.length > 0
+                          ? (
+                              subjectsWithData.reduce((sum, s) => sum + s.average, 0) /
+                              subjectsWithData.length
+                            ).toFixed(2)
+                          : "N/A";
+                      })()}
+                    </p>
+                    <p className="text-xs text-yellow-300/70 mt-1">(out of 10)</p>
+                  </div>
+                  <div className="bg-purple-500/10 rounded-xl p-4 border border-purple-500/20 text-center hover:bg-purple-500/15 transition-all">
+                    <div className="flex items-center justify-center mb-2">
+                      <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                      </svg>
+                    </div>
+                    <p className="text-purple-200 text-xs mb-1">Total Passed</p>
+                    <p className="text-2xl font-bold text-purple-400">
+                      {subjectComparisonData.reduce((sum, s) => sum + s.passed, 0).toLocaleString()}
                     </p>
                   </div>
                 </div>
 
                 {/* Enhanced Bar Chart */}
                 <div className="bg-white/5 rounded-2xl p-6 border border-white/10">
-                  <div className="mb-4 flex items-center justify-between">
-                    <h4 className="text-lg font-bold text-white/90">Pass Rate vs Fail Rate Comparison</h4>
+                  <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <h4 className="text-lg font-bold text-white/90 mb-1">Pass Rate vs Fail Rate Comparison</h4>
+                      <p className="text-xs text-white/60">
+                        Comparing {subjectComparisonData.filter(s => s.hasData).length} subject(s) with data
+                        {subjectComparisonBatch !== "all" || subjectComparisonBranch !== "all" ? (
+                          <span className="ml-2">
+                            (Filtered: {subjectComparisonBatch !== "all" ? `Batch ${subjectComparisonBatch}` : ""}
+                            {subjectComparisonBatch !== "all" && subjectComparisonBranch !== "all" ? ", " : ""}
+                            {subjectComparisonBranch !== "all" ? `Branch ${subjectComparisonBranch}` : ""})
+                          </span>
+                        ) : null}
+                      </p>
+                    </div>
                     <div className="flex items-center gap-4 text-sm text-white/70">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/20 rounded-lg border border-emerald-500/30">
                         <div className="w-3 h-3 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500"></div>
-                        <span>Pass Rate</span>
+                        <span className="font-medium">Pass Rate</span>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 px-3 py-1.5 bg-red-500/20 rounded-lg border border-red-500/30">
                         <div className="w-3 h-3 rounded-full bg-gradient-to-r from-red-400 to-red-500"></div>
-                        <span>Fail Rate</span>
+                        <span className="font-medium">Fail Rate</span>
                       </div>
                     </div>
                   </div>
@@ -1235,6 +1345,17 @@ export default function AnalyticsDashboard() {
                         height={100}
                         tick={{ fill: "#fff", fontSize: 11, fontWeight: 500 }}
                         tickLine={{ stroke: "#94a3b8" }}
+                        tickFormatter={(value) => {
+                          const subject = basketSubjects.find(s => s.code === value);
+                          // Show short name if available, otherwise just code
+                          if (subject?.name) {
+                            const shortName = subject.name.length > 15 
+                              ? subject.name.substring(0, 12) + "..." 
+                              : subject.name;
+                            return `${value}\n${shortName}`;
+                          }
+                          return value;
+                        }}
                       />
                       <YAxis 
                         stroke="#94a3b8"
@@ -1243,7 +1364,19 @@ export default function AnalyticsDashboard() {
                         label={{ value: 'Rate (%)', angle: -90, position: 'insideLeft', fill: '#fff', style: { textAnchor: 'middle' } }}
                       />
                       <Tooltip 
-                        formatter={(value, name) => [`${value}%`, name]}
+                        formatter={(value, name, props) => {
+                          const data = props.payload;
+                          if (name === "Pass Rate (%)") {
+                            return [`${value}%`, `${name} - ${data.passed} passed / ${data.totalStudents} total`];
+                          } else if (name === "Fail Rate (%)") {
+                            return [`${value}%`, `${name} - ${data.failed} failed / ${data.totalStudents} total`];
+                          }
+                          return [`${value}%`, name];
+                        }}
+                        labelFormatter={(label) => {
+                          const subject = basketSubjects.find(s => s.code === label);
+                          return subject ? `${label} - ${subject.name}` : label;
+                        }}
                         labelStyle={{ color: '#fff', fontWeight: 'bold', marginBottom: '4px' }}
                         contentStyle={{ 
                           backgroundColor: "rgba(0, 0, 0, 0.9)", 
@@ -1275,6 +1408,100 @@ export default function AnalyticsDashboard() {
                       />
                 </BarChart>
               </ResponsiveContainer>
+                </div>
+                
+                {/* Detailed Comparison Table */}
+                <div className="bg-white/5 rounded-2xl p-6 border border-white/10 mt-6">
+                  <div className="mb-4 flex items-center justify-between">
+                    <h4 className="text-lg font-bold text-white/90 flex items-center gap-2">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                      Detailed Subject Comparison
+                    </h4>
+                    <button
+                      onClick={() => {
+                        const csv = [
+                          ["Subject Code", "Subject Name", "Total Students", "Passed", "Failed", "Pass Rate (%)", "Fail Rate (%)", "Avg Grade"],
+                          ...subjectComparisonData
+                            .filter(s => s.hasData)
+                            .map(s => {
+                              const subject = basketSubjects.find(bs => bs.code === s.subject);
+                              return [
+                                s.subject,
+                                subject?.name || "N/A",
+                                s.totalStudents,
+                                s.passed,
+                                s.failed,
+                                s.passRate.toFixed(1),
+                                s.failRate.toFixed(1),
+                                s.average > 0 ? s.average.toFixed(2) : "N/A"
+                              ];
+                            })
+                        ].map(row => row.map(cell => `"${cell}"`).join(",")).join("\n");
+                        
+                        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+                        const link = document.createElement("a");
+                        link.href = URL.createObjectURL(blob);
+                        link.download = `subject_comparison_${new Date().toISOString().split('T')[0]}.csv`;
+                        link.click();
+                      }}
+                      className="px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 text-emerald-300 rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      Export CSV
+                    </button>
+                  </div>
+                  
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[800px]">
+                      <thead>
+                        <tr className="border-b-2 border-white/20 bg-white/5">
+                          <th className="px-4 py-3 text-left text-sm font-bold text-white/90 sticky left-0 bg-white/5 z-10">Subject Code</th>
+                          <th className="px-4 py-3 text-left text-sm font-bold text-white/90 sticky left-[120px] bg-white/5 z-10">Subject Name</th>
+                          <th className="px-4 py-3 text-center text-sm font-bold text-white/90">Total Students</th>
+                          <th className="px-4 py-3 text-center text-sm font-bold text-emerald-400 bg-emerald-500/10">Passed</th>
+                          <th className="px-4 py-3 text-center text-sm font-bold text-red-400 bg-red-500/10">Failed</th>
+                          <th className="px-4 py-3 text-center text-sm font-bold text-emerald-400 bg-emerald-500/10">Pass Rate</th>
+                          <th className="px-4 py-3 text-center text-sm font-bold text-red-400 bg-red-500/10">Fail Rate</th>
+                          <th className="px-4 py-3 text-center text-sm font-bold text-yellow-400 bg-yellow-500/10">Avg Grade</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {subjectComparisonData
+                          .filter(s => s.hasData)
+                          .map((s, idx) => {
+                            const subject = basketSubjects.find(bs => bs.code === s.subject);
+                            return (
+                              <tr key={idx} className="border-b border-white/10 hover:bg-white/5 transition-colors">
+                                <td className="px-4 py-3 text-sm font-mono text-purple-300">{s.subject}</td>
+                                <td className="px-4 py-3 text-sm text-white/80">{subject?.name || "N/A"}</td>
+                                <td className="px-4 py-3 text-sm text-center text-white/70 font-semibold">{s.totalStudents.toLocaleString()}</td>
+                                <td className="px-4 py-3 text-sm text-center text-emerald-400 font-bold">{s.passed.toLocaleString()}</td>
+                                <td className="px-4 py-3 text-sm text-center text-red-400 font-bold">{s.failed.toLocaleString()}</td>
+                                <td className="px-4 py-3 text-sm text-center text-emerald-400 font-bold">{s.passRate.toFixed(1)}%</td>
+                                <td className="px-4 py-3 text-sm text-center text-red-400 font-bold">{s.failRate.toFixed(1)}%</td>
+                                <td className="px-4 py-3 text-sm text-center text-yellow-400 font-bold">
+                                  {s.average > 0 ? s.average.toFixed(2) : "N/A"}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                  
+                  {subjectComparisonData.filter(s => s.hasData).length === 0 && (
+                    <div className="text-center py-12 text-white/50">
+                      <svg className="w-12 h-12 mx-auto text-white/30 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                      </svg>
+                      <p className="font-semibold text-white/70 mb-1">No data available for comparison</p>
+                      <p className="text-xs text-white/50">Make sure grade records are uploaded for the selected subjects</p>
+                    </div>
+                  )}
                 </div>
                   </>
                 ) : (
