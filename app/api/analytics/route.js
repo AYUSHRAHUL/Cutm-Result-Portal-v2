@@ -34,11 +34,16 @@ export async function GET(req) {
       }, { status: 403 });
     }
 
+    // Get query parameters for filtering
+    const { searchParams } = new URL(req.url);
+    const batchFilter = searchParams.get('batch'); // e.g., "2022", "2023", or null
+    const branchFilter = searchParams.get('branch'); // e.g., "CSE", "ECE", or null
+
     const client = await clientPromise;
     const db = client.db("cutm1");
 
     // Get analytics data from both collections
-    const analytics = await getAnalyticsData(db);
+    const analytics = await getAnalyticsData(db, batchFilter, branchFilter);
 
     return NextResponse.json({
       success: true,
@@ -53,18 +58,96 @@ export async function GET(req) {
   }
 }
 
-async function getAnalyticsData(db) {
+async function getAnalyticsData(db, batchFilter = null, branchFilter = null) {
   // Get data from both CUTM1 and RegistrationData collections
-  const cutm1Data = await db.collection("CUTM1").find({}).toArray();
-  const regData = await db.collection("RegistrationData").find({}).toArray();
-  // Load branch overrides map for all registrations involved
-  const regSet = Array.from(new Set([...cutm1Data, ...regData].map(r => r.Reg_No).filter(Boolean)));
+  let cutm1Data = await db.collection("CUTM1").find({}).toArray();
+  let regData = await db.collection("RegistrationData").find({}).toArray();
+  
+  // Branch mapping
+  const branchMap = {
+    'CSE': ['2', '8'], // Computer Science Engineering
+    'ECE': ['3', '4'], // Electronics & Communication Engineering
+    'EEE': ['5'], // Electrical & Electronics Engineering
+    'ME': ['6'], // Mechanical Engineering
+    'CIVIL': ['1', '9'], // Civil Engineering
+    'AIML': ['7'] // AIML
+  };
+  
+  // Filter function for batch
+  const filterByBatch = (record) => {
+    if (!batchFilter || batchFilter === "all") return true;
+    if (!record.Reg_No) return false;
+    const regNo = String(record.Reg_No);
+    if (regNo.length < 2) return false;
+    const batchPrefix = batchFilter.length === 4 ? batchFilter.substring(2, 4) : batchFilter;
+    const recordBatchPrefix = regNo.substring(0, 2);
+    return recordBatchPrefix === batchPrefix;
+  };
+  
+  // Load branch overrides map first (before filtering by branch)
+  const allRegSet = Array.from(new Set([...cutm1Data, ...regData].map(r => r.Reg_No ? String(r.Reg_No) : null).filter(Boolean)));
   let overridesMap = new Map();
-  if (regSet.length > 0) {
+  if (allRegSet.length > 0) {
     try {
-      const ovDocs = await db.collection("branch_overrides").find({ reg: { $in: regSet } }).project({ reg: 1, branch: 1 }).toArray();
+      const ovDocs = await db.collection("branch_overrides").find({ reg: { $in: allRegSet } }).project({ reg: 1, branch: 1 }).toArray();
       overridesMap = new Map(ovDocs.map(d => [d.reg, d.branch]));
     } catch {}
+  }
+  
+  // Branch name mapping for filter comparison (more flexible matching)
+  const branchNameMap = {
+    'CSE': ['computer science', 'cse', 'computer science engineering'],
+    'ECE': ['electronics & communication', 'ece', 'electronics and communication', 'electronics communication'],
+    'EEE': ['electrical & electronics', 'eee', 'electrical and electronics', 'electrical electronics'],
+    'ME': ['mechanical', 'me', 'mechanical engineering'],
+    'CIVIL': ['civil', 'civil engineering'],
+    'AIML': ['aiml', 'artificial intelligence', 'machine learning']
+  };
+  
+  // Filter function for branch (checks both Reg_No dept code and overrides)
+  const filterByBranch = (record) => {
+    if (!branchFilter || branchFilter === "all") return true;
+    if (!record.Reg_No) return false;
+    const regNo = String(record.Reg_No);
+    
+    // Check branch overrides first
+    const override = overridesMap.get(regNo);
+    if (override) {
+      const overrideLower = override.toLowerCase();
+      const validNames = branchNameMap[branchFilter] || [];
+      
+      // Check if override matches any of the valid names for this branch
+      const matches = validNames.some(name => {
+        const nameLower = name.toLowerCase();
+        return overrideLower.includes(nameLower) || nameLower.includes(overrideLower) || overrideLower === nameLower;
+      });
+      
+      if (matches) {
+        return true;
+      }
+    }
+    
+    // Fall back to Reg_No dept code
+    if (regNo.length < 8) return false;
+    const deptCode = regNo.charAt(7);
+    const validCodes = branchMap[branchFilter] || [];
+    return validCodes.includes(deptCode);
+  };
+  
+  // Apply filters - apply both batch and branch filters together
+  const applyAllFilters = (record) => {
+    const batchMatch = filterByBatch(record);
+    const branchMatch = filterByBranch(record);
+    return batchMatch && branchMatch;
+  };
+  
+  // Apply filters
+  if ((batchFilter && batchFilter !== "all") || (branchFilter && branchFilter !== "all")) {
+    cutm1Data = cutm1Data.filter(applyAllFilters);
+    regData = regData.filter(applyAllFilters);
+    
+    console.log(`Filters applied - Batch: ${batchFilter || "all"}, Branch: ${branchFilter || "all"}`);
+    console.log(`Filtered CUTM1 records: ${cutm1Data.length}, Filtered Registration records: ${regData.length}`);
   }
   
   // Combine data
@@ -128,13 +211,38 @@ async function getAnalyticsData(db) {
     }
     
     const performanceMetrics = getPerformanceMetrics(cutm1Data);
+    console.log('Performance Metrics:', {
+      batchFilter,
+      branchFilter,
+      totalRecords: performanceMetrics.totalRecords,
+      passedRecords: performanceMetrics.passedRecords,
+      failedRecords: performanceMetrics.failedRecords,
+      passRate: performanceMetrics.passRate,
+      filteredCutm1DataLength: cutm1Data.length
+    });
     if (performanceMetrics.totalRecords > 0) {
       analytics.performanceMetrics = performanceMetrics;
     }
     
+    // If branch is selected but batch is "all", calculate breakdown by batch
+    if (branchFilter && branchFilter !== "all" && (!batchFilter || batchFilter === "all")) {
+      const batchBreakdown = getPerformanceMetricsByBatch(cutm1Data);
+      if (batchBreakdown && batchBreakdown.length > 0) {
+        analytics.performanceMetricsByBatch = batchBreakdown;
+      }
+    }
+    
+    // If batch is selected but branch is "all", calculate breakdown by branch
+    if (batchFilter && batchFilter !== "all" && (!branchFilter || branchFilter === "all")) {
+      const branchBreakdown = getPerformanceMetricsByBranch(cutm1Data, overridesMap);
+      if (branchBreakdown && branchBreakdown.length > 0) {
+        analytics.performanceMetricsByBranch = branchBreakdown;
+      }
+    }
+    
     // Advanced analytics only if we have substantial data
     if (cutm1Data.length > 10) {
-      const advancedAnalytics = getAdvancedAnalytics(allData, cutm1Data, overridesMap);
+      const advancedAnalytics = await getAdvancedAnalytics(allData, cutm1Data, overridesMap, db);
       
       // Only add advanced analytics if they have meaningful data
       if (advancedAnalytics.gradeCreditCorrelation.length > 0) {
@@ -176,14 +284,17 @@ function getDepartmentStats(data, overridesMap = new Map()) {
   const uniqueStudents = new Set(); // Track unique students per department
   
   data.forEach(record => {
-    if (record.Reg_No && record.Reg_No.length >= 8) {
-      const override = overridesMap.get(record.Reg_No);
-      const deptName = override || (deptMap[record.Reg_No.charAt(7)] || 'Unknown');
-      const studentKey = `${deptName}-${record.Reg_No}`; // Create unique key for each student
-      
-      if (!uniqueStudents.has(studentKey)) {
-        uniqueStudents.add(studentKey);
-        stats[deptName] = (stats[deptName] || 0) + 1;
+    if (record.Reg_No) {
+      const regNo = String(record.Reg_No); // Convert to string
+      if (regNo.length >= 8) {
+        const override = overridesMap.get(regNo);
+        const deptName = override || (deptMap[regNo.charAt(7)] || 'Unknown');
+        const studentKey = `${deptName}-${regNo}`; // Create unique key for each student
+        
+        if (!uniqueStudents.has(studentKey)) {
+          uniqueStudents.add(studentKey);
+          stats[deptName] = (stats[deptName] || 0) + 1;
+        }
       }
     }
   });
@@ -224,13 +335,16 @@ function getBatchStats(data) {
   const uniqueStudents = new Set(); // Track unique students per batch
   
   data.forEach(record => {
-    if (record.Reg_No && record.Reg_No.length >= 2) {
-      const batch = record.Reg_No.substring(0, 2); // Use first two digits
-      const studentKey = `${batch}-${record.Reg_No}`; // Create unique key for each student
-      
-      if (!uniqueStudents.has(studentKey)) {
-        uniqueStudents.add(studentKey);
-        stats[batch] = (stats[batch] || 0) + 1;
+    if (record.Reg_No) {
+      const regNo = String(record.Reg_No); // Convert to string
+      if (regNo.length >= 2) {
+        const batch = regNo.substring(0, 2); // Use first two digits
+        const studentKey = `${batch}-${regNo}`; // Create unique key for each student
+        
+        if (!uniqueStudents.has(studentKey)) {
+          uniqueStudents.add(studentKey);
+          stats[batch] = (stats[batch] || 0) + 1;
+        }
       }
     }
   });
@@ -289,20 +403,215 @@ function getMonthlyTrends(data) {
 }
 
 function getPerformanceMetrics(data) {
-  const totalRecords = data.length;
-  const passedRecords = data.filter(record => {
-    const grade = record.Grade?.toUpperCase().trim();
-    return grade && !['F', 'S', 'M', 'I', 'R'].includes(grade);
-  }).length;
+  // Group records by Reg_No (student)
+  const studentRecords = {};
   
-  const passRate = totalRecords > 0 ? (passedRecords / totalRecords) * 100 : 0;
+  data.forEach(record => {
+    if (!record.Reg_No) return;
+    const regNo = String(record.Reg_No);
+    
+    if (!studentRecords[regNo]) {
+      studentRecords[regNo] = [];
+    }
+    studentRecords[regNo].push(record);
+  });
+  
+  // For each student, check if they have any failed subjects
+  const failedGrades = ['F', 'S', 'M', 'I', 'R'];
+  let passedStudents = 0;
+  let failedStudents = 0;
+  
+  Object.keys(studentRecords).forEach(regNo => {
+    const records = studentRecords[regNo];
+    
+    // Check if this student has ANY failed grade in ANY subject
+    const hasFailed = records.some(record => {
+      const grade = record.Grade?.toUpperCase().trim();
+      return grade && failedGrades.includes(grade);
+    });
+    
+    if (hasFailed) {
+      failedStudents++;
+    } else {
+      // Student passed only if they have no failed subjects
+      passedStudents++;
+    }
+  });
+  
+  const totalStudents = passedStudents + failedStudents;
+  const passRate = totalStudents > 0 ? (passedStudents / totalStudents) * 100 : 0;
+  
+  console.log('Performance Metrics (Student-based):', {
+    totalStudents,
+    passedStudents,
+    failedStudents,
+    passRate: Math.round(passRate * 100) / 100
+  });
   
   return {
-    totalRecords,
-    passedRecords,
-    failedRecords: totalRecords - passedRecords,
+    totalRecords: totalStudents, // Total students (not records)
+    passedRecords: passedStudents, // Students who passed (no failed subjects)
+    failedRecords: failedStudents, // Students who failed (have at least one failed subject)
     passRate: Math.round(passRate * 100) / 100
   };
+}
+
+function getPerformanceMetricsByBatch(data) {
+  // Group records by Reg_No (student) and then by batch
+  const studentRecords = {};
+  
+  data.forEach(record => {
+    if (!record.Reg_No) return;
+    const regNo = String(record.Reg_No);
+    
+    if (!studentRecords[regNo]) {
+      studentRecords[regNo] = [];
+    }
+    studentRecords[regNo].push(record);
+  });
+  
+  // Group students by batch
+  const batchGroups = {};
+  const failedGrades = ['F', 'S', 'M', 'I', 'R'];
+  
+  Object.keys(studentRecords).forEach(regNo => {
+    const records = studentRecords[regNo];
+    
+    // Extract batch from Reg_No
+    const batch = regNo.length >= 2 ? `20${regNo.substring(0, 2)}` : "Unknown";
+    
+    if (!batchGroups[batch]) {
+      batchGroups[batch] = { passed: 0, failed: 0, total: 0 };
+    }
+    
+    // Check if this student has ANY failed grade in ANY subject
+    const hasFailed = records.some(record => {
+      const grade = record.Grade?.toUpperCase().trim();
+      return grade && failedGrades.includes(grade);
+    });
+    
+    batchGroups[batch].total++;
+    if (hasFailed) {
+      batchGroups[batch].failed++;
+    } else {
+      batchGroups[batch].passed++;
+    }
+  });
+  
+  // Convert to array format for chart
+  return Object.keys(batchGroups)
+    .filter(batch => batch !== "Unknown")
+    .sort()
+    .map(batch => {
+      const group = batchGroups[batch];
+      return {
+        batch: batch,
+        total: group.total,
+        passed: group.passed,
+        failed: group.failed,
+        passRate: group.total > 0 ? Math.round((group.passed / group.total) * 100 * 100) / 100 : 0
+      };
+    });
+}
+
+function getPerformanceMetricsByBranch(data, overridesMap = new Map()) {
+  // Group records by Reg_No (student) and then by branch
+  const studentRecords = {};
+  
+  data.forEach(record => {
+    if (!record.Reg_No) return;
+    const regNo = String(record.Reg_No);
+    
+    if (!studentRecords[regNo]) {
+      studentRecords[regNo] = [];
+    }
+    studentRecords[regNo].push(record);
+  });
+  
+  // Branch mapping
+  const deptMap = {
+    '1': 'Civil Engineering',
+    '2': 'Computer Science Engineering',
+    '3': 'Electronics & Communication Engineering',
+    '4': 'Electronics & Communication Engineering',
+    '5': 'Electrical & Electronics Engineering',
+    '6': 'Mechanical Engineering',
+    '7': 'AIML',
+    '8': 'Computer Science Engineering',
+    '9': 'Civil Engineering'
+  };
+  
+  // Branch abbreviation mapping for display
+  const branchAbbrevMap = {
+    'Computer Science Engineering': 'CSE',
+    'Electronics & Communication Engineering': 'ECE',
+    'Electrical & Electronics Engineering': 'EEE',
+    'Mechanical Engineering': 'ME',
+    'Civil Engineering': 'CIVIL',
+    'AIML': 'AIML'
+  };
+  
+  // Group students by branch
+  const branchGroups = {};
+  const failedGrades = ['F', 'S', 'M', 'I', 'R'];
+  
+  Object.keys(studentRecords).forEach(regNo => {
+    const records = studentRecords[regNo];
+    
+    // Get branch from Reg_No or override
+    let branchName = null;
+    const override = overridesMap.get(regNo);
+    if (override) {
+      branchName = override;
+    } else if (regNo.length >= 8) {
+      const deptCode = regNo.charAt(7);
+      branchName = deptMap[deptCode] || null;
+    }
+    
+    if (!branchName) return;
+    
+    // Use abbreviation for consistency
+    const branchKey = branchAbbrevMap[branchName] || branchName;
+    
+    if (!branchGroups[branchKey]) {
+      branchGroups[branchKey] = { passed: 0, failed: 0, total: 0 };
+    }
+    
+    // Check if this student has ANY failed grade in ANY subject
+    const hasFailed = records.some(record => {
+      const grade = record.Grade?.toUpperCase().trim();
+      return grade && failedGrades.includes(grade);
+    });
+    
+    branchGroups[branchKey].total++;
+    if (hasFailed) {
+      branchGroups[branchKey].failed++;
+    } else {
+      branchGroups[branchKey].passed++;
+    }
+  });
+  
+  // Convert to array format for chart, sorted by branch name
+  const branchOrder = ['CSE', 'ECE', 'EEE', 'ME', 'CIVIL', 'AIML'];
+  return Object.keys(branchGroups)
+    .sort((a, b) => {
+      const aIndex = branchOrder.indexOf(a);
+      const bIndex = branchOrder.indexOf(b);
+      if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+      if (aIndex !== -1) return -1;
+      if (bIndex !== -1) return 1;
+      return a.localeCompare(b);
+    })
+    .map(branch => {
+      const group = branchGroups[branch];
+      return {
+        branch: branch,
+        total: group.total,
+        passed: group.passed,
+        failed: group.failed,
+        passRate: group.total > 0 ? Math.round((group.passed / group.total) * 100 * 100) / 100 : 0
+      };
+    });
 }
 
 function parseCredits(creditStr) {
@@ -315,7 +624,7 @@ function parseCredits(creditStr) {
 }
 
 // Advanced Analytics Functions
-function getAdvancedAnalytics(allData, cutm1Data, overridesMap = new Map()) {
+async function getAdvancedAnalytics(allData, cutm1Data, overridesMap = new Map(), db) {
   return {
     // 1. Grade vs Credit Correlation
     gradeCreditCorrelation: getGradeCreditCorrelation(cutm1Data),
@@ -338,8 +647,8 @@ function getAdvancedAnalytics(allData, cutm1Data, overridesMap = new Map()) {
     // 7. Grade Trends Over Time
     gradeTrendsOverTime: getGradeTrendsOverTime(cutm1Data),
     
-    // 8. Top Performing Students
-    topPerformingStudents: getTopPerformingStudents(cutm1Data),
+    // 8. Top Performing Students (now async to fetch names)
+    topPerformingStudents: await getTopPerformingStudents(cutm1Data, db),
     
     // 9. Subject Popularity Trends
     subjectPopularityTrends: getSubjectPopularityTrends(allData),
@@ -385,21 +694,24 @@ function getDepartmentPerformanceHeatmap(data, overridesMap = new Map()) {
   const heatmapData = {};
   
   data.forEach(record => {
-    if (record.Reg_No && record.Reg_No.length >= 8 && record.Grade && record.Sem) {
-      const override = overridesMap.get(record.Reg_No);
-      const deptName = override || (deptMap[record.Reg_No.charAt(7)] || 'Unknown');
-      const grade = record.Grade.toUpperCase();
-      const points = gradePoints[grade] || 0;
-      
-      if (!heatmapData[deptName]) {
-        heatmapData[deptName] = {};
+    if (record.Reg_No && record.Grade && record.Sem) {
+      const regNo = String(record.Reg_No); // Convert to string
+      if (regNo.length >= 8) {
+        const override = overridesMap.get(regNo);
+        const deptName = override || (deptMap[regNo.charAt(7)] || 'Unknown');
+        const grade = record.Grade.toUpperCase();
+        const points = gradePoints[grade] || 0;
+        
+        if (!heatmapData[deptName]) {
+          heatmapData[deptName] = {};
+        }
+        if (!heatmapData[deptName][record.Sem]) {
+          heatmapData[deptName][record.Sem] = { total: 0, sum: 0 };
+        }
+        
+        heatmapData[deptName][record.Sem].total += 1;
+        heatmapData[deptName][record.Sem].sum += points;
       }
-      if (!heatmapData[deptName][record.Sem]) {
-        heatmapData[deptName][record.Sem] = { total: 0, sum: 0 };
-      }
-      
-      heatmapData[deptName][record.Sem].total += 1;
-      heatmapData[deptName][record.Sem].sum += points;
     }
   });
   
@@ -528,16 +840,19 @@ function getCreditDistributionByDepartment(data, overridesMap = new Map()) {
   const deptCredits = {};
   
   data.forEach(record => {
-    if (record.Reg_No && record.Reg_No.length >= 8 && record.Credits) {
-      const override = overridesMap.get(record.Reg_No);
-      const deptName = override || (deptMap[record.Reg_No.charAt(7)] || 'Unknown');
-      const credits = parseCredits(record.Credits);
-      
-      if (!deptCredits[deptName]) {
-        deptCredits[deptName] = [];
+    if (record.Reg_No && record.Credits) {
+      const regNo = String(record.Reg_No); // Convert to string
+      if (regNo.length >= 8) {
+        const override = overridesMap.get(regNo);
+        const deptName = override || (deptMap[regNo.charAt(7)] || 'Unknown');
+        const credits = parseCredits(record.Credits);
+        
+        if (!deptCredits[deptName]) {
+          deptCredits[deptName] = [];
+        }
+        
+        deptCredits[deptName].push(credits);
       }
-      
-      deptCredits[deptName].push(credits);
     }
   });
   
@@ -578,13 +893,13 @@ function getGradeTrendsOverTime(data) {
     }));
 }
 
-function getTopPerformingStudents(data) {
+async function getTopPerformingStudents(data, db) {
   const studentPerformance = {};
   const gradePoints = { 'O': 10, 'E': 9, 'A': 8, 'B': 7, 'C': 6, 'D': 5, 'F': 0, 'S': 0, 'I': 0, 'M': 0, 'R': 0 };
   
   data.forEach(record => {
     if (record.Reg_No && record.Grade) {
-      const regNo = record.Reg_No;
+      const regNo = String(record.Reg_No);
       const grade = record.Grade.toUpperCase();
       const points = gradePoints[grade] || 0;
       
@@ -598,14 +913,69 @@ function getTopPerformingStudents(data) {
     }
   });
   
+  // Get all unique Reg_Nos
+  const regNos = Object.keys(studentPerformance);
+  
+  // Fetch names from both RegistrationData and CUTM1 collections
+  const nameMap = new Map();
+  if (regNos.length > 0 && db) {
+    try {
+      // Try to match Reg_No as both string and number (MongoDB might store them differently)
+      const regNosAsStrings = regNos.map(r => String(r));
+      const regNosAsNumbers = regNos.map(r => {
+        const num = Number(r);
+        return isNaN(num) ? null : num;
+      }).filter(Boolean);
+      
+      const allRegNos = [...regNosAsStrings, ...regNosAsNumbers];
+      
+      // Fetch from RegistrationData collection
+      const regData = await db.collection("RegistrationData").find({ 
+        $or: [
+          { Reg_No: { $in: regNosAsStrings } },
+          { Reg_No: { $in: regNosAsNumbers } }
+        ]
+      }).project({ Reg_No: 1, Name: 1 }).toArray();
+      
+      regData.forEach(record => {
+        const regNo = String(record.Reg_No);
+        if (record.Name && record.Name.trim()) {
+          nameMap.set(regNo, record.Name.trim());
+        }
+      });
+      
+      // Also fetch from CUTM1 collection (in case names are stored there)
+      const cutm1Data = await db.collection("CUTM1").find({ 
+        $or: [
+          { Reg_No: { $in: regNosAsStrings } },
+          { Reg_No: { $in: regNosAsNumbers } }
+        ]
+      }).project({ Reg_No: 1, Name: 1 }).toArray();
+      
+      cutm1Data.forEach(record => {
+        const regNo = String(record.Reg_No || "");
+        if (record.Name && record.Name.trim() && !nameMap.has(regNo)) {
+          nameMap.set(regNo, record.Name.trim());
+        }
+      });
+      
+      console.log(`Fetched names for ${nameMap.size} out of ${regNos.length} students`);
+    } catch (err) {
+      console.error("Error fetching student names:", err);
+    }
+  }
+  
+  // Return ALL students sorted by average (descending), not just top 10
+  // Frontend will filter by batch/branch and show top 10 per group
   return Object.entries(studentPerformance)
     .map(([regNo, stats]) => ({
       regNo,
+      name: nameMap.get(regNo) || null,
       average: stats.subjects > 0 ? (stats.sum / stats.subjects).toFixed(2) : 0,
       totalSubjects: stats.subjects
     }))
-    .sort((a, b) => parseFloat(b.average) - parseFloat(a.average))
-    .slice(0, 10);
+    .sort((a, b) => parseFloat(b.average) - parseFloat(a.average));
+    // Removed .slice(0, 10) to return all students for proper filtering
 }
 
 function getSubjectPopularityTrends(data) {
@@ -649,22 +1019,25 @@ function getPerformanceComparisonMatrix(data, overridesMap = new Map()) {
   const gradePoints = { 'O': 10, 'E': 9, 'A': 8, 'B': 7, 'C': 6, 'D': 5, 'F': 0, 'S': 0, 'I': 0, 'M': 0, 'R': 0 };
   
   data.forEach(record => {
-    if (record.Reg_No && record.Reg_No.length >= 8 && record.Sem && record.Grade) {
-      const override = overridesMap.get(record.Reg_No);
-      const deptName = override || (deptMap[record.Reg_No.charAt(7)] || 'Unknown');
-      const sem = record.Sem;
-      const grade = record.Grade.toUpperCase();
-      const points = gradePoints[grade] || 0;
-      
-      if (!matrix[deptName]) {
-        matrix[deptName] = {};
+    if (record.Reg_No && record.Sem && record.Grade) {
+      const regNo = String(record.Reg_No); // Convert to string
+      if (regNo.length >= 8) {
+        const override = overridesMap.get(regNo);
+        const deptName = override || (deptMap[regNo.charAt(7)] || 'Unknown');
+        const sem = record.Sem;
+        const grade = record.Grade.toUpperCase();
+        const points = gradePoints[grade] || 0;
+        
+        if (!matrix[deptName]) {
+          matrix[deptName] = {};
+        }
+        if (!matrix[deptName][sem]) {
+          matrix[deptName][sem] = { total: 0, sum: 0 };
+        }
+        
+        matrix[deptName][sem].total += 1;
+        matrix[deptName][sem].sum += points;
       }
-      if (!matrix[deptName][sem]) {
-        matrix[deptName][sem] = { total: 0, sum: 0 };
-      }
-      
-      matrix[deptName][sem].total += 1;
-      matrix[deptName][sem].sum += points;
     }
   });
   

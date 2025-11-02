@@ -30,10 +30,14 @@ export async function POST(req) {
           const ovDocs = await db.collection("branch_overrides").find({ branch: normalized }).project({ reg: 1 }).toArray();
           const regs = ovDocs.map(d => d.reg).filter(Boolean);
           if (regs.length > 0) {
-            orConds.push({ Reg_No: { $in: regs } });
+            // Convert to strings and normalize
+            const regStrings = regs.map(r => String(r).toUpperCase());
+            orConds.push({ Reg_No: { $in: regStrings } });
           }
         }
-      } catch {}
+      } catch (err) {
+        console.error("Error fetching branch overrides:", err);
+      }
 
       if (orConds.length > 0) {
         andConds.push({ $or: orConds });
@@ -42,33 +46,120 @@ export async function POST(req) {
 
     if (andConds.length > 0) query.$and = andConds;
 
-    // Get from CUTM1
-    const cursor = cutm.find(query).project({ _id: 0, Reg_No: 1, Name: 1 });
-    const recordsCutm = await cursor.toArray();
+    // Fetch all result records (subject records) matching the criteria
+    // This will return all subject records for students matching batch/branch
+    const resultRecords = await cutm
+      .find(query)
+      .project({
+        _id: 0,
+        Reg_No: 1,
+        Name: 1,
+        Sem: 1,
+        Subject_Code: 1,
+        Subject_Name: 1,
+        Credits: 1,
+        Grade: 1,
+      })
+      .toArray();
 
-    // Also include RegistrationData so overrides without CUTM1 results still appear
-    const regData = db.collection("RegistrationData");
-    let regDataQuery = {};
-    if (query.$and || query.$or || query.Reg_No) {
-      // Mirror same conditions but allow number Reg_No too
-      regDataQuery = JSON.parse(JSON.stringify(query));
-      if (regDataQuery.Reg_No && regDataQuery.Reg_No.$regex) {
-        // leave as-is for regex
+    // Also check RegistrationData collection for any records not in CUTM1
+    // But only if they match the branch/batch criteria
+    let regDataRecords = [];
+    try {
+      const regData = db.collection("RegistrationData");
+      let regDataQuery = {};
+      
+      if (batch) {
+        const yy = batch.length === 4 ? batch.slice(-2) : batch;
+        regDataQuery.$and = [{ Reg_No: { $regex: `^${yy}` } }];
+        
+        if (branch) {
+          const code = branchCode(branch);
+          const normalized = normalizeBranchFullName(branch);
+          const orConds = [];
+          
+          if (code) {
+            orConds.push({ Reg_No: { $regex: `^.{7}${code}` } });
+          }
+          
+          if (normalized) {
+            const ovDocs = await db.collection("branch_overrides").find({ branch: normalized }).project({ reg: 1 }).toArray();
+            const regs = ovDocs.map(d => String(d.reg).toUpperCase()).filter(Boolean);
+            if (regs.length > 0) {
+              orConds.push({ Reg_No: { $in: regs } });
+            }
+          }
+          
+          if (orConds.length > 0) {
+            regDataQuery.$and.push({ $or: orConds });
+          }
+        }
+      } else if (branch) {
+        const code = branchCode(branch);
+        const normalized = normalizeBranchFullName(branch);
+        const orConds = [];
+        
+        if (code) {
+          orConds.push({ Reg_No: { $regex: `^.{7}${code}` } });
+        }
+        
+        if (normalized) {
+          const ovDocs = await db.collection("branch_overrides").find({ branch: normalized }).project({ reg: 1 }).toArray();
+          const regs = ovDocs.map(d => String(d.reg).toUpperCase()).filter(Boolean);
+          if (regs.length > 0) {
+            orConds.push({ Reg_No: { $in: regs } });
+          }
+        }
+        
+        if (orConds.length > 0) {
+          regDataQuery.$or = orConds;
+        }
       }
-    }
-    const recordsRegData = await regData.find(regDataQuery).project({ _id: 0, Reg_No: 1, Name: 1 }).toArray().catch(() => []);
 
-    // Merge unique by Reg_No
-    const map = new Map();
-    for (const r of [...recordsCutm, ...recordsRegData]) {
-      if (!r || !r.Reg_No) continue;
-      map.set(String(r.Reg_No), r);
+      // Only fetch RegistrationData records that have result fields (Sem, Subject_Code, etc.)
+      if (Object.keys(regDataQuery).length > 0) {
+        regDataRecords = await regData
+          .find(regDataQuery)
+          .project({
+            _id: 0,
+            Reg_No: 1,
+            Name: 1,
+            Sem: 1,
+            Subject_Code: 1,
+            Subject_Name: 1,
+            Credits: 1,
+            Grade: 1,
+          })
+          .toArray()
+          .catch(() => []);
+      }
+    } catch (err) {
+      console.error("Error fetching RegistrationData:", err);
     }
-    const records = Array.from(map.values());
-    return NextResponse.json({ records });
+
+    // Merge and normalize Reg_No to strings
+    const allRecords = [...resultRecords, ...regDataRecords].map(record => ({
+      ...record,
+      Reg_No: String(record.Reg_No || "").toUpperCase(),
+    }));
+
+    // Remove duplicates (same Reg_No + Subject_Code + Sem combination)
+    const seen = new Set();
+    const uniqueRecords = allRecords.filter(record => {
+      if (!record.Reg_No || !record.Subject_Code) return false;
+      const key = `${record.Reg_No}|${record.Subject_Code}|${record.Sem || ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    return NextResponse.json({ 
+      records: uniqueRecords,
+      message: `${uniqueRecords.length} result records found`
+    });
   } catch (err) {
     console.error("/api/batch error", err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    return NextResponse.json({ error: "Server error: " + err.message }, { status: 500 });
   }
 }
 
