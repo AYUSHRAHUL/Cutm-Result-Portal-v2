@@ -107,13 +107,13 @@ export default function RegisterPage() {
         </div>
 
         <div className="relative z-10 max-w-lg px-8">
-          <div className="w-20 h-20 mx-auto mb-4 rounded-3xl overflow-hidden shadow-2xl ring-4 ring-white/30 bg-white">
+          <div className="w-20 h-20 mx-auto mb-4 rounded-3xl overflow-hidden shadow-2xl ring-4 ring-white/30 bg-white p-1">
             <Image
-              src="/spinner.jpg"
+              src="/cutmlogo.png"
               alt="CUTM Logo"
               width={80}
               height={80}
-              className="object-cover"
+              className="object-contain w-full h-full"
               priority
             />
           </div>
@@ -176,13 +176,13 @@ export default function RegisterPage() {
         <div className="relative z-10 w-full max-w-md px-6 py-6">
           {/* Mobile Logo */}
           <div className="lg:hidden text-center mb-4">
-            <div className="w-16 h-16 mx-auto mb-2 rounded-2xl overflow-hidden shadow-xl ring-2 ring-cyan-600/30 bg-cyan-600">
+            <div className="w-16 h-16 mx-auto mb-2 rounded-2xl overflow-hidden shadow-xl ring-2 ring-cyan-600/30 bg-white p-1">
               <Image
-                src="/spinner.jpg"
+                src="/cutmlogo.png"
                 alt="CUTM Logo"
                 width={64}
                 height={64}
-                className="object-cover"
+                className="object-contain w-full h-full"
                 priority
               />
             </div>

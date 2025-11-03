@@ -216,9 +216,9 @@ export default function HomePage() {
                 <div className="absolute inset-0 rounded-2xl blur-lg opacity-30 group-hover:opacity-50 transition-all duration-300"
                      style={{ background: 'linear-gradient(135deg, #05A3C7 0%, #F18F01 100%)' }} />
                 <img
-                  src="/spinner.jpg"
+                  src="/cutmlogo.png"
                   alt="CUTM"
-                  className="relative h-14 w-14 rounded-2xl shadow-lg   group-hover:scale-105 transition-transform duration-300"
+                  className="relative h-14 w-14 rounded-2xl shadow-lg bg-white p-1 object-contain group-hover:scale-105 transition-transform duration-300"
                   style={{ ringColor: 'rgba(5,163,199,0.3)' }}
                 />
               </div>

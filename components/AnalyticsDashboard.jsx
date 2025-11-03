@@ -42,6 +42,7 @@ export default function AnalyticsDashboard() {
   const [loadingSubjectComparison, setLoadingSubjectComparison] = useState(false);
   const [overviewBatchFilter, setOverviewBatchFilter] = useState("all"); // Separate filter for Department Distribution only
   const [filteredDepartmentStats, setFilteredDepartmentStats] = useState(null); // Separate state for filtered department stats
+  const [loadingDepartmentStats, setLoadingDepartmentStats] = useState(false);
   
   // Top Performing Students specific filters
   const [topStudentsBatch, setTopStudentsBatch] = useState("all");
@@ -175,14 +176,17 @@ export default function AnalyticsDashboard() {
     
     const fetchFilteredDepartmentStats = async () => {
       try {
+        setLoadingDepartmentStats(true);
         if (overviewBatchFilter === "all") {
           // Use original department stats
           setFilteredDepartmentStats(analyticsData.departmentStats || null);
         } else {
           // Fetch filtered data from API
+          const abortController = new AbortController();
           const response = await fetch(`/api/analytics?batch=${overviewBatchFilter}`, {
             method: "GET",
             credentials: "include",
+            signal: abortController.signal,
           });
           const result = await response.json();
           
@@ -197,6 +201,8 @@ export default function AnalyticsDashboard() {
         console.error("Error fetching filtered department stats:", err);
         // Fallback to original on error
         setFilteredDepartmentStats(analyticsData.departmentStats || null);
+      } finally {
+        setLoadingDepartmentStats(false);
       }
     };
 
@@ -611,7 +617,17 @@ export default function AnalyticsDashboard() {
                   📅 Filtered by Batch: {overviewBatchFilter}
                 </div>
               )}
-              <DepartmentChart data={filteredDepartmentStats || currentData?.departmentStats || []} />
+              {loadingDepartmentStats ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="inline-block w-8 h-8 border-2 border-blue-300 border-t-transparent rounded-full animate-spin mr-3"></div>
+                  <span className="text-blue-300 font-semibold">Loading department data...</span>
+                </div>
+              ) : (
+                <DepartmentChart 
+                  key={`dept-${overviewBatchFilter}`}
+                  data={filteredDepartmentStats || currentData?.departmentStats || []} 
+                />
+              )}
             </CoolChartCard>
           )}
 

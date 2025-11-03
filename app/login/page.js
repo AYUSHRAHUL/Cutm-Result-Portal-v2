@@ -61,13 +61,13 @@ export default function LoginPage() {
         </div>
 
         <div className="relative z-10 max-w-lg px-8">
-          <div className="w-24 h-24 mx-auto mb-5 rounded-3xl overflow-hidden shadow-2xl ring-4 ring-white/20">
+          <div className="w-24 h-24 mx-auto mb-5 rounded-3xl overflow-hidden shadow-2xl ring-4 ring-white/20 bg-white p-1">
             <Image
-              src="/spinner.jpg"
+              src="/cutmlogo.png"
               alt="CUTM Logo"
               width={96}
               height={96}
-              className="object-cover"
+              className="object-contain w-full h-full"
               priority
             />
           </div>
@@ -126,13 +126,13 @@ export default function LoginPage() {
         <div className="relative z-10 w-full max-w-md px-6 py-8 lg:py-4">
           {/* Logo on mobile */}
           <div className="lg:hidden text-center mb-4">
-            <div className="w-16 h-16 mx-auto mb-2 rounded-2xl overflow-hidden shadow-xl ring-2 ring-[#05A3C7]/30">
+            <div className="w-16 h-16 mx-auto mb-2 rounded-2xl overflow-hidden shadow-xl ring-2 ring-[#05A3C7]/30 bg-white p-1">
               <Image
-                src="/spinner.jpg"
+                src="/cutmlogo.png"
                 alt="CUTM Logo"
                 width={64}
                 height={64}
-                className="object-cover"
+                className="object-contain w-full h-full"
               />
             </div>
             <h2 className="text-xl font-extrabold">CUTM Portal</h2>

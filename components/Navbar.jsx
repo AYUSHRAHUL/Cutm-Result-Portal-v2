@@ -91,13 +91,13 @@ export default function Navbar() {
           onClick={() => router.push("/")}
           aria-label="CUTM Portal Home"
         >
-          <div className="relative w-10 h-10 sm:w-11 sm:h-11 rounded-full overflow-hidden shadow-lg ring-2 ring-white/30">
+          <div className="relative w-12 h-12 sm:w-14 sm:h-14 rounded-xl overflow-hidden shadow-lg ring-2 ring-white/30 bg-white p-1">
             <Image 
-              src="/spinner.jpg" 
+              src="/cutmlogo.png" 
               alt="CUTM Logo" 
-              width={44} 
-              height={44} 
-              className="object-cover" 
+              width={56} 
+              height={56} 
+              className="object-contain w-full h-full" 
               priority 
             />
           </div>
@@ -121,18 +121,18 @@ export default function Navbar() {
           onClick={() => router.push("/")}
           aria-label="CUTM Portal Home"
         >
-          <div className="relative w-10 h-10 sm:w-11 sm:h-11 rounded-full overflow-hidden shadow-lg ring-2 ring-white/30">
+          <div className="relative w-12 h-12 sm:w-14 sm:h-14 rounded-xl overflow-hidden shadow-lg ring-2 ring-white/30 bg-white p-1">
             <Image 
-              src="/spinner.jpg" 
+              src="/cutmlogo.png" 
               alt="CUTM Logo" 
-              width={44} 
-              height={44} 
-              className="object-cover" 
+              width={56} 
+              height={56} 
+              className="object-contain w-full h-full" 
               priority 
             />
           </div>
           <span className="hidden xs:inline">CUTM Portal</span>
-          <span className="inline xs:hidden">CUTM</span>
+          <span className="inline xs:hidden">CUTM Portal</span>
         </button>
 
         {/* Desktop User Panel Quick Links */}

@@ -207,6 +207,15 @@ export default function TeacherDashboard() {
             >
               Browse CBCS subjects, baskets and mappings.
             </ModuleCard>
+
+            <ModuleCard 
+              title="Analytics" 
+              icon="📊" 
+              gradient="from-[#22C55E] to-[#16A34A]"
+              onClick={() => go("/dashboard/teacher/analytics")}
+            >
+              View Passing Analysis, Subject comparisons and distributions.
+            </ModuleCard>
           </div>
         </div>
       </section>

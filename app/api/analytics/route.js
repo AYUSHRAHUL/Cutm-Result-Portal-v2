@@ -26,11 +26,12 @@ export async function GET(req) {
       return NextResponse.json({ error: "Unauthorized - Invalid token" }, { status: 401 });
     }
 
-    // Check if user is admin
+    // Authorize roles: allow admin and teacher to access analytics
     const userRole = payload.role?.toLowerCase();
-    if (userRole !== 'admin') {
+    const allowedRoles = new Set(['admin', 'teacher']);
+    if (!allowedRoles.has(userRole)) {
       return NextResponse.json({ 
-        error: "Access denied - Only admins can access analytics data" 
+        error: "Access denied - Only admins or teachers can access analytics data" 
       }, { status: 403 });
     }
 
