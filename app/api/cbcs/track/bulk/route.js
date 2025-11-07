@@ -658,6 +658,11 @@ export async function POST(req) {
       }
 
       // Build student data (basket values show earned + failed)
+      // Calculate status based on all baskets being completed, not just percentage
+      const basketsCompleted = Object.values(basketProgress).filter((b) => b.is_completed).length;
+      const totalBaskets = Object.keys(basketProgress).length || 5;
+      const overallStatus = basketsCompleted === totalBaskets && totalBaskets > 0 ? "Completed" : percentage === 0 ? "Not Started" : "In Progress";
+      
       const studentData = {
         name: student.Name || `Student ${student.Reg_No.slice(-4)}`,
         registration: student.Reg_No,
@@ -667,7 +672,7 @@ export async function POST(req) {
         totalCredits: totalCredits,
         totalRequiredCredits: totalRequired,
         percentage: percentage,
-        status: percentage >= 100 ? "Completed" : percentage === 0 ? "Not Started" : "In Progress",
+        status: overallStatus,
         // Individual basket credits (earned + failed)
         basketI: (basketProgress["Basket I"]?.earned_credits || 0) + (basketProgress["Basket I"]?.failed_credits || 0),
         basketII: (basketProgress["Basket II"]?.earned_credits || 0) + (basketProgress["Basket II"]?.failed_credits || 0),

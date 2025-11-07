@@ -178,8 +178,33 @@ export default function UserBasketTrack() {
   // Stats calculation with lateral entry support
   const overallStats = useMemo(() => {
     const entries = Object.values(basketProgress || {});
-    const totalBaskets = entries.length || 5;
-    const basketsCompleted = entries.filter((b) => b && b.is_completed).length;
+    // Always expect 5 baskets (Basket I, II, III, IV, V) for total calculation
+    const expectedBaskets = ["Basket I", "Basket II", "Basket III", "Basket IV", "Basket V"];
+    const totalBaskets = expectedBaskets.length; // Always 5
+    
+    // Calculate baskets completed using the EXACT same logic as individual rows: earned >= required
+    // This must match the logic in the table row rendering (line ~559)
+    let basketsCompleted = 0;
+    const basketStatuses = {};
+    
+    expectedBaskets.forEach((basketName) => {
+      const b = basketProgress[basketName];
+      if (b) {
+        const earnedCredits = Number(b.earned_credits) || 0;
+        const requiredCredits = Number(b.required_credits) || 0;
+        // EXACT same logic as individual row: earnedCredits >= requiredCredits && requiredCredits > 0
+        const isCompleted = earnedCredits >= requiredCredits && requiredCredits > 0;
+        basketStatuses[basketName] = { earnedCredits, requiredCredits, isCompleted };
+        if (isCompleted) {
+          basketsCompleted++;
+        }
+      } else {
+        // Basket not found = not completed
+        basketStatuses[basketName] = { earnedCredits: 0, requiredCredits: 0, isCompleted: false };
+      }
+    });
+    
+    // Calculate totals from all baskets in basketProgress
     const totalEarned = entries.reduce((sum, b) => sum + (Number(b?.earned_credits) || 0), 0);
     const totalFailed = entries.reduce((sum, b) => sum + (Number(b?.failed_credits) || 0), 0);
     const totalCredits = totalEarned;
@@ -188,6 +213,16 @@ export default function UserBasketTrack() {
     const isLateralEntry = studentData?.is_lateral_entry || false;
     const totalRequired = isLateralEntry ? 120 : 160;
     const percentage = Math.min(100, Math.round((totalEarned / totalRequired) * 100));
+    
+    // Debug logging - ALWAYS log to help diagnose issues
+    console.log('🔍 User Panel Overall Stats Calculation:', {
+      totalBaskets,
+      basketsCompleted,
+      allBasketsCompleted: basketsCompleted === totalBaskets,
+      basketProgressKeys: Object.keys(basketProgress || {}),
+      basketStatuses,
+      willShowTotalAs: basketsCompleted === totalBaskets && totalBaskets > 0 ? 'Completed' : 'Not Completed'
+    });
     
     return { totalBaskets, basketsCompleted, totalEarned, totalFailed, totalCredits, totalRequired, percentage, isLateralEntry };
   }, [basketProgress, studentData]);
@@ -211,21 +246,117 @@ export default function UserBasketTrack() {
   const exportToCSV = () => {
     if (!studentData || !basketProgress) return;
     
-    const csvContent = [
-      ["Basket", "Required Credits", "Earned Credits", "Failed Credits", "Total Credits", "Status"],
-      ...Object.entries(basketProgress).map(([basketName, info]) => {
-        const earnedCredits = Number(info?.earned_credits) || 0;
-        const failedCredits = Number(info?.failed_credits) || 0;
-        const totalCredits = earnedCredits;
-        const requiredCredits = Number(info?.required_credits) || 0;
-        const isCompleted = earnedCredits >= requiredCredits && requiredCredits > 0;
-        const status = isCompleted ? "Completed" : "Not Completed";
-        
-        return [basketName, requiredCredits, earnedCredits, failedCredits, totalCredits, status];
-      })
-    ].map(row => row.join(",")).join("\n");
+    // For individual student: Export in CBCS.xlsx template format matching Excel export
+    // Group subjects by semester and organize by basket columns
     
-    const blob = new Blob([csvContent], { type: "text/csv" });
+    // Collect all subjects with their basket and semester info
+    const allSubjects = [];
+    Object.entries(basketProgress).forEach(([basketName, basketInfo]) => {
+      const subjects = basketInfo?.subjects || [];
+      subjects.forEach(subject => {
+        allSubjects.push({
+          ...subject,
+          basket: basketName,
+          basketNumber: basketName === "Basket I" ? 1 : 
+                       basketName === "Basket II" ? 2 :
+                       basketName === "Basket III" ? 3 :
+                       basketName === "Basket IV" ? 4 : 
+                       basketName === "Basket V" ? 5 : 0
+        });
+      });
+    });
+    
+    // Group by semester
+    const subjectsBySemester = {};
+    allSubjects.forEach(subject => {
+      const sem = subject.semester || "Unknown";
+      if (!subjectsBySemester[sem]) {
+        subjectsBySemester[sem] = [];
+      }
+      subjectsBySemester[sem].push(subject);
+    });
+    
+    // Sort semesters
+    const sortedSemesters = Object.keys(subjectsBySemester).sort((a, b) => {
+      const semNumA = parseInt(a.replace(/[^0-9]/g, '')) || 0;
+      const semNumB = parseInt(b.replace(/[^0-9]/g, '')) || 0;
+      return semNumA - semNumB;
+    });
+    
+    // Build CSV matching CBCS.xlsx template format EXACTLY
+    const csvData = [];
+    
+    // Header Section (4 rows - matching Excel)
+    csvData.push(["CENTURION UNIVERSITY OF TECHNOLOGY & MANAGEMENT", "", "", "", "", "", "", "", ""]);
+    csvData.push(["SCHOOL OF ENGINEERING & TECHNOLOGY", "", "", "", "", "", "", "", ""]);
+    csvData.push(["SUBJECT REGISTRATION AS PER CBCS CURRICULUM", "", "", "", "", "", "", "", ""]);
+    csvData.push(["REGISTRATION", "", "", "", "", "", "", "", ""]);
+    
+    // Student Info Section (1 row - matching Excel)
+    csvData.push(["NAME:", studentData.name || '', "", "REGISTRATION NO:", studentData.registration || '', "", "BRANCH:", studentData.department || studentData.actual_department || '', ""]);
+    
+    // Semester-wise Subject Tables (matching Excel structure exactly)
+    sortedSemesters.forEach(semester => {
+      const subjects = subjectsBySemester[semester];
+      const semesterDisplay = semester.replace(/Sem\s*/i, 'Semester-');
+      
+      // Calculate totals for this semester
+      let semesterTotals = { basket1: 0, basket2: 0, basket3: 0, basket4: 0, basket5: 0, grandTotal: 0 };
+      
+      // Semester Header (1 row - matching Excel colspan=9)
+      csvData.push([semesterDisplay, "", "", "", "", "", "", "", ""]);
+      
+      // Column Headers (1 row - matching Excel)
+      csvData.push(["Sl.N", "Subject Code", "Subject", "Basket 1 (Credit)", "Basket 2 (Credit)", "Basket 3 (Credit)", "Basket 4 (Credit)", "Basket 5 (Credit)", "Grand Total (Credit)"]);
+      
+      // Subject Rows (matching Excel structure)
+      subjects.forEach((subject, idx) => {
+        const credits = Number(subject.credits) || 0;
+        const basket1 = subject.basketNumber === 1 ? credits : 0;
+        const basket2 = subject.basketNumber === 2 ? credits : 0;
+        const basket3 = subject.basketNumber === 3 ? credits : 0;
+        const basket4 = subject.basketNumber === 4 ? credits : 0;
+        const basket5 = subject.basketNumber === 5 ? credits : 0;
+        
+        semesterTotals.basket1 += basket1;
+        semesterTotals.basket2 += basket2;
+        semesterTotals.basket3 += basket3;
+        semesterTotals.basket4 += basket4;
+        semesterTotals.basket5 += basket5;
+        semesterTotals.grandTotal += credits;
+        
+        csvData.push([
+          idx + 1,
+          subject.code || '',
+          subject.name || '',
+          basket1 || '',
+          basket2 || '',
+          basket3 || '',
+          basket4 || '',
+          basket5 || '',
+          credits
+        ]);
+      });
+      
+      // Semester Total Row (1 row - matching Excel)
+      csvData.push(["Total", "", "", semesterTotals.basket1, semesterTotals.basket2, semesterTotals.basket3, semesterTotals.basket4, semesterTotals.basket5, semesterTotals.grandTotal]);
+      
+      // Empty row (1 row - matching Excel empty row with colspan=9)
+      csvData.push(["", "", "", "", "", "", "", "", ""]);
+    });
+    
+    // Overall Totals (1 row - matching Excel)
+    csvData.push(["Total", "", "", 
+      allSubjects.filter(s => s.basketNumber === 1).reduce((sum, s) => sum + (Number(s.credits) || 0), 0),
+      allSubjects.filter(s => s.basketNumber === 2).reduce((sum, s) => sum + (Number(s.credits) || 0), 0),
+      allSubjects.filter(s => s.basketNumber === 3).reduce((sum, s) => sum + (Number(s.credits) || 0), 0),
+      allSubjects.filter(s => s.basketNumber === 4).reduce((sum, s) => sum + (Number(s.credits) || 0), 0),
+      allSubjects.filter(s => s.basketNumber === 5).reduce((sum, s) => sum + (Number(s.credits) || 0), 0),
+      allSubjects.reduce((sum, s) => sum + (Number(s.credits) || 0), 0)
+    ]);
+    
+    const csv = csvData.map(row => row.map(cell => `"${cell}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -235,8 +366,183 @@ export default function UserBasketTrack() {
   };
 
   const exportToExcel = () => {
-    // For now, just export as CSV
-    exportToCSV();
+    if (!studentData || !basketProgress) return;
+    
+    // For individual student: Export in CBCS.xlsx template format matching the screenshot
+    // Group subjects by semester and organize by basket columns
+    
+    // Collect all subjects with their basket and semester info
+    const allSubjects = [];
+    Object.entries(basketProgress).forEach(([basketName, basketInfo]) => {
+      const subjects = basketInfo?.subjects || [];
+      subjects.forEach(subject => {
+        allSubjects.push({
+          ...subject,
+          basket: basketName,
+          basketNumber: basketName === "Basket I" ? 1 : 
+                       basketName === "Basket II" ? 2 :
+                       basketName === "Basket III" ? 3 :
+                       basketName === "Basket IV" ? 4 :
+                       basketName === "Basket V" ? 5 : 0
+        });
+      });
+    });
+    
+    // Group by semester
+    const subjectsBySemester = {};
+    allSubjects.forEach(subject => {
+      const sem = subject.semester || "Unknown";
+      if (!subjectsBySemester[sem]) {
+        subjectsBySemester[sem] = [];
+      }
+      subjectsBySemester[sem].push(subject);
+    });
+    
+    // Sort semesters
+    const sortedSemesters = Object.keys(subjectsBySemester).sort((a, b) => {
+      const semNumA = parseInt(a.replace(/[^0-9]/g, '')) || 0;
+      const semNumB = parseInt(b.replace(/[^0-9]/g, '')) || 0;
+      return semNumA - semNumB;
+    });
+    
+    // Build HTML table matching CBCS.xlsx template
+    let htmlContent = `
+      <html>
+        <head><meta charset="UTF-8"></head>
+        <body style="font-family: Arial, sans-serif;">
+          <table border="1" cellpadding="5" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+            <!-- Header Section -->
+            <tr>
+              <td colspan="9" style="text-align: center; font-weight: bold; font-size: 14px; background-color: #E6F3FF;">
+                CENTURION UNIVERSITY OF TECHNOLOGY & MANAGEMENT
+              </td>
+            </tr>
+            <tr>
+              <td colspan="9" style="text-align: center; font-weight: bold; font-size: 12px; background-color: #E6F3FF;">
+                SCHOOL OF ENGINEERING & TECHNOLOGY
+              </td>
+            </tr>
+            <tr>
+              <td colspan="9" style="text-align: center; font-weight: bold; font-size: 12px; background-color: #E6F3FF;">
+                SUBJECT REGISTRATION AS PER CBCS CURRICULUM
+              </td>
+            </tr>
+            <tr>
+              <td colspan="9" style="text-align: center; font-weight: bold; font-size: 12px; background-color: #E6F3FF;">
+                REGISTRATION
+              </td>
+            </tr>
+            
+            <!-- Student Info Section -->
+            <tr>
+              <td style="font-weight: bold; background-color: #F0F0F0;">NAME:</td>
+              <td colspan="2">${studentData.name || ''}</td>
+              <td style="font-weight: bold; background-color: #F0F0F0;">REGISTRATION NO:</td>
+              <td colspan="2">${studentData.registration || ''}</td>
+              <td style="font-weight: bold; background-color: #F0F0F0;">BRANCH:</td>
+              <td colspan="2">${studentData.department || studentData.actual_department || ''}</td>
+            </tr>
+            
+            <!-- Semester-wise Subject Tables -->
+            ${sortedSemesters.map(semester => {
+              const subjects = subjectsBySemester[semester];
+              const semesterDisplay = semester.replace(/Sem\s*/i, 'Semester-');
+              
+              // Calculate totals for this semester
+              let semesterTotals = { basket1: 0, basket2: 0, basket3: 0, basket4: 0, basket5: 0, grandTotal: 0 };
+              
+              // Build subject rows and calculate totals
+              const subjectRows = subjects.map((subject, idx) => {
+                const credits = Number(subject.credits) || 0;
+                const basket1 = subject.basketNumber === 1 ? credits : 0;
+                const basket2 = subject.basketNumber === 2 ? credits : 0;
+                const basket3 = subject.basketNumber === 3 ? credits : 0;
+                const basket4 = subject.basketNumber === 4 ? credits : 0;
+                const basket5 = subject.basketNumber === 5 ? credits : 0;
+                
+                semesterTotals.basket1 += basket1;
+                semesterTotals.basket2 += basket2;
+                semesterTotals.basket3 += basket3;
+                semesterTotals.basket4 += basket4;
+                semesterTotals.basket5 += basket5;
+                semesterTotals.grandTotal += credits;
+                
+                return `
+                  <tr>
+                    <td style="text-align: center;">${idx + 1}</td>
+                    <td>${subject.code || ''}</td>
+                    <td>${subject.name || ''}</td>
+                    <td style="text-align: center;">${basket1 || ''}</td>
+                    <td style="text-align: center;">${basket2 || ''}</td>
+                    <td style="text-align: center;">${basket3 || ''}</td>
+                    <td style="text-align: center;">${basket4 || ''}</td>
+                    <td style="text-align: center;">${basket5 || ''}</td>
+                    <td style="text-align: center;">${credits}</td>
+                  </tr>
+                `;
+              }).join('');
+              
+              return `
+                <!-- ${semesterDisplay} Header -->
+                <tr>
+                  <td colspan="9" style="font-weight: bold; background-color: #D9E1F2; text-align: center;">
+                    ${semesterDisplay}
+                  </td>
+                </tr>
+                
+                <!-- Column Headers -->
+                <tr style="background-color: #D9E1F2; font-weight: bold; text-align: center;">
+                  <td>Sl.N</td>
+                  <td>Subject Code</td>
+                  <td>Subject</td>
+                  <td>Basket 1 (Credit)</td>
+                  <td>Basket 2 (Credit)</td>
+                  <td>Basket 3 (Credit)</td>
+                  <td>Basket 4 (Credit)</td>
+                  <td>Basket 5 (Credit)</td>
+                  <td>Grand Total (Credit)</td>
+                </tr>
+                
+                <!-- Subject Rows -->
+                ${subjectRows}
+                
+                <!-- Semester Total Row -->
+                <tr style="font-weight: bold; background-color: #F2F2F2;">
+                  <td colspan="3" style="text-align: right;">Total</td>
+                  <td style="text-align: center;">${semesterTotals.basket1}</td>
+                  <td style="text-align: center;">${semesterTotals.basket2}</td>
+                  <td style="text-align: center;">${semesterTotals.basket3}</td>
+                  <td style="text-align: center;">${semesterTotals.basket4}</td>
+                  <td style="text-align: center;">${semesterTotals.basket5}</td>
+                  <td style="text-align: center;">${semesterTotals.grandTotal}</td>
+                </tr>
+                
+                <tr><td colspan="9" style="height: 10px;"></td></tr>
+              `;
+            }).join('')}
+            
+            <!-- Overall Totals -->
+            <tr style="font-weight: bold; background-color: #D9E1F2;">
+              <td colspan="3" style="text-align: right;">Total</td>
+              <td style="text-align: center;">${allSubjects.filter(s => s.basketNumber === 1).reduce((sum, s) => sum + (Number(s.credits) || 0), 0)}</td>
+              <td style="text-align: center;">${allSubjects.filter(s => s.basketNumber === 2).reduce((sum, s) => sum + (Number(s.credits) || 0), 0)}</td>
+              <td style="text-align: center;">${allSubjects.filter(s => s.basketNumber === 3).reduce((sum, s) => sum + (Number(s.credits) || 0), 0)}</td>
+              <td style="text-align: center;">${allSubjects.filter(s => s.basketNumber === 4).reduce((sum, s) => sum + (Number(s.credits) || 0), 0)}</td>
+              <td style="text-align: center;">${allSubjects.filter(s => s.basketNumber === 5).reduce((sum, s) => sum + (Number(s.credits) || 0), 0)}</td>
+              <td style="text-align: center;">${allSubjects.reduce((sum, s) => sum + (Number(s.credits) || 0), 0)}</td>
+            </tr>
+          </table>
+        </body>
+      </html>
+    `;
+    
+    const blob = new Blob([htmlContent], { type: "application/vnd.ms-excel" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `basket_progress_${registration}.xls`;
+    a.click();
+    window.URL.revokeObjectURL(url);
   };
 
   return (
@@ -416,12 +722,12 @@ export default function UserBasketTrack() {
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-gray-900">Your Basket Progress</h3>
                 <div className="flex space-x-2">
-                  <button 
+                  {/* <button 
                     onClick={exportToCSV} 
                     className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
                   >
                     Export CSV
-                  </button>
+                  </button> */}
                   <button 
                     onClick={exportToExcel} 
                     className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
@@ -608,13 +914,31 @@ export default function UserBasketTrack() {
                           <td className="px-4 py-3 text-center font-semibold text-red-600">{overallStats.totalFailed}</td>
                           <td className="px-4 py-3 text-center font-semibold text-gray-900">{overallStats.totalCredits}</td>
                           <td className="px-4 py-3 text-center">
+                            {/* Total status is "Completed" ONLY when ALL individual baskets are completed */}
+                            {(() => {
+                              // CRITICAL: Check if ALL baskets are completed
+                              // basketsCompleted must equal totalBaskets (5) for status to be "Completed"
+                              const allBasketsCompleted = overallStats.basketsCompleted === overallStats.totalBaskets && overallStats.totalBaskets > 0;
+                              
+                              // Always log for debugging
+                              console.log('✅ User Panel Total Status Render:', {
+                                basketsCompleted: overallStats.basketsCompleted,
+                                totalBaskets: overallStats.totalBaskets,
+                                allBasketsCompleted,
+                                condition: `${overallStats.basketsCompleted} === ${overallStats.totalBaskets} && ${overallStats.totalBaskets} > 0`,
+                                willShow: allBasketsCompleted ? '✅ Completed' : '❌ Not Completed'
+                              });
+                              
+                              return (
                             <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              overallStats.percentage >= 100 
+                                  allBasketsCompleted
                                 ? 'bg-green-100 text-green-800' 
                                 : 'bg-red-100 text-red-800'
                             }`}>
-                              {overallStats.percentage >= 100 ? "Completed" : "Not Completed"}
+                                  {allBasketsCompleted ? "Completed" : "Not Completed"}
                             </span>
+                              );
+                            })()}
                           </td>
                         </tr>
                       )}

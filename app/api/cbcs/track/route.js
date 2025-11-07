@@ -531,7 +531,11 @@ export async function POST(req) {
       is_lateral_entry: isLateralEntry,
       student_type: isLateralEntry ? "Lateral Entry" : "Regular",
       overall_stats: {
-        overall_status: percentage >= 100 ? "Completed" : percentage === 0 ? "Not Started" : "In Progress",
+        overall_status: (() => {
+          const basketsCompleted = Object.values(filteredProgress).filter((b) => b.is_completed).length;
+          const totalBaskets = Object.keys(filteredProgress).length || 5;
+          return basketsCompleted === totalBaskets && totalBaskets > 0 ? "Completed" : percentage === 0 ? "Not Started" : "In Progress";
+        })(),
         baskets_completed: Object.values(filteredProgress).filter((b) => b.is_completed).length,
         total_baskets: Object.keys(filteredProgress).length || 5,
         total_earned_credits: totalEarned,

@@ -8,6 +8,7 @@
     "build:turbo": "next build --turbopack",
     "start": "next start",
     "lint": "eslint",
+    "analyze-cbcs": "node scripts/analyze-cbcs.js",
     "docker:build": "docker build -t cutm-portal .",
     "docker:run": "docker run -p 3000:3000 cutm-portal",
     "docker:up": "docker-compose up -d",

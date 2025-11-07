@@ -103,8 +103,10 @@ export default function BasketProgressTracker() {
   }
 
   // FIXED: Enhanced submission with proper state management
-  async function onSubmit(e) {
-    e.preventDefault();
+  const onSubmit = useCallback(async (e) => {
+    if (e && e.preventDefault) {
+      e.preventDefault();
+    }
     setError("");
     setSearchPerformed(true);
     setLoading(true);
@@ -300,7 +302,7 @@ Please check if the department name matches exactly with the available departmen
     } finally {
       setLoading(false);
     }
-  }
+  }, [registration, department, batch, semesterValues, basket, addNotification, playNotificationSound]);
 
   // Load registration list when department and batch are selected
   useEffect(() => {
@@ -376,13 +378,49 @@ Please check if the department name matches exactly with the available departmen
   // Enhanced stats calculation
   const overallStats = useMemo(() => {
     const entries = Object.values(basketProgress || {});
-    const totalBaskets = entries.length || 5;
-    const basketsCompleted = entries.filter((b) => b && b.is_completed).length;
+    // Always expect 5 baskets (Basket I, II, III, IV, V) for total calculation
+    const expectedBaskets = ["Basket I", "Basket II", "Basket III", "Basket IV", "Basket V"];
+    const totalBaskets = expectedBaskets.length; // Always 5
+    
+    // Calculate baskets completed using the EXACT same logic as individual rows: earned >= required
+    // This must match the logic in the table row rendering (line ~1376)
+    let basketsCompleted = 0;
+    const basketStatuses = {};
+    
+    expectedBaskets.forEach((basketName) => {
+      const b = basketProgress[basketName];
+      if (b) {
+        const earnedCredits = Number(b.earned_credits) || 0;
+        const requiredCredits = Number(b.required_credits) || 0;
+        // EXACT same logic as individual row: earnedCredits >= requiredCredits && requiredCredits > 0
+        const isCompleted = earnedCredits >= requiredCredits && requiredCredits > 0;
+        basketStatuses[basketName] = { earnedCredits, requiredCredits, isCompleted };
+        if (isCompleted) {
+          basketsCompleted++;
+        }
+      } else {
+        // Basket not found = not completed
+        basketStatuses[basketName] = { earnedCredits: 0, requiredCredits: 0, isCompleted: false };
+      }
+    });
+    
+    // Calculate totals from all baskets in basketProgress
     const totalEarned = entries.reduce((sum, b) => sum + (Number(b?.earned_credits) || 0), 0);
     const totalFailed = entries.reduce((sum, b) => sum + (Number(b?.failed_credits) || 0), 0);
     const totalCredits = totalEarned + totalFailed; // earned + failed for totals
     const totalRequired = studentData?.is_lateral_entry ? 120 : 160;
     const percentage = Math.min(100, Math.round((totalEarned / totalRequired) * 100));
+    
+    // Debug logging - ALWAYS log to help diagnose issues
+    console.log('🔍 Overall Stats Calculation:', {
+      totalBaskets,
+      basketsCompleted,
+      allBasketsCompleted: basketsCompleted === totalBaskets,
+      basketProgressKeys: Object.keys(basketProgress || {}),
+      basketStatuses,
+      willShowTotalAs: basketsCompleted === totalBaskets && totalBaskets > 0 ? 'Completed' : 'Not Completed'
+    });
+    
     return { totalBaskets, basketsCompleted, totalEarned, totalFailed, totalCredits, totalRequired, percentage };
   }, [basketProgress, studentData]);
 
@@ -462,7 +500,7 @@ Please check if the department name matches exactly with the available departmen
       
       return () => clearInterval(interval);
     }
-  }, [autoRefresh, searchPerformed, loading]);
+  }, [autoRefresh, searchPerformed, loading, onSubmit, addNotification]);
 
   // Function to handle basket click and show detailed subjects
   function handleBasketClick(basketName, basketInfo) {
@@ -559,31 +597,131 @@ Please check if the department name matches exactly with the available departmen
     }
   }
 
+  const downloadFile = useCallback((content, filename, type) => {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
   // Enhanced export functions
   const exportToCSV = useCallback(() => {
     if (registration !== "all" && studentData) {
-      const csvData = [];
-      csvData.push(["Student Information"]);
-      csvData.push(["Name", studentData.name]);
-      csvData.push(["Registration", studentData.registration]);
-      csvData.push(["Department", studentData.department]);
-      csvData.push([]);
-      csvData.push(["Basket Progress"]);
-      csvData.push(["Basket", "Required Credits", "Earned Credits", "Status", "Percentage"]);
+      // For individual student: Export in CBCS.xlsx template format matching Excel export
+      // Group subjects by semester and organize by basket columns
       
-      Object.entries(basketProgress).forEach(([basketName, info]) => {
-        csvData.push([
-          basketName,
-          info.required_credits || 0,
-          info.earned_credits || 0,
-          info.status || "Not Started",
-          `${info.percentage || 0}%`
-        ]);
+      // Collect all subjects with their basket and semester info
+      const allSubjects = [];
+      Object.entries(basketProgress).forEach(([basketName, basketInfo]) => {
+        const subjects = basketInfo?.subjects || [];
+        subjects.forEach(subject => {
+          allSubjects.push({
+            ...subject,
+            basket: basketName,
+            basketNumber: basketName === "Basket I" ? 1 : 
+                         basketName === "Basket II" ? 2 :
+                         basketName === "Basket III" ? 3 :
+                         basketName === "Basket IV" ? 4 :
+                         basketName === "Basket V" ? 5 : 0
+          });
+        });
       });
+      
+      // Group by semester
+      const subjectsBySemester = {};
+      allSubjects.forEach(subject => {
+        const sem = subject.semester || "Unknown";
+        if (!subjectsBySemester[sem]) {
+          subjectsBySemester[sem] = [];
+        }
+        subjectsBySemester[sem].push(subject);
+      });
+      
+      // Sort semesters
+      const sortedSemesters = Object.keys(subjectsBySemester).sort((a, b) => {
+        const semNumA = parseInt(a.replace(/[^0-9]/g, '')) || 0;
+        const semNumB = parseInt(b.replace(/[^0-9]/g, '')) || 0;
+        return semNumA - semNumB;
+      });
+      
+      // Build CSV matching CBCS.xlsx template format EXACTLY
+      const csvData = [];
+      
+      // Header Section (4 rows - matching Excel)
+      csvData.push(["CENTURION UNIVERSITY OF TECHNOLOGY & MANAGEMENT", "", "", "", "", "", "", "", ""]);
+      csvData.push(["SCHOOL OF ENGINEERING & TECHNOLOGY", "", "", "", "", "", "", "", ""]);
+      csvData.push(["SUBJECT REGISTRATION AS PER CBCS CURRICULUM", "", "", "", "", "", "", "", ""]);
+      csvData.push(["REGISTRATION", "", "", "", "", "", "", "", ""]);
+      
+      // Student Info Section (1 row - matching Excel)
+      csvData.push(["NAME:", studentData.name || '', "", "REGISTRATION NO:", studentData.registration || '', "", "BRANCH:", studentData.department || studentData.actual_department || '', ""]);
+      
+      // Semester-wise Subject Tables (matching Excel structure exactly)
+      sortedSemesters.forEach(semester => {
+        const subjects = subjectsBySemester[semester];
+        const semesterDisplay = semester.replace(/Sem\s*/i, 'Semester-');
+        
+        // Calculate totals for this semester
+        let semesterTotals = { basket1: 0, basket2: 0, basket3: 0, basket4: 0, basket5: 0, grandTotal: 0 };
+        
+        // Semester Header (1 row - matching Excel colspan=9)
+        csvData.push([semesterDisplay, "", "", "", "", "", "", "", ""]);
+        
+        // Column Headers (1 row - matching Excel)
+        csvData.push(["Sl.N", "Subject Code", "Subject", "Basket 1 (Credit)", "Basket 2 (Credit)", "Basket 3 (Credit)", "Basket 4 (Credit)", "Basket 5 (Credit)", "Grand Total (Credit)"]);
+        
+        // Subject Rows (matching Excel structure)
+        subjects.forEach((subject, idx) => {
+          const credits = Number(subject.credits) || 0;
+          const basket1 = subject.basketNumber === 1 ? credits : 0;
+          const basket2 = subject.basketNumber === 2 ? credits : 0;
+          const basket3 = subject.basketNumber === 3 ? credits : 0;
+          const basket4 = subject.basketNumber === 4 ? credits : 0;
+          const basket5 = subject.basketNumber === 5 ? credits : 0;
+          
+          semesterTotals.basket1 += basket1;
+          semesterTotals.basket2 += basket2;
+          semesterTotals.basket3 += basket3;
+          semesterTotals.basket4 += basket4;
+          semesterTotals.basket5 += basket5;
+          semesterTotals.grandTotal += credits;
+          
+          csvData.push([
+            idx + 1,
+            subject.code || '',
+            subject.name || '',
+            basket1 || '',
+            basket2 || '',
+            basket3 || '',
+            basket4 || '',
+            basket5 || '',
+            credits
+          ]);
+        });
+        
+        // Semester Total Row (1 row - matching Excel)
+        csvData.push(["Total", "", "", semesterTotals.basket1, semesterTotals.basket2, semesterTotals.basket3, semesterTotals.basket4, semesterTotals.basket5, semesterTotals.grandTotal]);
+        
+        // Empty row (1 row - matching Excel empty row with colspan=9)
+        csvData.push(["", "", "", "", "", "", "", "", ""]);
+      });
+      
+      // Overall Totals (1 row - matching Excel)
+      csvData.push(["Total", "", "", 
+        allSubjects.filter(s => s.basketNumber === 1).reduce((sum, s) => sum + (Number(s.credits) || 0), 0),
+        allSubjects.filter(s => s.basketNumber === 2).reduce((sum, s) => sum + (Number(s.credits) || 0), 0),
+        allSubjects.filter(s => s.basketNumber === 3).reduce((sum, s) => sum + (Number(s.credits) || 0), 0),
+        allSubjects.filter(s => s.basketNumber === 4).reduce((sum, s) => sum + (Number(s.credits) || 0), 0),
+        allSubjects.filter(s => s.basketNumber === 5).reduce((sum, s) => sum + (Number(s.credits) || 0), 0),
+        allSubjects.reduce((sum, s) => sum + (Number(s.credits) || 0), 0)
+      ]);
       
       const csv = csvData.map(row => row.map(cell => `"${cell}"`).join(",")).join("\n");
       downloadFile(csv, `student_${studentData.registration}_basket_progress.csv`, "text/csv");
-      addNotification('success', 'CSV exported successfully');
+      addNotification('success', 'CSV exported in CBCS template format');
     } else if (registration === "all" && filteredAndSortedStudents.length > 0) {
       const csvData = [];
       csvData.push(["Sl.No", "Name", "Registration No", "Department", "Student Type", "Basket I", "Basket II", "Basket III", "Basket IV", "Basket V", "Total Credits", "Required Credits", "Percentage", "Status"]);
@@ -611,32 +749,180 @@ Please check if the department name matches exactly with the available departmen
       downloadFile(csv, `bulk_basket_analysis_${department}_${new Date().toISOString().split('T')[0]}.csv`, "text/csv");
       addNotification('success', `CSV exported with ${filteredAndSortedStudents.length} students`);
     }
-  }, [registration, studentData, filteredAndSortedStudents, department, addNotification]);
+  }, [registration, studentData, basketProgress, filteredAndSortedStudents, department, addNotification, downloadFile]);
 
   const exportToExcel = useCallback(() => {
     if (registration !== "all" && studentData) {
-      const html = `
+      // For individual student: Export in CBCS.xlsx template format matching the screenshot
+      // Group subjects by semester and organize by basket columns
+      
+      // Collect all subjects with their basket and semester info
+      const allSubjects = [];
+      Object.entries(basketProgress).forEach(([basketName, basketInfo]) => {
+        const subjects = basketInfo?.subjects || [];
+        subjects.forEach(subject => {
+          allSubjects.push({
+            ...subject,
+            basket: basketName,
+            basketNumber: basketName === "Basket I" ? 1 : 
+                         basketName === "Basket II" ? 2 :
+                         basketName === "Basket III" ? 3 :
+                         basketName === "Basket IV" ? 4 :
+                         basketName === "Basket V" ? 5 : 0
+          });
+        });
+      });
+      
+      // Group by semester
+      const subjectsBySemester = {};
+      allSubjects.forEach(subject => {
+        const sem = subject.semester || "Unknown";
+        if (!subjectsBySemester[sem]) {
+          subjectsBySemester[sem] = [];
+        }
+        subjectsBySemester[sem].push(subject);
+      });
+      
+      // Sort semesters
+      const sortedSemesters = Object.keys(subjectsBySemester).sort((a, b) => {
+        const semNumA = parseInt(a.replace(/[^0-9]/g, '')) || 0;
+        const semNumB = parseInt(b.replace(/[^0-9]/g, '')) || 0;
+        return semNumA - semNumB;
+      });
+      
+      // Build HTML table matching CBCS.xlsx template
+      let htmlContent = `
         <html>
           <head><meta charset="UTF-8"></head>
-          <body>
-            <h2>Student Basket Progress Report</h2>
-            <table border="1">
-              <tr><td><strong>Name:</strong></td><td>${studentData.name}</td></tr>
-              <tr><td><strong>Registration:</strong></td><td>${studentData.registration}</td></tr>
-              <tr><td><strong>Department:</strong></td><td>${studentData.department}</td></tr>
-            </table>
-            <br>
-            <table border="1">
-              <tr><th>Basket</th><th>Required Credits</th><th>Earned Credits</th><th>Status</th><th>Percentage</th></tr>
-              ${Object.entries(basketProgress).map(([basketName, info]) => 
-                `<tr><td>${basketName}</td><td>${info.required_credits || 0}</td><td>${info.earned_credits || 0}</td><td>${info.status || "Not Started"}</td><td>${info.percentage || 0}%</td></tr>`
-              ).join("")}
+          <body style="font-family: Arial, sans-serif;">
+            <table border="1" cellpadding="5" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+              <!-- Header Section -->
+              <tr>
+                <td colspan="9" style="text-align: center; font-weight: bold; font-size: 14px; background-color: #E6F3FF;">
+                  CENTURION UNIVERSITY OF TECHNOLOGY & MANAGEMENT
+                </td>
+              </tr>
+              <tr>
+                <td colspan="9" style="text-align: center; font-weight: bold; font-size: 12px; background-color: #E6F3FF;">
+                  SCHOOL OF ENGINEERING & TECHNOLOGY
+                </td>
+              </tr>
+              <tr>
+                <td colspan="9" style="text-align: center; font-weight: bold; font-size: 12px; background-color: #E6F3FF;">
+                  SUBJECT REGISTRATION AS PER CBCS CURRICULUM
+                </td>
+              </tr>
+              <tr>
+                <td colspan="9" style="text-align: center; font-weight: bold; font-size: 12px; background-color: #E6F3FF;">
+                  REGISTRATION
+                </td>
+              </tr>
+              
+              <!-- Student Info Section -->
+              <tr>
+                <td style="font-weight: bold; background-color: #F0F0F0;">NAME:</td>
+                <td colspan="2">${studentData.name || ''}</td>
+                <td style="font-weight: bold; background-color: #F0F0F0;">REGISTRATION NO:</td>
+                <td colspan="2">${studentData.registration || ''}</td>
+                <td style="font-weight: bold; background-color: #F0F0F0;">BRANCH:</td>
+                <td colspan="2">${studentData.department || studentData.actual_department || ''}</td>
+              </tr>
+              
+              <!-- Semester-wise Subject Tables -->
+              ${sortedSemesters.map(semester => {
+                const subjects = subjectsBySemester[semester];
+                const semesterDisplay = semester.replace(/Sem\s*/i, 'Semester-');
+                
+                // Calculate totals for this semester
+                let semesterTotals = { basket1: 0, basket2: 0, basket3: 0, basket4: 0, basket5: 0, grandTotal: 0 };
+                
+                // Build subject rows and calculate totals
+                const subjectRows = subjects.map((subject, idx) => {
+                  const credits = Number(subject.credits) || 0;
+                  const basket1 = subject.basketNumber === 1 ? credits : 0;
+                  const basket2 = subject.basketNumber === 2 ? credits : 0;
+                  const basket3 = subject.basketNumber === 3 ? credits : 0;
+                  const basket4 = subject.basketNumber === 4 ? credits : 0;
+                  const basket5 = subject.basketNumber === 5 ? credits : 0;
+                  
+                  semesterTotals.basket1 += basket1;
+                  semesterTotals.basket2 += basket2;
+                  semesterTotals.basket3 += basket3;
+                  semesterTotals.basket4 += basket4;
+                  semesterTotals.basket5 += basket5;
+                  semesterTotals.grandTotal += credits;
+                  
+                  return `
+                    <tr>
+                      <td style="text-align: center;">${idx + 1}</td>
+                      <td>${subject.code || ''}</td>
+                      <td>${subject.name || ''}</td>
+                      <td style="text-align: center;">${basket1 || ''}</td>
+                      <td style="text-align: center;">${basket2 || ''}</td>
+                      <td style="text-align: center;">${basket3 || ''}</td>
+                      <td style="text-align: center;">${basket4 || ''}</td>
+                      <td style="text-align: center;">${basket5 || ''}</td>
+                      <td style="text-align: center;">${credits}</td>
+                    </tr>
+                  `;
+                }).join('');
+                
+                return `
+                  <!-- ${semesterDisplay} Header -->
+                  <tr>
+                    <td colspan="9" style="font-weight: bold; background-color: #D9E1F2; text-align: center;">
+                      ${semesterDisplay}
+                    </td>
+                  </tr>
+                  
+                  <!-- Column Headers -->
+                  <tr style="background-color: #D9E1F2; font-weight: bold; text-align: center;">
+                    <td>Sl.N</td>
+                    <td>Subject Code</td>
+                    <td>Subject</td>
+                    <td>Basket 1 (Credit)</td>
+                    <td>Basket 2 (Credit)</td>
+                    <td>Basket 3 (Credit)</td>
+                    <td>Basket 4 (Credit)</td>
+                    <td>Basket 5 (Credit)</td>
+                    <td>Grand Total (Credit)</td>
+                  </tr>
+                  
+                  <!-- Subject Rows -->
+                  ${subjectRows}
+                  
+                  <!-- Semester Total Row -->
+                  <tr style="font-weight: bold; background-color: #F2F2F2;">
+                    <td colspan="3" style="text-align: right;">Total</td>
+                    <td style="text-align: center;">${semesterTotals.basket1}</td>
+                    <td style="text-align: center;">${semesterTotals.basket2}</td>
+                    <td style="text-align: center;">${semesterTotals.basket3}</td>
+                    <td style="text-align: center;">${semesterTotals.basket4}</td>
+                    <td style="text-align: center;">${semesterTotals.basket5}</td>
+                    <td style="text-align: center;">${semesterTotals.grandTotal}</td>
+                  </tr>
+                  
+                  <tr><td colspan="9" style="height: 10px;"></td></tr>
+                `;
+              }).join('')}
+              
+              <!-- Overall Totals -->
+              <tr style="font-weight: bold; background-color: #D9E1F2;">
+                <td colspan="3" style="text-align: right;">Total</td>
+                <td style="text-align: center;">${allSubjects.filter(s => s.basketNumber === 1).reduce((sum, s) => sum + (Number(s.credits) || 0), 0)}</td>
+                <td style="text-align: center;">${allSubjects.filter(s => s.basketNumber === 2).reduce((sum, s) => sum + (Number(s.credits) || 0), 0)}</td>
+                <td style="text-align: center;">${allSubjects.filter(s => s.basketNumber === 3).reduce((sum, s) => sum + (Number(s.credits) || 0), 0)}</td>
+                <td style="text-align: center;">${allSubjects.filter(s => s.basketNumber === 4).reduce((sum, s) => sum + (Number(s.credits) || 0), 0)}</td>
+                <td style="text-align: center;">${allSubjects.filter(s => s.basketNumber === 5).reduce((sum, s) => sum + (Number(s.credits) || 0), 0)}</td>
+                <td style="text-align: center;">${allSubjects.reduce((sum, s) => sum + (Number(s.credits) || 0), 0)}</td>
+              </tr>
             </table>
           </body>
         </html>
       `;
-      downloadFile(html, `student_${studentData.registration}_basket_progress.xls`, "application/vnd.ms-excel");
-      addNotification('success', 'Excel file exported successfully');
+      
+      downloadFile(htmlContent, `student_${studentData.registration}_basket_progress.xls`, "application/vnd.ms-excel");
+      addNotification('success', 'Excel file exported in CBCS template format');
     } else if (registration === "all" && filteredAndSortedStudents.length > 0) {
       const html = `
         <html>
@@ -655,7 +941,7 @@ Please check if the department name matches exactly with the available departmen
       downloadFile(html, `bulk_basket_analysis_${department}_${new Date().toISOString().split('T')[0]}.xls`, "application/vnd.ms-excel");
       addNotification('success', `Excel file exported with ${filteredAndSortedStudents.length} students`);
     }
-  }, [registration, studentData, filteredAndSortedStudents, department, addNotification]);
+  }, [registration, studentData, basketProgress, filteredAndSortedStudents, department, addNotification, downloadFile]);
 
   const exportToPDF = useCallback(async () => {
     setIsExporting(true);
@@ -683,16 +969,6 @@ Please check if the department name matches exactly with the available departmen
       addNotification('success', 'Report link copied to clipboard');
     }
   }, [department, filteredAndSortedStudents.length, addNotification]);
-
-  const downloadFile = useCallback((content, filename, type) => {
-    const blob = new Blob([content], { type });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, []);
 
   // Debug information removed for production
 
@@ -1002,12 +1278,12 @@ Please check if the department name matches exactly with the available departmen
                   </p>
                 </div>
                 <div className="flex space-x-2">
-                  <button 
+                  {/* <button 
                     onClick={exportToCSV} 
                     className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
                   >
                     Export CSV
-                  </button>
+                  </button> */}
                   <button 
                     onClick={exportToExcel} 
                     className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
@@ -1055,7 +1331,7 @@ Please check if the department name matches exactly with the available departmen
               </div>
             )}
 
-            {/* FIXED: Enhanced Results Table */}
+            {/* FIXED: Enhanced Results Table with Dynamic Basket Columns */}
             <div className="overflow-x-auto">
               <table className="w-full border-collapse">
                 <thead>
@@ -1064,11 +1340,24 @@ Please check if the department name matches exactly with the available departmen
                     <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Name</th>
                     <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Registration No</th>
                     <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Department</th>
-                    <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket I (17/6)</th>
-                    <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket II (12/9)</th>
-                    <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket III (25)</th>
-                    <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket IV (58/48)</th>
-                    <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket V (48/32)</th>
+                    {/* Dynamic Basket Columns - Show only selected basket or all if "All" is selected */}
+                    {(!basket || basket === "All" || basket === "Select Basket" || basket === "") ? (
+                      <>
+                        <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket I (17/6)</th>
+                        <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket II (12/9)</th>
+                        <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket III (25)</th>
+                        <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket IV (58/48)</th>
+                        <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket V (48/32)</th>
+                      </>
+                    ) : (
+                      <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">
+                        {basket === "Basket I" ? "Basket I (17/6)" :
+                         basket === "Basket II" ? "Basket II (12/9)" :
+                         basket === "Basket III" ? "Basket III (25)" :
+                         basket === "Basket IV" ? "Basket IV (58/48)" :
+                         basket === "Basket V" ? "Basket V (48/32)" : basket}
+                      </th>
+                    )}
                     <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Total Credits (160/120)</th>
                   </tr>
                 </thead>
@@ -1094,41 +1383,65 @@ Please check if the department name matches exactly with the available departmen
                           </span>
                         )}
                       </td>
-                      <td 
-                        className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                        onClick={() => handleBulkBasketClick(student, "I")}
-                        title="Click to view Basket I details"
-                      >
-                        {student.basketI || student.basket1 || 0}
-                      </td>
-                      <td 
-                        className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                        onClick={() => handleBulkBasketClick(student, "II")}
-                        title="Click to view Basket II details"
-                      >
-                        {student.basketII || student.basket2 || 0}
-                      </td>
-                      <td 
-                        className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                        onClick={() => handleBulkBasketClick(student, "III")}
-                        title="Click to view Basket III details"
-                      >
-                        {student.basketIII || student.basket3 || 0}
-                      </td>
-                      <td 
-                        className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                        onClick={() => handleBulkBasketClick(student, "IV")}
-                        title="Click to view Basket IV details"
-                      >
-                        {student.basketIV || student.basket4 || 0}
-                      </td>
-                      <td 
-                        className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                        onClick={() => handleBulkBasketClick(student, "V")}
-                        title="Click to view Basket V details"
-                      >
-                        {student.basketV || student.basket5 || 0}
-                      </td>
+                      {/* Dynamic Basket Columns - Show only selected basket or all if "All" is selected */}
+                      {(!basket || basket === "All" || basket === "Select Basket" || basket === "") ? (
+                        <>
+                          <td 
+                            className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                            onClick={() => handleBulkBasketClick(student, "I")}
+                            title="Click to view Basket I details"
+                          >
+                            {student.basketI || student.basket1 || 0}
+                          </td>
+                          <td 
+                            className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                            onClick={() => handleBulkBasketClick(student, "II")}
+                            title="Click to view Basket II details"
+                          >
+                            {student.basketII || student.basket2 || 0}
+                          </td>
+                          <td 
+                            className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                            onClick={() => handleBulkBasketClick(student, "III")}
+                            title="Click to view Basket III details"
+                          >
+                            {student.basketIII || student.basket3 || 0}
+                          </td>
+                          <td 
+                            className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                            onClick={() => handleBulkBasketClick(student, "IV")}
+                            title="Click to view Basket IV details"
+                          >
+                            {student.basketIV || student.basket4 || 0}
+                          </td>
+                          <td 
+                            className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                            onClick={() => handleBulkBasketClick(student, "V")}
+                            title="Click to view Basket V details"
+                          >
+                            {student.basketV || student.basket5 || 0}
+                          </td>
+                        </>
+                      ) : (
+                        <td 
+                          className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                          onClick={() => {
+                            const basketNum = basket === "Basket I" ? "I" :
+                                            basket === "Basket II" ? "II" :
+                                            basket === "Basket III" ? "III" :
+                                            basket === "Basket IV" ? "IV" :
+                                            basket === "Basket V" ? "V" : "";
+                            if (basketNum) handleBulkBasketClick(student, basketNum);
+                          }}
+                          title={`Click to view ${basket} details`}
+                        >
+                          {basket === "Basket I" ? (student.basketI || student.basket1 || 0) :
+                           basket === "Basket II" ? (student.basketII || student.basket2 || 0) :
+                           basket === "Basket III" ? (student.basketIII || student.basket3 || 0) :
+                           basket === "Basket IV" ? (student.basketIV || student.basket4 || 0) :
+                           basket === "Basket V" ? (student.basketV || student.basket5 || 0) : 0}
+                        </td>
+                      )}
                       <td className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center font-semibold bg-gray-50">
                         {student.totalCredits || student.total || 0}
                         {student.is_lateral_entry && (
@@ -1178,12 +1491,12 @@ Please check if the department name matches exactly with the available departmen
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-gray-900">Individual Student Results</h3>
                 <div className="flex space-x-2">
-                  <button 
+                  {/* <button 
                     onClick={exportToCSV} 
                     className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
                   >
                     Export CSV
-                  </button>
+                  </button> */}
                   <button 
                     onClick={exportToExcel} 
                     className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
@@ -1388,13 +1701,31 @@ Please check if the department name matches exactly with the available departmen
                           <td className="px-4 py-3 text-center font-semibold text-red-600">{overallStats.totalFailed}</td>
                           <td className="px-4 py-3 text-center font-semibold text-gray-900">{overallStats.totalCredits}</td>
                           <td className="px-4 py-3 text-center">
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              overallStats.percentage >= 100 
-                                ? 'bg-green-100 text-green-800' 
-                                : 'bg-red-100 text-red-800'
-                            }`}>
-                              {overallStats.percentage >= 100 ? "Completed" : "Not Completed"}
-                            </span>
+                            {/* Total status is "Completed" ONLY when ALL individual baskets are completed */}
+                            {(() => {
+                              // CRITICAL: Check if ALL baskets are completed
+                              // basketsCompleted must equal totalBaskets (5) for status to be "Completed"
+                              const allBasketsCompleted = overallStats.basketsCompleted === overallStats.totalBaskets && overallStats.totalBaskets > 0;
+                              
+                              // Always log for debugging
+                              console.log('✅ Total Status Render:', {
+                                basketsCompleted: overallStats.basketsCompleted,
+                                totalBaskets: overallStats.totalBaskets,
+                                allBasketsCompleted,
+                                condition: `${overallStats.basketsCompleted} === ${overallStats.totalBaskets} && ${overallStats.totalBaskets} > 0`,
+                                willShow: allBasketsCompleted ? '✅ Completed' : '❌ Not Completed'
+                              });
+                              
+                              return (
+                                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                  allBasketsCompleted
+                                    ? 'bg-green-100 text-green-800' 
+                                    : 'bg-red-100 text-red-800'
+                                }`}>
+                                  {allBasketsCompleted ? "Completed" : "Not Completed"}
+                                </span>
+                              );
+                            })()}
                             {studentData.is_lateral_entry && (
                               <div className="text-xs text-orange-600 mt-1">
                                 Lateral Entry Student

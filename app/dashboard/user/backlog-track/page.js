@@ -367,12 +367,12 @@ export default function UserBacklogTrack() {
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-gray-900">Your Backlog Subjects</h3>
                 <div className="flex space-x-2">
-                  <button 
+                  {/* <button 
                     onClick={exportToCSV} 
                     className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
                   >
                     Export CSV
-                  </button>
+                  </button> */}
                   <button 
                     onClick={exportToExcel} 
                     className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
