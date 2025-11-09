@@ -751,6 +751,463 @@ Please check if the department name matches exactly with the available departmen
     }
   }, [registration, studentData, basketProgress, filteredAndSortedStudents, department, addNotification, downloadFile]);
 
+  const downloadReport = useCallback(() => {
+    if (registration !== "all" && studentData) {
+      // For individual student: Export in CBCS.xlsx template format matching the exact format provided
+      // Group subjects by semester and organize by basket columns
+      
+      // Collect all subjects with their basket and semester info
+      const allSubjects = [];
+      Object.entries(basketProgress).forEach(([basketName, basketInfo]) => {
+        const subjects = basketInfo?.subjects || [];
+        subjects.forEach(subject => {
+          allSubjects.push({
+            ...subject,
+            basket: basketName,
+            basketNumber: basketName === "Basket I" ? 1 : 
+                         basketName === "Basket II" ? 2 :
+                         basketName === "Basket III" ? 3 :
+                         basketName === "Basket IV" ? 4 :
+                         basketName === "Basket V" ? 5 : 0
+          });
+        });
+      });
+      
+      // Group by semester - Normalize semester keys to match expected format
+      const subjectsBySemester = {};
+      allSubjects.forEach(subject => {
+        let sem = subject.semester || "Unknown";
+        // Normalize semester format: "Semester 1" -> "Sem 1", "Sem1" -> "Sem 1", etc.
+        sem = sem.replace(/semester\s*/i, "Sem ").replace(/sem\s*/i, "Sem ").trim();
+        if (!sem.match(/^Sem\s*\d+$/i)) {
+          // Try to extract number if format is different
+          const numMatch = sem.match(/\d+/);
+          if (numMatch) {
+            sem = `Sem ${numMatch[0]}`;
+          }
+        }
+        if (!subjectsBySemester[sem]) {
+          subjectsBySemester[sem] = [];
+        }
+        subjectsBySemester[sem].push(subject);
+      });
+      
+      // Get all 8 semesters (even if empty) - always show all
+      // Use normalized keys: "Sem 1", "Sem 2", etc.
+      const allSemesterKeys = ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"];
+      const sortedSemesters = allSemesterKeys;
+      
+      // Get session year from registration (first 2 digits)
+      const regYear = studentData.registration ? studentData.registration.substring(0, 2) : new Date().getFullYear().toString().substring(2);
+      const sessionYear = `20${regYear}-${parseInt(regYear) + 4}`;
+      const branchCode = studentData.department || studentData.actual_department || '';
+      const branchMap = {
+        "Civil Engineering": "Civil",
+        "Computer Science Engineering": "CSE",
+        "Electronics & Communication Engineering": "ECE",
+        "Electrical & Electronics Engineering": "EEE",
+        "Mechanical Engineering": "Mechanical",
+        "AIML": "AIML",
+      };
+      const branchShort = Object.keys(branchMap).find(key => branchCode.includes(key)) 
+        ? branchMap[Object.keys(branchMap).find(key => branchCode.includes(key))] 
+        : branchCode;
+      
+      // Helper function to calculate semester totals (same logic as in buildSemesterTable)
+      const calculateSemesterTotals = (semester) => {
+        const subjects = subjectsBySemester[semester] || [];
+        let totals = { basket1: 0, basket2: 0, basket3: 0, basket4: 0, basket5: 0, grandTotal: 0 };
+        subjects.forEach(subject => {
+          const credits = Number(subject.credits) || 0;
+          const basketNum = subject.basketNumber || 0;
+          if (basketNum === 1) totals.basket1 += credits;
+          if (basketNum === 2) totals.basket2 += credits;
+          if (basketNum === 3) totals.basket3 += credits;
+          if (basketNum === 4) totals.basket4 += credits;
+          if (basketNum === 5) totals.basket5 += credits;
+          totals.grandTotal += credits;
+        });
+        return totals;
+      };
+      
+      // Calculate semester totals for all semesters
+      const semesterTotalsMap = {};
+      allSemesterKeys.forEach(semKey => {
+        semesterTotalsMap[semKey] = calculateSemesterTotals(semKey);
+      });
+      
+      // Calculate year totals by adding semester totals (matching screenshot format exactly)
+      // Layout: Top row = Sem 1 (left) + Sem 2 (right), Bottom row = Sem 3 (left) + Sem 4 (right)
+      // 1st Year = Sem 1 totals + Sem 2 totals (as shown in screenshot)
+      const firstYearTotals = {
+        basket1: (semesterTotalsMap["Sem 1"]?.basket1 || 0) + (semesterTotalsMap["Sem 2"]?.basket1 || 0),
+        basket2: (semesterTotalsMap["Sem 1"]?.basket2 || 0) + (semesterTotalsMap["Sem 2"]?.basket2 || 0),
+        basket3: (semesterTotalsMap["Sem 1"]?.basket3 || 0) + (semesterTotalsMap["Sem 2"]?.basket3 || 0),
+        basket4: (semesterTotalsMap["Sem 1"]?.basket4 || 0) + (semesterTotalsMap["Sem 2"]?.basket4 || 0),
+        basket5: (semesterTotalsMap["Sem 1"]?.basket5 || 0) + (semesterTotalsMap["Sem 2"]?.basket5 || 0),
+        grandTotal: (semesterTotalsMap["Sem 1"]?.grandTotal || 0) + (semesterTotalsMap["Sem 2"]?.grandTotal || 0)
+      };
+      
+      // 1st & 2nd Year = 1st Year + Sem 3 + Sem 4 (as shown in screenshot)
+      const secondYearTotals = {
+        basket1: firstYearTotals.basket1 + (semesterTotalsMap["Sem 3"]?.basket1 || 0) + (semesterTotalsMap["Sem 4"]?.basket1 || 0),
+        basket2: firstYearTotals.basket2 + (semesterTotalsMap["Sem 3"]?.basket2 || 0) + (semesterTotalsMap["Sem 4"]?.basket2 || 0),
+        basket3: firstYearTotals.basket3 + (semesterTotalsMap["Sem 3"]?.basket3 || 0) + (semesterTotalsMap["Sem 4"]?.basket3 || 0),
+        basket4: firstYearTotals.basket4 + (semesterTotalsMap["Sem 3"]?.basket4 || 0) + (semesterTotalsMap["Sem 4"]?.basket4 || 0),
+        basket5: firstYearTotals.basket5 + (semesterTotalsMap["Sem 3"]?.basket5 || 0) + (semesterTotalsMap["Sem 4"]?.basket5 || 0),
+        grandTotal: firstYearTotals.grandTotal + (semesterTotalsMap["Sem 3"]?.grandTotal || 0) + (semesterTotalsMap["Sem 4"]?.grandTotal || 0)
+      };
+      
+      // 1st, 2nd & 3rd Year = 1st & 2nd Year + Sem 5 + Sem 6
+      const thirdYearTotals = {
+        basket1: secondYearTotals.basket1 + (semesterTotalsMap["Sem 5"]?.basket1 || 0) + (semesterTotalsMap["Sem 6"]?.basket1 || 0),
+        basket2: secondYearTotals.basket2 + (semesterTotalsMap["Sem 5"]?.basket2 || 0) + (semesterTotalsMap["Sem 6"]?.basket2 || 0),
+        basket3: secondYearTotals.basket3 + (semesterTotalsMap["Sem 5"]?.basket3 || 0) + (semesterTotalsMap["Sem 6"]?.basket3 || 0),
+        basket4: secondYearTotals.basket4 + (semesterTotalsMap["Sem 5"]?.basket4 || 0) + (semesterTotalsMap["Sem 6"]?.basket4 || 0),
+        basket5: secondYearTotals.basket5 + (semesterTotalsMap["Sem 5"]?.basket5 || 0) + (semesterTotalsMap["Sem 6"]?.basket5 || 0),
+        grandTotal: secondYearTotals.grandTotal + (semesterTotalsMap["Sem 5"]?.grandTotal || 0) + (semesterTotalsMap["Sem 6"]?.grandTotal || 0)
+      };
+      
+      // 1st, 2nd, 3rd & 4th Year = 1st, 2nd & 3rd Year + Sem 7 + Sem 8
+      const fourthYearTotals = {
+        basket1: thirdYearTotals.basket1 + (semesterTotalsMap["Sem 7"]?.basket1 || 0) + (semesterTotalsMap["Sem 8"]?.basket1 || 0),
+        basket2: thirdYearTotals.basket2 + (semesterTotalsMap["Sem 7"]?.basket2 || 0) + (semesterTotalsMap["Sem 8"]?.basket2 || 0),
+        basket3: thirdYearTotals.basket3 + (semesterTotalsMap["Sem 7"]?.basket3 || 0) + (semesterTotalsMap["Sem 8"]?.basket3 || 0),
+        basket4: thirdYearTotals.basket4 + (semesterTotalsMap["Sem 7"]?.basket4 || 0) + (semesterTotalsMap["Sem 8"]?.basket4 || 0),
+        basket5: thirdYearTotals.basket5 + (semesterTotalsMap["Sem 7"]?.basket5 || 0) + (semesterTotalsMap["Sem 8"]?.basket5 || 0),
+        grandTotal: thirdYearTotals.grandTotal + (semesterTotalsMap["Sem 7"]?.grandTotal || 0) + (semesterTotalsMap["Sem 8"]?.grandTotal || 0)
+      };
+      
+      // Debug: Log totals to verify calculation
+      console.log('Year Totals Calculation:', {
+        semesterTotals: semesterTotalsMap,
+        firstYear: firstYearTotals,
+        secondYear: secondYearTotals,
+        thirdYear: thirdYearTotals,
+        fourthYear: fourthYearTotals,
+        sem1Basket5: semesterTotalsMap["Sem 1"]?.basket5 || 0,
+        sem2Basket5: semesterTotalsMap["Sem 2"]?.basket5 || 0,
+        calculatedFirstYearBasket5: (semesterTotalsMap["Sem 1"]?.basket5 || 0) + (semesterTotalsMap["Sem 2"]?.basket5 || 0)
+      });
+      
+      // Build HTML table matching CBCS.xlsx template EXACTLY
+      let htmlContent = `
+        <html>
+          <head><meta charset="UTF-8"></head>
+          <body style="font-family: Arial, sans-serif; margin: 0; padding: 10px;">
+            <table border="1" cellpadding="5" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+              <!-- Header Section - Matching exact format -->
+              <tr>
+                <td colspan="9" style="text-align: center; font-weight: bold; font-size: 14px; background-color: #E6F3FF; padding: 8px;">
+                  CENTURION UNIVERSITY OF TECHNOLOGY & MANAGEMENT
+                </td>
+              </tr>
+              <tr>
+                <td colspan="9" style="text-align: center; font-weight: bold; font-size: 12px; background-color: #E6F3FF; padding: 8px;">
+                  SCHOOL OF ENGINEERING & TECHNOLOGY
+                </td>
+              </tr>
+              <tr>
+                <td colspan="9" style="text-align: center; font-weight: bold; font-size: 12px; background-color: #E6F3FF; padding: 8px;">
+                  PARALAKHEMUNDI CAMPUS
+                </td>
+              </tr>
+              <tr>
+                <td colspan="9" style="text-align: center; font-weight: bold; font-size: 12px; background-color: #E6F3FF; padding: 8px;">
+                  SUBJECT REGISTRATION AS PER CBCS CURRICULUM
+                </td>
+              </tr>
+              
+              <!-- Student Info Section - Left: Name, Right: Registration details -->
+              <tr>
+                <td colspan="4" style="font-weight: bold; background-color: #F0F0F0; padding: 8px;">NAME OF STUDENT:</td>
+                <td colspan="5" style="padding: 8px;">${studentData.name || ''}</td>
+              </tr>
+              <tr>
+                <td colspan="3" style="font-weight: bold; background-color: #F0F0F0; padding: 8px;">REGISTRATION NO:</td>
+                <td colspan="3" style="padding: 8px;">${studentData.registration || ''}</td>
+                <td colspan="1" style="font-weight: bold; background-color: #F0F0F0; padding: 8px;">SESSION:</td>
+                <td colspan="2" style="padding: 8px;">${sessionYear}</td>
+              </tr>
+              <tr>
+                <td colspan="3" style="font-weight: bold; background-color: #F0F0F0; padding: 8px;">BRANCH:</td>
+                <td colspan="6" style="padding: 8px;">${branchShort}</td>
+              </tr>
+              
+              <!-- Semester-wise Subject Tables - Arranged in pairs side by side -->
+              ${(() => {
+                // Helper function to build a semester table
+                const buildSemesterTable = (semester, semNum) => {
+                  const subjects = subjectsBySemester[semester] || [];
+                  const semesterDisplay = semester.replace(/Sem\s*/i, 'Semester-');
+                  const hasSlNo = semNum % 2 === 0; // Even semesters have Sl. No
+                  
+                  // Calculate totals for this semester
+                  let semesterTotals = { basket1: 0, basket2: 0, basket3: 0, basket4: 0, basket5: 0, grandTotal: 0 };
+                  
+                  // Build subject rows
+                  const subjectRows = subjects.map((subject, idx) => {
+                    const credits = Number(subject.credits) || 0;
+                    const basket1 = subject.basketNumber === 1 ? credits : 0;
+                    const basket2 = subject.basketNumber === 2 ? credits : 0;
+                    const basket3 = subject.basketNumber === 3 ? credits : 0;
+                    const basket4 = subject.basketNumber === 4 ? credits : 0;
+                    const basket5 = subject.basketNumber === 5 ? credits : 0;
+                    
+                    semesterTotals.basket1 += basket1;
+                    semesterTotals.basket2 += basket2;
+                    semesterTotals.basket3 += basket3;
+                    semesterTotals.basket4 += basket4;
+                    semesterTotals.basket5 += basket5;
+                    semesterTotals.grandTotal += credits;
+                    
+                    const slNoCell = hasSlNo ? `<td style="text-align: center; padding: 5px;">${idx + 1}</td>` : '';
+                    
+                    return `
+                      <tr>
+                        ${slNoCell}
+                        <td style="padding: 5px;">${subject.code || ''}</td>
+                        <td style="padding: 5px;">${subject.name || ''}</td>
+                        <td style="text-align: center; padding: 5px;">${basket1 || ''}</td>
+                        <td style="text-align: center; padding: 5px;">${basket2 || ''}</td>
+                        <td style="text-align: center; padding: 5px;">${basket3 || ''}</td>
+                        <td style="text-align: center; padding: 5px;">${basket4 || ''}</td>
+                        <td style="text-align: center; padding: 5px;">${basket5 || ''}</td>
+                        <td style="text-align: center; padding: 5px;">${credits}</td>
+                      </tr>
+                    `;
+                  }).join('');
+                  
+                  const headerColspan = hasSlNo ? 9 : 8;
+                  const slNoHeader = hasSlNo ? '<td style="padding: 5px;">Sl. No</td>' : '';
+                  const totalColspan = hasSlNo ? 3 : 2;
+                  
+                  return {
+                    html: `
+                      <!-- ${semesterDisplay} Header -->
+                      <tr>
+                        <td colspan="${headerColspan}" style="font-weight: bold; background-color: #D9E1F2; text-align: center; padding: 8px;">
+                          ${semesterDisplay}
+                        </td>
+                      </tr>
+                      
+                      <!-- Column Headers -->
+                      <tr style="background-color: #D9E1F2; font-weight: bold; text-align: center;">
+                        ${slNoHeader}
+                        <td style="padding: 5px;">Subject Code</td>
+                        <td style="padding: 5px;">Subject</td>
+                        <td style="padding: 5px;">Basket 1 (Credit)</td>
+                        <td style="padding: 5px;">Basket 2 (Credit)</td>
+                        <td style="padding: 5px;">Basket 3 (Credit)</td>
+                        <td style="padding: 5px;">Basket 4 (Credit)</td>
+                        <td style="padding: 5px;">Basket 5 (Credit)</td>
+                        <td style="padding: 5px;">Grand Total (Credit)</td>
+                      </tr>
+                      
+                      <!-- Subject Rows -->
+                      ${subjectRows || '<tr><td colspan="' + headerColspan + '" style="padding: 5px; text-align: center;">No subjects</td></tr>'}
+                      
+                      <!-- Semester Total Row -->
+                      <tr style="font-weight: bold; background-color: #E6F3FF;">
+                        <td colspan="${totalColspan}" style="text-align: right; padding: 5px;">Total</td>
+                        <td style="text-align: center; padding: 5px;">${semesterTotals.basket1}</td>
+                        <td style="text-align: center; padding: 5px;">${semesterTotals.basket2}</td>
+                        <td style="text-align: center; padding: 5px;">${semesterTotals.basket3}</td>
+                        <td style="text-align: center; padding: 5px;">${semesterTotals.basket4}</td>
+                        <td style="text-align: center; padding: 5px;">${semesterTotals.basket5}</td>
+                        <td style="text-align: center; padding: 5px;">${semesterTotals.grandTotal}</td>
+                      </tr>
+                    `,
+                    totals: semesterTotals,
+                    semNum,
+                    headerColspan
+                  };
+                };
+                
+                // Build semester pairs matching screenshot layout exactly:
+                // Top row: Sem 1 (left) + Sem 2 (right)
+                // Bottom row: Sem 3 (left) + Sem 4 (right)
+                let result = '';
+                
+                // First row: Sem 1 + Sem 2 (side-by-side)
+                const sem1Key = allSemesterKeys[0]; // Sem 1
+                const sem2Key = allSemesterKeys[1]; // Sem 2
+                const sem1Table = buildSemesterTable(sem1Key, 1);
+                const sem2Table = buildSemesterTable(sem2Key, 2);
+                
+                const sem1Colspan = 4; // Sem 1 is odd (no Sl. No) = 8 cols, so 4 in outer table
+                const sem2Colspan = 5; // Sem 2 is even (has Sl. No) = 9 cols, so 5 in outer table
+                
+                // Add "1st Year Total Credits" row inside Sem 2 table (in Subject column)
+                const sem2TableWithYearTotal = sem2Table.html + `
+                      <!-- 1st Year Total Credits Row (inside Sem 2 table, Subject column) -->
+                      <tr style="font-weight: bold; background-color: #E6F3FF;">
+                        <td style="text-align: center; padding: 5px;"></td>
+                        <td style="text-align: center; padding: 5px;"></td>
+                        <td style="text-align: left; padding: 5px; font-weight: bold;">1st Year Total Credits</td>
+                        <td style="text-align: center; padding: 5px;">${firstYearTotals.basket1 || 0}</td>
+                        <td style="text-align: center; padding: 5px;">${firstYearTotals.basket2 || 0}</td>
+                        <td style="text-align: center; padding: 5px;">${firstYearTotals.basket3 || 0}</td>
+                        <td style="text-align: center; padding: 5px;">${firstYearTotals.basket4 || 0}</td>
+                        <td style="text-align: center; padding: 5px;">${firstYearTotals.basket5 || 0}</td>
+                        <td style="text-align: center; padding: 5px;">${firstYearTotals.grandTotal || 0}</td>
+                      </tr>
+                    `;
+                
+                result += `
+                  <tr>
+                    <td colspan="${sem1Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
+                      <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+                        ${sem1Table.html}
+                      </table>
+                    </td>
+                    <td colspan="${sem2Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
+                      <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+                        ${sem2TableWithYearTotal}
+                      </table>
+                    </td>
+                  </tr>
+                `;
+                
+                // Add spacing between rows
+                result += `<tr><td colspan="9" style="height: 10px; border: 1px solid #000;"></td></tr>`;
+                
+                // Second row: Sem 3 + Sem 4 (side-by-side)
+                const sem3Key = allSemesterKeys[2]; // Sem 3
+                const sem4Key = allSemesterKeys[3]; // Sem 4
+                const sem3Table = buildSemesterTable(sem3Key, 3);
+                const sem4Table = buildSemesterTable(sem4Key, 4);
+                
+                const sem3Colspan = 4; // Sem 3 is odd (no Sl. No) = 8 cols, so 4 in outer table
+                const sem4Colspan = 5; // Sem 4 is even (has Sl. No) = 9 cols, so 5 in outer table
+                
+                // Add "1st & 2nd Year Total Credits" row inside Sem 4 table (in Subject column)
+                const sem4TableWithYearTotal = sem4Table.html + `
+                      <!-- 1st & 2nd Year Total Credits Row (inside Sem 4 table, Subject column) -->
+                      <tr style="font-weight: bold; background-color: #E6F3FF;">
+                        <td style="text-align: center; padding: 5px;"></td>
+                        <td style="text-align: center; padding: 5px;"></td>
+                        <td style="text-align: left; padding: 5px; font-weight: bold;">1st & 2nd Year Total Credits</td>
+                        <td style="text-align: center; padding: 5px;">${secondYearTotals.basket1 || 0}</td>
+                        <td style="text-align: center; padding: 5px;">${secondYearTotals.basket2 || 0}</td>
+                        <td style="text-align: center; padding: 5px;">${secondYearTotals.basket3 || 0}</td>
+                        <td style="text-align: center; padding: 5px;">${secondYearTotals.basket4 || 0}</td>
+                        <td style="text-align: center; padding: 5px;">${secondYearTotals.basket5 || 0}</td>
+                        <td style="text-align: center; padding: 5px;">${secondYearTotals.grandTotal || 0}</td>
+                      </tr>
+                    `;
+                
+                result += `
+                  <tr>
+                    <td colspan="${sem3Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
+                      <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+                        ${sem3Table.html}
+                      </table>
+                    </td>
+                    <td colspan="${sem4Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
+                      <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+                        ${sem4TableWithYearTotal}
+                      </table>
+                    </td>
+                  </tr>
+                `;
+                
+                // Add remaining semesters (5,6,7,8) if needed
+                for (let i = 4; i < 8; i += 2) {
+                  const sem1Key = allSemesterKeys[i];
+                  const sem2Key = allSemesterKeys[i + 1];
+                  const sem1Num = i + 1;
+                  const sem2Num = i + 2;
+                  
+                  const sem1Table = buildSemesterTable(sem1Key, sem1Num);
+                  const sem2Table = buildSemesterTable(sem2Key, sem2Num);
+                  
+                  const sem1Colspan = 4;
+                  const sem2Colspan = 5;
+                  
+                  // Add year totals inside even semester tables (Sem 6, Sem 8)
+                  let sem2TableWithYearTotal = sem2Table.html;
+                  if (sem2Num === 6) {
+                    // Add "1st, 2nd & 3rd year Total Credits" inside Sem 6 table (in Subject column)
+                    sem2TableWithYearTotal = sem2Table.html + `
+                          <!-- 1st, 2nd & 3rd year Total Credits Row (inside Sem 6 table, Subject column) -->
+                          <tr style="font-weight: bold; background-color: #E6F3FF;">
+                            <td style="text-align: center; padding: 5px;"></td>
+                            <td style="text-align: center; padding: 5px;"></td>
+                            <td style="text-align: left; padding: 5px; font-weight: bold;">1st, 2nd & 3rd year Total Credits</td>
+                            <td style="text-align: center; padding: 5px;">${thirdYearTotals.basket1 || 0}</td>
+                            <td style="text-align: center; padding: 5px;">${thirdYearTotals.basket2 || 0}</td>
+                            <td style="text-align: center; padding: 5px;">${thirdYearTotals.basket3 || 0}</td>
+                            <td style="text-align: center; padding: 5px;">${thirdYearTotals.basket4 || 0}</td>
+                            <td style="text-align: center; padding: 5px;">${thirdYearTotals.basket5 || 0}</td>
+                            <td style="text-align: center; padding: 5px;">${thirdYearTotals.grandTotal || 0}</td>
+                          </tr>
+                        `;
+                  } else if (sem2Num === 8) {
+                    // Add "1st, 2nd, 3rd & 4th year Total" inside Sem 8 table (in Subject column)
+                    sem2TableWithYearTotal = sem2Table.html + `
+                          <!-- 1st, 2nd, 3rd & 4th year Total Row (inside Sem 8 table, Subject column) -->
+                          <tr style="font-weight: bold; background-color: #E6F3FF;">
+                            <td style="text-align: center; padding: 5px;"></td>
+                            <td style="text-align: center; padding: 5px;"></td>
+                            <td style="text-align: left; padding: 5px; font-weight: bold;">1st, 2nd, 3rd & 4th year Total</td>
+                            <td style="text-align: center; padding: 5px;">${fourthYearTotals.basket1 || 0}</td>
+                            <td style="text-align: center; padding: 5px;">${fourthYearTotals.basket2 || 0}</td>
+                            <td style="text-align: center; padding: 5px;">${fourthYearTotals.basket3 || 0}</td>
+                            <td style="text-align: center; padding: 5px;">${fourthYearTotals.basket4 || 0}</td>
+                            <td style="text-align: center; padding: 5px;">${fourthYearTotals.basket5 || 0}</td>
+                            <td style="text-align: center; padding: 5px;">${fourthYearTotals.grandTotal || 0}</td>
+                          </tr>
+                        `;
+                  }
+                  
+                  result += `<tr><td colspan="9" style="height: 10px; border: 1px solid #000;"></td></tr>`;
+                  
+                  result += `
+                    <tr>
+                      <td colspan="${sem1Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
+                        <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+                          ${sem1Table.html}
+                        </table>
+                      </td>
+                      <td colspan="${sem2Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
+                        <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+                          ${sem2TableWithYearTotal}
+                        </table>
+                      </td>
+                    </tr>
+                  `;
+                }
+                
+                return result;
+              })()}
+            </table>
+          </body>
+        </html>
+      `;
+      
+      downloadFile(htmlContent, `CBCS_Registration_${studentData.registration}_${new Date().toISOString().split('T')[0]}.xls`, "application/vnd.ms-excel");
+      addNotification('success', 'Report downloaded in CBCS template format');
+    } else if (registration === "all" && filteredAndSortedStudents.length > 0) {
+      const html = `
+        <html>
+          <head><meta charset="UTF-8"></head>
+          <body>
+            <h2>Bulk Basket Analysis Report</h2>
+            <table border="1">
+              <tr><th>Sl.No</th><th>Name</th><th>Registration No</th><th>Department</th><th>Student Type</th><th>Basket I</th><th>Basket II</th><th>Basket III</th><th>Basket IV</th><th>Basket V</th><th>Total Credits</th><th>Required Credits</th><th>Percentage</th><th>Status</th></tr>
+              ${filteredAndSortedStudents.map((student, index) => 
+                `<tr><td>${index + 1}</td><td>${student.name}</td><td>${student.registration}</td><td>${student.department}</td><td>${student.is_lateral_entry ? 'Lateral Entry' : 'Regular'}</td><td>${student.basketI || 0}</td><td>${student.basketII || 0}</td><td>${student.basketIII || 0}</td><td>${student.basketIV || 0}</td><td>${student.basketV || 0}</td><td>${student.totalCredits || 0}</td><td>${student.totalRequiredCredits || (student.is_lateral_entry ? 120 : 160)}</td><td>${student.percentage || 0}%</td><td>${student.status || "Not Started"}</td></tr>`
+              ).join("")}
+            </table>
+          </body>
+        </html>
+      `;
+      downloadFile(html, `bulk_basket_analysis_${department}_${new Date().toISOString().split('T')[0]}.xls`, "application/vnd.ms-excel");
+      addNotification('success', `Excel file exported with ${filteredAndSortedStudents.length} students`);
+    }
+  }, [registration, studentData, basketProgress, filteredAndSortedStudents, department, addNotification, downloadFile]);
+
   const exportToExcel = useCallback(() => {
     if (registration !== "all" && studentData) {
       // For individual student: Export in CBCS.xlsx template format matching the screenshot
@@ -1278,23 +1735,11 @@ Please check if the department name matches exactly with the available departmen
                   </p>
                 </div>
                 <div className="flex space-x-2">
-                  {/* <button 
-                    onClick={exportToCSV} 
-                    className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
-                  >
-                    Export CSV
-                  </button> */}
                   <button 
                     onClick={exportToExcel} 
                     className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
                   >
                     Export Excel
-                  </button>
-                  <button 
-                    onClick={() => window.print()} 
-                    className="px-3 py-1 bg-gray-600 text-white text-sm rounded hover:bg-gray-700 transition-colors"
-                  >
-                    Print
                   </button>
                 </div>
               </div>
@@ -1491,17 +1936,15 @@ Please check if the department name matches exactly with the available departmen
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-gray-900">Individual Student Results</h3>
                 <div className="flex space-x-2">
-                  {/* <button 
-                    onClick={exportToCSV} 
-                    className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
-                  >
-                    Export CSV
-                  </button> */}
                   <button 
-                    onClick={exportToExcel} 
-                    className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
+                    onClick={downloadReport} 
+                    className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700 transition-colors shadow-md flex items-center gap-2"
+                    title="Download report in CBCS registration format"
                   >
-                    Export Excel
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Download Report
                   </button>
                   <button 
                     onClick={() => window.print()} 
