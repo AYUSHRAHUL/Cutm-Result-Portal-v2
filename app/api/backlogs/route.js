@@ -67,9 +67,19 @@ export async function POST(req) {
     }
 
     // Search for backlogs
-    const { registration, subject_code, branch, year, semesters = [] } = body;
+    const { registration, subject_code } = body;
+    let { branch, year, semesters = [] } = body;
+
+    // Normalize inputs
+    const branchKey = normalizeBranchKey(String(branch || ""));
+    year = typeof year === "string" ? year.trim() : year;
     const query = { Grade: { $in: ["F","M","S","I","R","AB"] } };
     
+    // Guard: avoid returning entire collection when no filters given
+    if (!registration && !subject_code && !branchKey && !year && (!semesters || semesters.length === 0)) {
+      return NextResponse.json({ error: "Please provide at least one filter (registration, subject code, branch, year, or semester)" }, { status: 400 });
+    }
+
     if (registration) {
       query.Reg_No = registration.toUpperCase();
     }
@@ -85,9 +95,14 @@ export async function POST(req) {
     
     // Optional branch/year filters by Reg_No patterns
     const and = [];
-    if (branch) {
-      const code = branchCode(branch);
-      if (code) and.push({ Reg_No: { $regex: `^.{7}${code}` } });
+    if (branchKey) {
+      const codes = branchCodes(branchKey);
+      if (codes && codes.length > 0) {
+        // Match any of the valid department codes at 8th character
+        and.push({
+          $or: codes.map(c => ({ Reg_No: { $regex: `^.{7}${c}` } }))
+        });
+      }
     }
     if (year) {
       const yy = year.length === 4 ? year.slice(-2) : year;
@@ -152,13 +167,35 @@ export async function POST(req) {
         Branch: branch
       };
     });
+
+    // If branch filter was requested, apply a robust branch match using overrides/name synonyms
+    let filteredBacklogs = backlogsWithBatch;
+    if (branchKey) {
+      const target = String(branchKey).toUpperCase();
+      const branchSynonyms = {
+        'CSE': ['CSE','COMPUTER SCIENCE','COMPUTER SCIENCE ENGINEERING'],
+        'ECE': ['ECE','ELECTRONICS & COMMUNICATION','ELECTRONICS AND COMMUNICATION','ELECTRONICS COMMUNICATION'],
+        'EEE': ['EEE','ELECTRICAL & ELECTRONICS','ELECTRICAL AND ELECTRONICS','ELECTRICAL ELECTRONICS'],
+        'ME': ['ME','MECHANICAL','MECHANICAL ENGINEERING'],
+        'CIVIL': ['CIVIL','CIVIL ENGINEERING'],
+        'AIML': ['AIML','ARTIFICIAL INTELLIGENCE','MACHINE LEARNING'],
+        'Civil': ['CIVIL','CIVIL ENGINEERING'],
+        'Mechanical': ['ME','MECHANICAL','MECHANICAL ENGINEERING']
+      };
+      const validNames = branchSynonyms[target] || branchSynonyms[target.toUpperCase()] || [target];
+      function nameMatches(b) {
+        const s = String(b || '').toUpperCase();
+        return validNames.some(v => s.includes(v));
+      }
+      filteredBacklogs = backlogsWithBatch.filter(item => nameMatches(item.Branch));
+    }
     
     console.log(`Found ${backlogsWithBatch.length} backlog records`);
     console.log(`Sample records:`, backlogsWithBatch.slice(0, 2));
     
     return NextResponse.json({ 
-      backlogs: backlogsWithBatch,
-      total: backlogsWithBatch.length,
+      backlogs: filteredBacklogs,
+      total: filteredBacklogs.length,
       registration: registration || "auto-filled"
     });
   } catch (err) {
@@ -167,9 +204,29 @@ export async function POST(req) {
   }
 }
 
-function branchCode(name) {
-  const map = { Civil: '1', CSE: '2', ECE: '3', EEE: '5', Mechanical: '6', AIML: '7' };
-  return map[name] || null;
+function branchCodes(name) {
+  // Include alternate codes used historically for some branches
+  const map = {
+    Civil: ['1','9'],
+    CSE: ['2','8'],
+    ECE: ['3','4'],
+    EEE: ['5'],
+    Mechanical: ['6'],
+    AIML: ['7'],
+  };
+  return map[name] || [];
+}
+
+function normalizeBranchKey(input) {
+  const s = String(input || "").trim().toUpperCase();
+  if (!s) return "";
+  if (s === 'CSE' || s.includes('COMPUTER')) return 'CSE';
+  if (s === 'ECE' || s.includes('ELECTRONICS') && s.includes('COMMUNICATION')) return 'ECE';
+  if (s === 'EEE' || (s.includes('ELECTRICAL') && !s.includes('COMMUNICATION'))) return 'EEE';
+  if (s.includes('MECHANICAL') || s === 'ME') return 'Mechanical';
+  if (s.includes('CIVIL')) return 'Civil';
+  if (s.includes('AIML') || s.includes('ARTIFICIAL')) return 'AIML';
+  return s;
 }
 
 

@@ -112,6 +112,16 @@ export default function TeacherBasketProgressTracker() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showStats, setShowStats] = useState(true);
 
+  // Batch-based flags for dynamic labels (2024 onwards)
+  const is2024Onwards = useMemo(() => {
+    const n = Number(batch);
+    return !Number.isNaN(n) && n >= 24;
+  }, [batch]);
+
+  const legacyRegularCreditRequirements = { total: 160, basket1: 17, basket2: 12, basket3: 25, basket4: 58, basket5: 48 };
+  const regularCreditRequirements = { total: 160, basket1: 17, basket2: 12, basket3: 25, basket4: 60, basket5: 46 };
+  const lateralCreditRequirements = { total: 120, basket1: 6, basket2: 9, basket3: 25, basket4: 48, basket5: 32 };
+
   // Enhanced utility functions
   const addNotification = useCallback((type, message) => {
     const notification = {
@@ -319,9 +329,9 @@ Please check if the department name matches exactly with the available departmen
           
           for (const reg of registrationsToSearch) {
             try {
-              const requestBody = {
-                department: department && department !== "All" && department !== "Select Department" ? department : "", 
-                batch: batch && batch !== "All" && batch !== "Select Batch" ? batch : "", 
+        const requestBody = {
+          department: department && department !== "All" && department !== "Select Department" ? department : "", 
+          batch: batch && batch !== "All" && batch !== "Select Batch" ? batch : "", 
                 registration: reg, 
                 semesters: semesterValues.length > 0 && !semesterValues.includes("All") ? semesterValues : [], 
                 basket: basket && basket !== "All" && basket !== "Select Basket" ? basket : ""
@@ -386,53 +396,53 @@ Please check if the department name matches exactly with the available departmen
             department: department && department !== "All" && department !== "Select Department" ? department : "", 
             batch: batch && batch !== "All" && batch !== "Select Batch" ? batch : "", 
             registration: registrationsToSearch[0], 
-            semesters: semesterValues.length > 0 && !semesterValues.includes("All") ? semesterValues : [], 
-            basket: basket && basket !== "All" && basket !== "Select Basket" ? basket : ""
-          };
-          
-          console.log("Individual search request:", requestBody);
-          
-          const res = await fetch("/api/cbcs/track", {
-            method: "POST",
-            headers: { 
-              "Content-Type": "application/json",
-              "Accept": "application/json" 
-            },
-            body: JSON.stringify(requestBody)
-          });
-          
-          let data;
-          try {
-            const responseText = await res.text();
-            data = JSON.parse(responseText);
-          } catch (parseError) {
-            throw new Error("Invalid response from server");
-          }
-          
-          if (!res.ok) {
-            if (res.status === 404) {
+          semesters: semesterValues.length > 0 && !semesterValues.includes("All") ? semesterValues : [], 
+          basket: basket && basket !== "All" && basket !== "Select Basket" ? basket : ""
+        };
+        
+        console.log("Individual search request:", requestBody);
+        
+        const res = await fetch("/api/cbcs/track", {
+          method: "POST",
+          headers: { 
+            "Content-Type": "application/json",
+            "Accept": "application/json" 
+          },
+          body: JSON.stringify(requestBody)
+        });
+        
+        let data;
+        try {
+          const responseText = await res.text();
+          data = JSON.parse(responseText);
+        } catch (parseError) {
+          throw new Error("Invalid response from server");
+        }
+        
+        if (!res.ok) {
+          if (res.status === 404) {
               throw new Error(`Student with registration ${registrationsToSearch[0]} not found. Please check the registration number.`);
-            } else {
-              throw new Error(data.error || "Unable to load student progress");
-            }
+          } else {
+            throw new Error(data.error || "Unable to load student progress");
           }
-          
-          // FIXED: Enhanced individual data processing
-          const student = data.student || data.data;
-          const progress = data.basketProgress || data.progress || {};
-          
-          if (!student) {
+        }
+        
+        // FIXED: Enhanced individual data processing
+        const student = data.student || data.data;
+        const progress = data.basketProgress || data.progress || {};
+        
+        if (!student) {
             throw new Error(`No data found for registration ${registrationsToSearch[0]}. Please verify the registration number.`);
-          }
-          
-          setStudentData(student);
-          setBasketProgress(progress);
-          setDataSources(data.dataSources || null);
-          setLastUpdated(new Date());
-          
-          // Success notification
-          addNotification('success', `Student data loaded successfully for ${student.name}`);
-          playNotificationSound();
+        }
+        
+        setStudentData(student);
+        setBasketProgress(progress);
+        setDataSources(data.dataSources || null);
+        setLastUpdated(new Date());
+        
+        // Success notification
+        addNotification('success', `Student data loaded successfully for ${student.name}`);
+        playNotificationSound();
         }
       }
     } catch (err) {
@@ -3069,16 +3079,27 @@ Please check if the department name matches exactly with the available departmen
           }`}>
             <div className={`text-sm ${darkMode ? 'text-blue-300' : 'text-blue-800'}`}>
               <span className="font-bold text-lg">📋 Credit Requirements Overview</span>
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
+              <div className={`mt-4 grid grid-cols-1 md:grid-cols-3 gap-6 text-left`}>
                 <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'}`}>
-                  <span className="font-semibold">Regular Students:</span> 
-                  <span className={`ml-2 font-bold ${darkMode ? 'text-blue-300' : 'text-blue-600'}`}>160 total credits</span>
+                  <span className="font-semibold">Regular Students (till 2023):</span> 
+                  <span className={`ml-2 font-bold ${darkMode ? 'text-blue-300' : 'text-blue-600'}`}>{legacyRegularCreditRequirements.total} total credits</span>
                   <div className="text-xs mt-2 space-y-1">
-                    <div>Basket I: 17 credits</div>
-                    <div>Basket II: 12 credits</div>
-                    <div>Basket III: 25 credits</div>
-                    <div>Basket IV: 58 credits</div>
-                    <div>Basket V: 48 credits</div>
+                    <div>Basket I: {legacyRegularCreditRequirements.basket1} credits</div>
+                    <div>Basket II: {legacyRegularCreditRequirements.basket2} credits</div>
+                    <div>Basket III: {legacyRegularCreditRequirements.basket3} credits</div>
+                    <div>Basket IV: {legacyRegularCreditRequirements.basket4} credits</div>
+                    <div>Basket V: {legacyRegularCreditRequirements.basket5} credits</div>
+                  </div>
+                </div>
+                <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'}`}>
+                  <span className="font-semibold">Regular Students (2024 batch onwards):</span> 
+                  <span className={`ml-2 font-bold ${darkMode ? 'text-blue-300' : 'text-blue-600'}`}>{regularCreditRequirements.total} total credits</span>
+                  <div className="text-xs mt-2 space-y-1">
+                    <div>Basket I: {regularCreditRequirements.basket1} credits</div>
+                    <div>Basket II: {regularCreditRequirements.basket2} credits</div>
+                    <div>Basket III: {regularCreditRequirements.basket3} credits</div>
+                    <div>Basket IV: {regularCreditRequirements.basket4} credits</div>
+                    <div>Basket V: {regularCreditRequirements.basket5} credits</div>
               </div>
               </div>
                 <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'}`}>
@@ -3167,12 +3188,12 @@ Please check if the department name matches exactly with the available departmen
                 <input 
                   type="text"
                   value={registration !== "all" && selectedRegistrations.length === 0 ? registration : ""} 
-                  onChange={e => {
+                    onChange={e => {
                     setRegistration(e.target.value);
                     setSelectedRegistrations([]);
-                  }} 
+                    }} 
                   placeholder="Or type registration manually"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
                   disabled={registration === "all"}
                 />
                 
@@ -3191,15 +3212,15 @@ Please check if the department name matches exactly with the available departmen
                         </button>
                       )}
                     </div>
-                    {loadingRegistrations && (
-                      <div className="text-xs text-gray-500">Loading registrations...</div>
-                    )}
+                  {loadingRegistrations && (
+                    <div className="text-xs text-gray-500">Loading registrations...</div>
+                  )}
                     <div className="space-y-1">
                       {registrationOptions.map(opt => {
                         const isChecked = selectedRegistrations.includes(opt.value);
                         return (
                           <div key={opt.value} className="flex items-center gap-2 hover:bg-gray-50 p-1 rounded">
-                            <input
+                  <input 
                               type="checkbox"
                               id={`reg-${opt.value}`}
                               checked={isChecked}
@@ -3219,7 +3240,7 @@ Please check if the department name matches exactly with the available departmen
                             >
                               {opt.label}
                             </label>
-                          </div>
+                </div>
                         );
                       })}
                     </div>
@@ -3295,8 +3316,8 @@ Please check if the department name matches exactly with the available departmen
                   <option value="Basket I">Basket I (17/6 credits)</option>
                   <option value="Basket II">Basket II (12/9 credits)</option>
                   <option value="Basket III">Basket III (25 credits)</option>
-                  <option value="Basket IV">Basket IV (58/48 credits)</option>
-                  <option value="Basket V">Basket V (48/32 credits)</option>
+                  <option value="Basket IV">Basket IV ({is2024Onwards ? '60/48' : '58/48'} credits)</option>
+                  <option value="Basket V">Basket V ({is2024Onwards ? '46/32' : '48/32'} credits)</option>
                 </select>
                 <div className="text-xs text-gray-500">
                   💡 Filter results by specific basket or view all baskets
@@ -3511,16 +3532,16 @@ Please check if the department name matches exactly with the available departmen
                     <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket I (17/6)</th>
                     <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket II (12/9)</th>
                     <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket III (25)</th>
-                    <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket IV (58/48)</th>
-                    <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket V (48/32)</th>
+                    <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket IV ({is2024Onwards ? '60/48' : '58/48'})</th>
+                    <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket V ({is2024Onwards ? '46/32' : '48/32'})</th>
                       </>
                     ) : (
                       <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">
                         {basket === "Basket I" ? "Basket I (17/6)" :
                          basket === "Basket II" ? "Basket II (12/9)" :
                          basket === "Basket III" ? "Basket III (25)" :
-                         basket === "Basket IV" ? "Basket IV (58/48)" :
-                         basket === "Basket V" ? "Basket V (48/32)" : basket}
+                         basket === "Basket IV" ? `Basket IV (${is2024Onwards ? '60/48' : '58/48'})` :
+                         basket === "Basket V" ? `Basket V (${is2024Onwards ? '46/32' : '48/32'})` : basket}
                       </th>
                     )}
                     <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Total Credits (160/120)</th>

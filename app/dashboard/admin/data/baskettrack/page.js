@@ -44,6 +44,12 @@ export default function BasketProgressTracker() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showStats, setShowStats] = useState(true);
 
+  // Batch-based flags
+  const is2024Onwards = useMemo(() => {
+    const n = Number(batch);
+    return !Number.isNaN(n) && n >= 24;
+  }, [batch]);
+
   // Enhanced utility functions
   const addNotification = useCallback((type, message) => {
     const notification = {
@@ -1450,9 +1456,9 @@ Please check if the department name matches exactly with the available departmen
           }`}>
             <div className={`text-sm ${darkMode ? 'text-blue-300' : 'text-blue-800'}`}>
               <span className="font-bold text-lg">📋 Credit Requirements Overview</span>
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
                 <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'}`}>
-                  <span className="font-semibold">Regular Students:</span> 
+                  <span className="font-semibold">Regular Students (till 2023):</span> 
                   <span className={`ml-2 font-bold ${darkMode ? 'text-blue-300' : 'text-blue-600'}`}>160 total credits</span>
                   <div className="text-xs mt-2 space-y-1">
                     <div>Basket I: 17 credits</div>
@@ -1460,6 +1466,17 @@ Please check if the department name matches exactly with the available departmen
                     <div>Basket III: 25 credits</div>
                     <div>Basket IV: 58 credits</div>
                     <div>Basket V: 48 credits</div>
+                  </div>
+                </div>
+                <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'}`}>
+                  <span className="font-semibold">Regular Students (2024 batch onwards):</span> 
+                  <span className={`ml-2 font-bold ${darkMode ? 'text-blue-300' : 'text-blue-600'}`}>160 total credits</span>
+                  <div className="text-xs mt-2 space-y-1">
+                    <div>Basket I: 17 credits</div>
+                    <div>Basket II: 12 credits</div>
+                    <div>Basket III: 25 credits</div>
+                    <div>Basket IV: 60 credits</div>
+                    <div>Basket V: 46 credits</div>
                   </div>
                 </div>
                 <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'}`}>
@@ -1587,8 +1604,8 @@ Please check if the department name matches exactly with the available departmen
                   <option value="Basket I">Basket I (17/6 credits)</option>
                   <option value="Basket II">Basket II (12/9 credits)</option>
                   <option value="Basket III">Basket III (25 credits)</option>
-                  <option value="Basket IV">Basket IV (58/48 credits)</option>
-                  <option value="Basket V">Basket V (48/32 credits)</option>
+                  <option value="Basket IV">Basket IV ({is2024Onwards ? '60/48' : '58/48'} credits)</option>
+                  <option value="Basket V">Basket V ({is2024Onwards ? '46/32' : '48/32'} credits)</option>
                 </select>
                 <div className="text-xs text-gray-500">
                   💡 Filter results by specific basket or view all baskets
@@ -1791,16 +1808,16 @@ Please check if the department name matches exactly with the available departmen
                         <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket I (17/6)</th>
                         <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket II (12/9)</th>
                         <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket III (25)</th>
-                        <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket IV (58/48)</th>
-                        <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket V (48/32)</th>
+                        <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket IV ({is2024Onwards ? '60/48' : '58/48'})</th>
+                        <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket V ({is2024Onwards ? '46/32' : '48/32'})</th>
                       </>
                     ) : (
                       <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">
                         {basket === "Basket I" ? "Basket I (17/6)" :
                          basket === "Basket II" ? "Basket II (12/9)" :
                          basket === "Basket III" ? "Basket III (25)" :
-                         basket === "Basket IV" ? "Basket IV (58/48)" :
-                         basket === "Basket V" ? "Basket V (48/32)" : basket}
+                         basket === "Basket IV" ? `Basket IV (${is2024Onwards ? '60/48' : '58/48'})` :
+                         basket === "Basket V" ? `Basket V (${is2024Onwards ? '46/32' : '48/32'})` : basket}
                       </th>
                     )}
                     <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Total Credits (160/120)</th>

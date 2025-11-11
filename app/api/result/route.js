@@ -147,7 +147,11 @@ export async function POST(req) {
     }
 
     const { sgpa } = calculateSGPA(subjects);
-    const cgpa = await calculateCGPA(db, registration);
+    let cgpa = await calculateCGPA(db, registration);
+    // Business rule: For 1st semester view, CGPA should equal SGPA
+    if (dbSemester && /Sem\s*1/i.test(dbSemester)) {
+      cgpa = sgpa;
+    }
 
     // Try to fetch stable student metadata across all records for this registration
     const meta = await cutm.findOne(

@@ -17,6 +17,7 @@ export default function AdminBacklogPage() {
   const [count, setCount] = useState(0);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const loadRegsControllerRef = useRef(null);
   const [loading, setLoading] = useState(false);
   const [sortBy, setSortBy] = useState("");
   const [filterGrade, setFilterGrade] = useState("");
@@ -60,6 +61,12 @@ export default function AdminBacklogPage() {
       setLoading(true);
       const regValue = regMode === "list" ? selectedReg : registration;
       const subjValue = subjectMode === "list" ? selectedSubject : subjectCode;
+      // Guard: avoid unfiltered query that could fetch whole data on first load
+      if (!regValue && !subjValue && !branch && !year) {
+        setError("Please select Registration or provide Branch/Year or Subject");
+        setLoading(false);
+        return;
+      }
       // Build minimal request body and let backend filter efficiently
       const body = regValue
         ? { registration: regValue.trim().toUpperCase() }
@@ -72,14 +79,18 @@ export default function AdminBacklogPage() {
       if (search.controller) {
         try { search.controller.abort(); } catch {}
       }
+      const reqId = Date.now();
+      search.requestId = reqId;
       search.controller = new AbortController();
       const res = await fetch("/api/backlogs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: search.controller.signal,
+        cache: "no-store",
         body: JSON.stringify(body)
       });
       const data = await res.json();
+      if (search.requestId !== reqId) return; // ignore stale
       if (!res.ok) throw new Error(data.error || "No backlog found");
       const list = data.backlogs || data.result || [];
       setRows(list);
@@ -110,9 +121,15 @@ export default function AdminBacklogPage() {
         }
         
         // Use backend that includes branch_overrides for accurate lists
+        if (loadRegsControllerRef.current) {
+          try { loadRegsControllerRef.current.abort(); } catch {}
+        }
+        loadRegsControllerRef.current = new AbortController();
         const res = await fetch("/api/batch", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: loadRegsControllerRef.current.signal,
+          cache: "no-store",
           body: JSON.stringify({ branch, batch: year })
         });
         const data = await res.json();
@@ -237,12 +254,13 @@ export default function AdminBacklogPage() {
                 />
                 <button 
                   type="submit"
-                  className="w-full rounded-lg sm:rounded-xl text-white font-black px-4 sm:px-5 py-3 sm:py-3.5 transition-all duration-300 hover:shadow-lg active:scale-95 text-sm sm:text-base min-h-[44px]"
+                  disabled={loading}
+                  className={`w-full rounded-lg sm:rounded-xl text-white font-black px-4 sm:px-5 py-3 sm:py-3.5 transition-all duration-300 hover:shadow-lg active:scale-95 text-sm sm:text-base min-h-[44px] ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
                   style={{
                     background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
                   }}
                 >
-                  Search
+                  {loading ? 'Loading...' : 'Search'}
                 </button>
               </div>
             ) : (
@@ -293,9 +311,9 @@ export default function AdminBacklogPage() {
                     style={{
                       background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
                     }}
-                    disabled={!selectedReg}
+                    disabled={!selectedReg || loading}
                   >
-                    {selectedReg ? "Search" : "Select First"}
+                    {loading ? 'Loading...' : (selectedReg ? "Search" : "Select First")}
                   </button>
                 </div>
               </>
@@ -365,12 +383,13 @@ export default function AdminBacklogPage() {
               <button 
                 type="button"
                 onClick={search} 
-                className="w-full rounded-lg sm:rounded-xl text-white font-black px-4 sm:px-5 py-3 sm:py-3.5 transition-all duration-300 hover:shadow-lg active:scale-95 text-sm sm:text-base min-h-[44px]"
+                disabled={loading || (!subjectCode && !selectedSubject && !branch && !year)}
+                className={`w-full rounded-lg sm:rounded-xl text-white font-black px-4 sm:px-5 py-3 sm:py-3.5 transition-all duration-300 hover:shadow-lg active:scale-95 text-sm sm:text-base min-h-[44px] ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
                 style={{
                   background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
                 }}
               >
-                Search with Filters
+                {loading ? 'Loading...' : 'Search with Filters'}
               </button>
             </div>
           </div>

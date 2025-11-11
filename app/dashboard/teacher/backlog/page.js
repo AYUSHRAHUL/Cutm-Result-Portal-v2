@@ -21,6 +21,7 @@ export default function TeacherBacklogPage() {
   const [sortBy, setSortBy] = useState("");
   const [filterGrade, setFilterGrade] = useState("");
   const formRef = useRef(null);
+  const loadRegsControllerRef = useRef(null);
 
   // CSV Export Function
   function exportCSV() {
@@ -60,6 +61,12 @@ export default function TeacherBacklogPage() {
       setLoading(true);
       const regValue = regMode === "list" ? selectedReg : registration;
       const subjValue = subjectMode === "list" ? selectedSubject : subjectCode;
+      // Avoid unfiltered query that could fetch whole dataset on slow first load
+      if (!regValue && !subjValue && !branch && !year) {
+        setError("Please select Registration or provide Branch/Year or Subject");
+        setLoading(false);
+        return;
+      }
       const body = regValue
         ? { registration: regValue.trim().toUpperCase() }
         : {
@@ -71,14 +78,18 @@ export default function TeacherBacklogPage() {
       if (search.controller) {
         try { search.controller.abort(); } catch {}
       }
+      const reqId = Date.now();
+      search.requestId = reqId;
       search.controller = new AbortController();
       const res = await fetch("/api/backlogs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: search.controller.signal,
+        cache: "no-store",
         body: JSON.stringify(body)
       });
       const data = await res.json();
+      if (search.requestId !== reqId) return; // Ignore stale response
       if (!res.ok) throw new Error(data.error || "No backlog found");
       const list = data.backlogs || data.result || [];
       setRows(list);
@@ -107,9 +118,16 @@ export default function TeacherBacklogPage() {
           setSelectedReg("");
           return; 
         }
+        // Abort previous in-flight request to prevent stale overwrites
+        if (loadRegsControllerRef.current) {
+          try { loadRegsControllerRef.current.abort(); } catch {}
+        }
+        loadRegsControllerRef.current = new AbortController();
         const res = await fetch("/api/batch", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: loadRegsControllerRef.current.signal,
+          cache: "no-store",
           body: JSON.stringify({ branch, batch: year })
         });
         const data = await res.json();
@@ -221,12 +239,13 @@ export default function TeacherBacklogPage() {
                 />
                 <button 
                   type="submit"
-                  className="w-full rounded-lg sm:rounded-xl text-white font-black px-4 sm:px-5 py-3 sm:py-3.5 transition-all duration-300 hover:shadow-lg active:scale-95 text-sm sm:text-base min-h-[44px]"
+                  disabled={loading}
+                  className={`w-full rounded-lg sm:rounded-xl text-white font-black px-4 sm:px-5 py-3 sm:py-3.5 transition-all duration-300 hover:shadow-lg active:scale-95 text-sm sm:text-base min-h-[44px] ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
                   style={{
                     background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
                   }}
                 >
-                  Search
+                  {loading ? 'Loading...' : 'Search'}
                 </button>
               </div>
             ) : (
@@ -272,9 +291,9 @@ export default function TeacherBacklogPage() {
                     style={{
                       background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
                     }}
-                    disabled={!selectedReg}
+                    disabled={!selectedReg || loading}
                   >
-                    Search
+                    {loading ? 'Loading...' : 'Search'}
                   </button>
                 </div>
               </>
@@ -345,12 +364,13 @@ export default function TeacherBacklogPage() {
               <button 
                 type="button"
                 onClick={search} 
-                className="w-full rounded-lg sm:rounded-xl text-white font-black px-4 sm:px-5 py-3 sm:py-3.5 transition-all duration-300 hover:shadow-lg active:scale-95 text-sm sm:text-base min-h-[44px]"
+                disabled={loading || (!subjectCode && !selectedSubject && !branch && !year)}
+                className={`w-full rounded-lg sm:rounded-xl text-white font-black px-4 sm:px-5 py-3 sm:py-3.5 transition-all duration-300 hover:shadow-lg active:scale-95 text-sm sm:text-base min-h-[44px] ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
                 style={{
                   background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
                 }}
               >
-                Search with Filters
+                {loading ? 'Loading...' : 'Search with Filters'}
               </button>
             </div>
           </div>

@@ -17,11 +17,13 @@ export async function POST(req) {
       andConds.push({ Reg_No: { $regex: `^${yy}` } });
     }
 
-    // Branch condition: support both Reg_No pattern and branch_overrides
+    // Branch condition: support multiple Reg_No department codes and branch_overrides
     if (branch) {
-      const code = branchCode(branch);
+      const codes = branchCodes(branch);
       const orConds = [];
-      if (code) orConds.push({ Reg_No: { $regex: `^.{7}${code}` } });
+      if (codes && codes.length > 0) {
+        codes.forEach(c => orConds.push({ Reg_No: { $regex: `^.{7}${c}` } }));
+      }
 
       // Include overrides where admin has changed branch without changing Reg_No
       try {
@@ -74,12 +76,12 @@ export async function POST(req) {
         regDataQuery.$and = [{ Reg_No: { $regex: `^${yy}` } }];
         
         if (branch) {
-          const code = branchCode(branch);
+          const codes = branchCodes(branch);
           const normalized = normalizeBranchFullName(branch);
           const orConds = [];
           
-          if (code) {
-            orConds.push({ Reg_No: { $regex: `^.{7}${code}` } });
+          if (codes && codes.length > 0) {
+            codes.forEach(c => orConds.push({ Reg_No: { $regex: `^.{7}${c}` } }));
           }
           
           if (normalized) {
@@ -95,12 +97,12 @@ export async function POST(req) {
           }
         }
       } else if (branch) {
-        const code = branchCode(branch);
+        const codes = branchCodes(branch);
         const normalized = normalizeBranchFullName(branch);
         const orConds = [];
         
-        if (code) {
-          orConds.push({ Reg_No: { $regex: `^.{7}${code}` } });
+        if (codes && codes.length > 0) {
+          codes.forEach(c => orConds.push({ Reg_No: { $regex: `^.{7}${c}` } }));
         }
         
         if (normalized) {
@@ -163,9 +165,10 @@ export async function POST(req) {
   }
 }
 
-function branchCode(name) {
-  const map = { Civil: '1', CSE: '2', ECE: '3', EEE: '5', Mechanical: '6', AIML: '7' };
-  return map[name] || null;
+function branchCodes(name) {
+  // Support historical department codes
+  const map = { Civil: ['1','9'], CSE: ['2','8'], ECE: ['3','4'], EEE: ['5'], Mechanical: ['6'], AIML: ['7'] };
+  return map[name] || [];
 }
 
 function normalizeBranchFullName(input) {

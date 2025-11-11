@@ -864,8 +864,8 @@ export default function UserBasketTrack() {
                   <option value="Basket I">Basket I (17/6 credits)</option>
                   <option value="Basket II">Basket II (12/9 credits)</option>
                   <option value="Basket III">Basket III (25 credits)</option>
-                  <option value="Basket IV">Basket IV (58/48 credits)</option>
-                  <option value="Basket V">Basket V (48/32 credits)</option>
+                  <option value="Basket IV">Basket IV (58/60/48 credits)</option>
+                  <option value="Basket V">Basket V (48/46/32 credits)</option>
                 </select>
                 <div className="text-xs text-gray-500">
                   💡 Filter results by specific basket or view all baskets

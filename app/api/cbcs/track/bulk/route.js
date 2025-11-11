@@ -23,6 +23,15 @@ const REQUIRED_CREDITS = {
   "Basket V": 48,
 };
 
+// 2024 batch onwards (regular students) - updated credit split while total remains 160
+const REQUIRED_CREDITS_2024_ONWARDS = {
+  "Basket I": 17,
+  "Basket II": 12,
+  "Basket III": 25,
+  "Basket IV": 60,
+  "Basket V": 46,
+};
+
 // Lateral entry students have different credit requirements
 const LATERAL_ENTRY_CREDITS = {
   "Basket I": 6,
@@ -65,9 +74,15 @@ function isLateralEntryStudent(registration) {
   return registration && registration.length >= 9 && registration.charAt(8) === '1';
 }
 
-// Function to get required credits based on student type
+// Function to get required credits based on student type and batch year
 function getRequiredCreditsForStudent(registration) {
-  return isLateralEntryStudent(registration) ? LATERAL_ENTRY_CREDITS : REQUIRED_CREDITS;
+  if (isLateralEntryStudent(registration)) return LATERAL_ENTRY_CREDITS;
+  const batchSuffix = (registration || "").slice(0, 2);
+  const batchNum = parseInt(batchSuffix, 10);
+  if (!Number.isNaN(batchNum) && batchNum >= 24) {
+    return REQUIRED_CREDITS_2024_ONWARDS;
+  }
+  return REQUIRED_CREDITS;
 }
 
 function parseCredits(creditStr) {
