@@ -68,16 +68,19 @@ export async function POST(req) {
 
     // Search for backlogs
     const { registration, subject_code } = body;
-    let { branch, year, semesters = [] } = body;
+    let { branch, year, semesters = [], allowAll } = body;
 
     // Normalize inputs
     const branchKey = normalizeBranchKey(String(branch || ""));
     year = typeof year === "string" ? year.trim() : year;
-    const query = { Grade: { $in: ["F","M","S","I","R","AB"] } };
+    const query = { Grade: { $in: ["F","M","S","I","R"] } };
     
     // Guard: avoid returning entire collection when no filters given
     if (!registration && !subject_code && !branchKey && !year && (!semesters || semesters.length === 0)) {
-      return NextResponse.json({ error: "Please provide at least one filter (registration, subject code, branch, year, or semester)" }, { status: 400 });
+      // Allow explicit "allowAll" for admin and teacher only
+      if (!(allowAll && (userRole === 'admin' || userRole === 'teacher'))) {
+        return NextResponse.json({ error: "Please provide at least one filter (registration, subject code, branch, year, or semester)" }, { status: 400 });
+      }
     }
 
     if (registration) {
@@ -85,7 +88,10 @@ export async function POST(req) {
     }
     
     if (subject_code) {
-      query.Subject_Code = subject_code.toUpperCase();
+      const sc = String(subject_code).toUpperCase();
+      if (sc !== 'ALL') {
+        query.Subject_Code = sc;
+      }
     }
     
     // Apply semester filter if provided
@@ -104,7 +110,7 @@ export async function POST(req) {
         });
       }
     }
-    if (year) {
+    if (year && year !== 'All') {
       const yy = year.length === 4 ? year.slice(-2) : year;
       and.push({ Reg_No: { $regex: `^${yy}` } });
     }
@@ -220,6 +226,7 @@ function branchCodes(name) {
 function normalizeBranchKey(input) {
   const s = String(input || "").trim().toUpperCase();
   if (!s) return "";
+  if (s === 'ALL' || s === 'ALL BRANCHES') return "";
   if (s === 'CSE' || s.includes('COMPUTER')) return 'CSE';
   if (s === 'ECE' || s.includes('ELECTRONICS') && s.includes('COMMUNICATION')) return 'ECE';
   if (s === 'EEE' || (s.includes('ELECTRICAL') && !s.includes('COMMUNICATION'))) return 'EEE';

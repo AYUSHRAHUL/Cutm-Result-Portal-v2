@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export default function AdminBacklogPage() {
   const [registration, setRegistration] = useState("");
@@ -59,10 +59,19 @@ export default function AdminBacklogPage() {
     setMessage(""); setError(""); setRows([]); setCount(0);
     try {
       setLoading(true);
-      const regValue = regMode === "list" ? selectedReg : registration;
-      const subjValue = subjectMode === "list" ? selectedSubject : subjectCode;
+      let regValue = regMode === "list" ? selectedReg : registration;
+      let subjValue = subjectMode === "list" ? selectedSubject : subjectCode;
+      if (String(subjValue || "").toUpperCase() === "ALL") {
+        subjValue = "";
+      }
+      // Treat registration=ALL as allowAll
+      let isAll = (!branch || branch === "All") && (!year || year === "All");
+      if (regMode === "list" && selectedReg === "ALL") {
+        regValue = "";
+        isAll = true;
+      }
       // Guard: avoid unfiltered query that could fetch whole data on first load
-      if (!regValue && !subjValue && !branch && !year) {
+      if (!isAll && !regValue && !subjValue && !branch && !year) {
         setError("Please select Registration or provide Branch/Year or Subject");
         setLoading(false);
         return;
@@ -73,7 +82,8 @@ export default function AdminBacklogPage() {
         : {
             subject_code: (subjValue || "").toUpperCase(),
             branch: branch || "",
-            year: year || ""
+            year: year || "",
+            allowAll: isAll ? true : undefined
           };
       // Use AbortController to cancel previous slow requests when typing quickly
       if (search.controller) {
@@ -198,6 +208,54 @@ export default function AdminBacklogPage() {
 
   const filteredRows = getFilteredRows();
   const uniqueGrades = Array.from(new Set(rows.map(r => r.Grade).filter(Boolean)));
+  const summary = useMemo(() => {
+    const m = new Map();
+    rows.forEach(r => {
+      const batch = r.Batch || 'N/A';
+      const br = r.Branch || 'N/A';
+      const key = `${batch}|${br}`;
+      m.set(key, (m.get(key) || 0) + 1);
+    });
+    const arr = Array.from(m.entries()).map(([k, cnt]) => {
+      const [batch, br] = k.split('|');
+      return { batch, branch: br, count: cnt };
+    });
+    // sort by batch desc then branch
+    arr.sort((a,b) => (b.batch || '').localeCompare(a.batch || '') || (a.branch||'').localeCompare(b.branch||''));
+    return arr;
+  }, [rows]);
+  
+  function toBranchKeyFromName(name) {
+    const s = String(name || '').toUpperCase();
+    if (s.includes('COMPUTER')) return 'CSE';
+    if (s.includes('ELECTRONICS') && s.includes('COMMUNICATION')) return 'ECE';
+    if (s.includes('ELECTRICAL') && !s.includes('COMMUNICATION')) return 'EEE';
+    if (s.includes('CIVIL')) return 'Civil';
+    if (s.includes('MECHANICAL')) return 'Mechanical';
+    if (s.includes('AIML')) return 'AIML';
+    return name;
+  }
+
+  function exportSummaryCSV() {
+    if (!summary || summary.length === 0) return;
+    const header = ["Batch","Branch","Backlogs"];
+    const rowsCsv = summary.map(r => [r.batch, r.branch, r.count]
+      .map(val => {
+        const str = String(val ?? "");
+        const esc = str.replace(/"/g, '""');
+        return /[",\n]/.test(esc) ? `"${esc}"` : esc;
+      }).join(","));
+    const csv = [header.join(","), ...rowsCsv].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `backlog_summary_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div 
@@ -273,6 +331,7 @@ export default function AdminBacklogPage() {
                     onChange={e=>setYear(e.target.value)}
                   >
                     <option value="">Batch (Year)</option>
+                    <option value="All">All</option>
                     {["2020","2021","2022","2023","2024","2025"].map(y=> <option key={y} value={y}>{y}</option>)}
                   </select>
                   <select 
@@ -282,6 +341,7 @@ export default function AdminBacklogPage() {
                     onChange={e=>setBranch(e.target.value)}
                   >
                     <option value="">Branch</option>
+                    <option value="All">All</option>
                     <option value="Civil">Civil</option>
                     <option value="CSE">CSE</option>
                     <option value="ECE">ECE</option>
@@ -297,12 +357,8 @@ export default function AdminBacklogPage() {
                     value={selectedReg} 
                     onChange={e=>setSelectedReg(e.target.value)}
                   >
-                    <option value="">
-                      {regList.length === 0 
-                        ? (branch && year ? "No students found" : "Select batch & branch")
-                        : `Select Registration (${regList.length})`
-                      }
-                    </option>
+                    <option value="">{regList.length === 0 ? (branch && year ? "No students found" : "Select batch & branch") : `Select Registration (${regList.length})`}</option>
+                    {(branch === "All" && year === "All") && <option value="ALL">All</option>}
                     {regList.map(r=> <option key={r} value={r}>{r}</option>)}
                   </select>
                   <button 
@@ -352,6 +408,7 @@ export default function AdminBacklogPage() {
                   onChange={e=>setSelectedSubject(e.target.value)}
                 >
                   <option value="">Select Subject from CBCS</option>
+                  <option value="ALL">All</option>
                   {subjectList.map(s=> <option key={s.code} value={s.code}>{`${s.code}${s.name?` — ${s.name}`:''}`}</option>)}
                 </select>
               )}
@@ -363,6 +420,7 @@ export default function AdminBacklogPage() {
                   onChange={e => setBranch(e.target.value)}
                 >
                   <option value="">All Branches</option>
+                  <option value="All">All</option>
                   <option value="Civil">Civil</option>
                   <option value="CSE">CSE</option>
                   <option value="ECE">ECE</option>
@@ -377,6 +435,7 @@ export default function AdminBacklogPage() {
                   onChange={e => setYear(e.target.value)}
                 >
                   <option value="">All Batches</option>
+                  <option value="All">All</option>
                   {["2020","2021","2022","2023","2024","2025"].map(y => <option key={y} value={y}>{y}</option>)}
                 </select>
               </div>
@@ -436,6 +495,55 @@ export default function AdminBacklogPage() {
               <option value="">All Grades</option>
               {uniqueGrades.map(g => <option key={g} value={g}>{g}</option>)}
             </select>
+          </div>
+        )}
+
+        {/* Summary by Batch and Branch */}
+        {rows.length > 0 && (
+          <div className="mb-4 sm:mb-6 rounded-xl sm:rounded-2xl border-2 bg-white p-3 sm:p-4 lg:p-5 shadow-lg" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
+            <div className="flex items-center justify-between mb-2 sm:mb-3">
+              <h3 className="text-[#1A1F29] font-black text-sm sm:text-base lg:text-lg">Backlog Summary (Batch × Branch)</h3>
+              <button
+                onClick={exportSummaryCSV}
+                className="px-3 py-1.5 rounded-lg text-white font-bold text-xs sm:text-sm"
+                style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+              >
+                Export Summary
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-white" style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}>
+                    {["Batch","Branch","Backlogs","Action"].map(h => (
+                      <th key={h} className="px-4 py-3 text-left uppercase tracking-wider font-black text-xs whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {summary.map((row, idx) => (
+                    <tr key={`${row.batch}-${row.branch}-${idx}`} className="border-t-2 border-[#05A3C7]/10">
+                      <td className="px-4 py-3 text-[#1A1F29] font-medium whitespace-nowrap">{row.batch}</td>
+                      <td className="px-4 py-3 text-[#1A1F29] font-medium whitespace-nowrap">{row.branch}</td>
+                      <td className="px-4 py-3 text-[#1A1F29] font-bold">{row.count}</td>
+                      <td className="px-4 py-3">
+                        <button
+                          className="px-3 py-1 rounded-lg text-white font-bold text-xs"
+                          style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+                          onClick={() => {
+                            setYear(row.batch);
+                            setBranch(toBranchKeyFromName(row.branch));
+                            setTimeout(() => search(), 0);
+                          }}
+                        >
+                          View Details
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 

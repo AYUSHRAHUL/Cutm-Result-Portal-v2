@@ -12,13 +12,13 @@ export async function POST(req) {
     const andConds = [];
 
     // Batch condition
-    if (batch) {
+    if (batch && batch !== 'All') {
       const yy = batch.length === 4 ? batch.slice(-2) : batch;
       andConds.push({ Reg_No: { $regex: `^${yy}` } });
     }
 
     // Branch condition: support multiple Reg_No department codes and branch_overrides
-    if (branch) {
+    if (branch && branch !== 'All') {
       const codes = branchCodes(branch);
       const orConds = [];
       if (codes && codes.length > 0) {
@@ -71,11 +71,11 @@ export async function POST(req) {
       const regData = db.collection("RegistrationData");
       let regDataQuery = {};
       
-      if (batch) {
+      if (batch && batch !== 'All') {
         const yy = batch.length === 4 ? batch.slice(-2) : batch;
         regDataQuery.$and = [{ Reg_No: { $regex: `^${yy}` } }];
         
-        if (branch) {
+        if (branch && branch !== 'All') {
           const codes = branchCodes(branch);
           const normalized = normalizeBranchFullName(branch);
           const orConds = [];
@@ -96,7 +96,7 @@ export async function POST(req) {
             regDataQuery.$and.push({ $or: orConds });
           }
         }
-      } else if (branch) {
+      } else if (branch && branch !== 'All') {
         const codes = branchCodes(branch);
         const normalized = normalizeBranchFullName(branch);
         const orConds = [];
