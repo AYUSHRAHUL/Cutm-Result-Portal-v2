@@ -37,15 +37,15 @@ function calculateSGPA(subjects) {
     const grade = (sub.Grade || "").toUpperCase().trim();
     const gradePoint = GRADE_MAP[grade] ?? 0;
 
-    // Only count subject credits if grade exists (even 0)
-    if (!isNaN(credits)) {
+    // Only count subject credits if credits are valid and greater than 0
+    if (!isNaN(credits) && credits > 0) {
       totalCredits += credits;
       weightedSum += credits * gradePoint;
     }
   });
 
-  const sgpa = totalCredits ? weightedSum / totalCredits : 0;
-  return { sgpa: sgpa.toFixed(2), totalCredits };
+  const sgpa = totalCredits > 0 ? weightedSum / totalCredits : 0;
+  return { sgpa: parseFloat(sgpa.toFixed(2)), totalCredits };
 }
 
 // JWT verification helper
@@ -59,10 +59,27 @@ async function verifyToken(token) {
   }
 }
 
-// CGPA calculation across all semesters
-async function calculateCGPA(db, registration) {
+// CGPA calculation up to a specific semester (cumulative)
+async function calculateCGPA(db, registration, upToSemester = null) {
   const cutm = db.collection("CUTM1");
-  const cursor = await cutm.find({ Reg_No: registration.toUpperCase() }).toArray();
+  let query = { Reg_No: registration.toUpperCase() };
+  
+  // If upToSemester is provided, calculate CGPA only up to that semester
+  if (upToSemester) {
+    // Extract semester number from "Sem 1", "Sem 2", etc.
+    const semMatch = upToSemester.match(/Sem\s*(\d+)/i);
+    if (semMatch) {
+      const semNum = parseInt(semMatch[1]);
+      // Build query to get all semesters up to and including the current one
+      const semesters = [];
+      for (let i = 1; i <= semNum; i++) {
+        semesters.push(`Sem ${i}`);
+      }
+      query.Sem = { $in: semesters };
+    }
+  }
+  
+  const cursor = await cutm.find(query).toArray();
 
   let totalCredits = 0;
   let weightedSum = 0;
@@ -72,14 +89,14 @@ async function calculateCGPA(db, registration) {
     const grade = (row.Grade || "").toUpperCase().trim();
     const gradePoint = GRADE_MAP[grade] ?? 0;
 
-    if (!isNaN(credits)) {
+    if (!isNaN(credits) && credits > 0) {
       totalCredits += credits;
       weightedSum += credits * gradePoint;
     }
   });
 
-  const cgpa = totalCredits ? weightedSum / totalCredits : 0;
-  return cgpa.toFixed(2);
+  const cgpa = totalCredits > 0 ? weightedSum / totalCredits : 0;
+  return parseFloat(cgpa.toFixed(2));
 }
 
 export async function POST(req) {
@@ -147,11 +164,19 @@ export async function POST(req) {
     }
 
     const { sgpa } = calculateSGPA(subjects);
-    let cgpa = await calculateCGPA(db, registration);
+    // Calculate CGPA up to the current semester (cumulative)
+    let cgpa = await calculateCGPA(db, registration, dbSemester);
+    
     // Business rule: For 1st semester view, CGPA should equal SGPA
     if (dbSemester && /Sem\s*1/i.test(dbSemester)) {
       cgpa = sgpa;
     }
+    
+    // Ensure CGPA is never less than 0 and properly formatted as string
+    cgpa = Math.max(0, cgpa).toFixed(2);
+    
+    // Format SGPA as string for consistency
+    const sgpaFormatted = typeof sgpa === 'number' ? sgpa.toFixed(2) : String(sgpa);
 
     // Try to fetch stable student metadata across all records for this registration
     const meta = await cutm.findOne(
@@ -272,7 +297,7 @@ export async function POST(req) {
       branch,
       course,
       subjects,
-      sgpa,
+      sgpa: sgpaFormatted,
       cgpa,
     });
   } catch (error) {
