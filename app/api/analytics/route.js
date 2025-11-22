@@ -35,16 +35,17 @@ export async function GET(req) {
       }, { status: 403 });
     }
 
-    // Get query parameters for filtering
+    // Get query parameters for filtering (support multiple values)
     const { searchParams } = new URL(req.url);
-    const batchFilter = searchParams.get('batch'); // e.g., "2022", "2023", or null
-    const branchFilter = searchParams.get('branch'); // e.g., "CSE", "ECE", or null
+    const batchFilter = searchParams.getAll('batch'); // Array of batches, e.g., ["2022", "2023"]
+    const branchFilter = searchParams.getAll('branch'); // Array of branches, e.g., ["CSE", "ECE"]
+    const semesterFilter = searchParams.getAll('semester'); // Array of semesters, e.g., ["1", "2"]
 
     const client = await clientPromise;
     const db = client.db("cutm1");
 
     // Get analytics data from both collections
-    const analytics = await getAnalyticsData(db, batchFilter, branchFilter);
+    const analytics = await getAnalyticsData(db, batchFilter, branchFilter, semesterFilter);
 
     return NextResponse.json({
       success: true,
@@ -59,10 +60,15 @@ export async function GET(req) {
   }
 }
 
-async function getAnalyticsData(db, batchFilter = null, branchFilter = null) {
+async function getAnalyticsData(db, batchFilter = null, branchFilter = null, semesterFilter = null) {
   // Get data from both CUTM1 and RegistrationData collections
   let cutm1Data = await db.collection("CUTM1").find({}).toArray();
   let regData = await db.collection("RegistrationData").find({}).toArray();
+  
+  // Normalize filters to arrays (handle both single values and arrays)
+  const batchFilters = Array.isArray(batchFilter) ? batchFilter : (batchFilter ? [batchFilter] : []);
+  const branchFilters = Array.isArray(branchFilter) ? branchFilter : (branchFilter ? [branchFilter] : []);
+  const semesterFilters = Array.isArray(semesterFilter) ? semesterFilter : (semesterFilter ? [semesterFilter] : []);
   
   // Branch mapping
   const branchMap = {
@@ -74,15 +80,19 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null) {
     'AIML': ['7'] // AIML
   };
   
-  // Filter function for batch
+  // Filter function for batch (supports multiple batches)
   const filterByBatch = (record) => {
-    if (!batchFilter || batchFilter === "all") return true;
+    if (batchFilters.length === 0 || batchFilters.includes("all")) return true;
     if (!record.Reg_No) return false;
     const regNo = String(record.Reg_No);
     if (regNo.length < 2) return false;
-    const batchPrefix = batchFilter.length === 4 ? batchFilter.substring(2, 4) : batchFilter;
     const recordBatchPrefix = regNo.substring(0, 2);
-    return recordBatchPrefix === batchPrefix;
+    
+    // Check if record's batch matches any of the selected batches
+    return batchFilters.some(batch => {
+      const batchPrefix = batch.length === 4 ? batch.substring(2, 4) : batch;
+      return recordBatchPrefix === batchPrefix;
+    });
   };
   
   // Load branch overrides map first (before filtering by branch)
@@ -105,49 +115,92 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null) {
     'AIML': ['aiml', 'artificial intelligence', 'machine learning']
   };
   
-  // Filter function for branch (checks both Reg_No dept code and overrides)
+  // Filter function for branch (checks both Reg_No dept code and overrides, supports multiple branches)
   const filterByBranch = (record) => {
-    if (!branchFilter || branchFilter === "all") return true;
+    if (branchFilters.length === 0 || branchFilters.includes("all")) return true;
     if (!record.Reg_No) return false;
     const regNo = String(record.Reg_No);
     
-    // Check branch overrides first
-    const override = overridesMap.get(regNo);
-    if (override) {
-      const overrideLower = override.toLowerCase();
-      const validNames = branchNameMap[branchFilter] || [];
+    // Check if record matches any of the selected branches
+    return branchFilters.some(branch => {
+      if (branch === "all") return true;
       
-      // Check if override matches any of the valid names for this branch
-      const matches = validNames.some(name => {
-        const nameLower = name.toLowerCase();
-        return overrideLower.includes(nameLower) || nameLower.includes(overrideLower) || overrideLower === nameLower;
-      });
-      
-      if (matches) {
-        return true;
+      // Check branch overrides first
+      const override = overridesMap.get(regNo);
+      if (override) {
+        const overrideLower = override.toLowerCase();
+        const validNames = branchNameMap[branch] || [];
+        
+        // Check if override matches any of the valid names for this branch
+        const matches = validNames.some(name => {
+          const nameLower = name.toLowerCase();
+          return overrideLower.includes(nameLower) || nameLower.includes(overrideLower) || overrideLower === nameLower;
+        });
+        
+        if (matches) {
+          return true;
+        }
       }
-    }
-    
-    // Fall back to Reg_No dept code
-    if (regNo.length < 8) return false;
-    const deptCode = regNo.charAt(7);
-    const validCodes = branchMap[branchFilter] || [];
-    return validCodes.includes(deptCode);
+      
+      // Fall back to Reg_No dept code
+      if (regNo.length < 8) return false;
+      const deptCode = regNo.charAt(7);
+      const validCodes = branchMap[branch] || [];
+      return validCodes.includes(deptCode);
+    });
   };
   
-  // Apply filters - apply both batch and branch filters together
-  const applyAllFilters = (record) => {
+  // Filter function for semester (supports multiple semesters)
+  const filterBySemester = (record) => {
+    if (semesterFilters.length === 0 || semesterFilters.includes("all")) return true;
+    if (!record.Sem) return false;
+    const sem = String(record.Sem).trim();
+    
+    // Check if record's semester matches any of the selected semesters
+    return semesterFilters.some(semester => {
+      if (semester === "all") return true;
+      return sem === semester || sem.toLowerCase() === semester.toLowerCase();
+    });
+  };
+  
+  // Apply filters - apply batch, branch, and semester filters together
+  // BUT: If we need semester-wise breakdowns (batch + branch + semester selected), 
+  // don't filter by semester yet - let the combination function handle it
+  const needsSemesterBreakdown = (batchFilters.length > 0 && !batchFilters.includes("all")) && 
+                                  (branchFilters.length > 0 && !branchFilters.includes("all")) &&
+                                  (semesterFilters.length > 0 && !semesterFilters.includes("all"));
+  
+  const applyFiltersForCombination = (record) => {
+    // For combination breakdowns, only filter by batch and branch
+    // Semester filtering will be done inside getPerformanceMetricsByCombination
     const batchMatch = filterByBatch(record);
     const branchMatch = filterByBranch(record);
     return batchMatch && branchMatch;
   };
   
+  const applyAllFilters = (record) => {
+    const batchMatch = filterByBatch(record);
+    const branchMatch = filterByBranch(record);
+    const semesterMatch = filterBySemester(record);
+    return batchMatch && branchMatch && semesterMatch;
+  };
+  
   // Apply filters
-  if ((batchFilter && batchFilter !== "all") || (branchFilter && branchFilter !== "all")) {
+  if (needsSemesterBreakdown) {
+    // For semester breakdowns, only filter by batch and branch
+    // Semester filtering will happen in getPerformanceMetricsByCombination
+    cutm1Data = cutm1Data.filter(applyFiltersForCombination);
+    regData = regData.filter(applyFiltersForCombination);
+    console.log(`Filters applied (for semester breakdown) - Batch: ${batchFilters.join(", ") || "all"}, Branch: ${branchFilters.join(", ") || "all"}, Semester: will be handled in combination function`);
+    console.log(`Filtered CUTM1 records: ${cutm1Data.length}, Filtered Registration records: ${regData.length}`);
+  } else if (batchFilters.length > 0 && !batchFilters.includes("all") || 
+      branchFilters.length > 0 && !branchFilters.includes("all") || 
+      semesterFilters.length > 0 && !semesterFilters.includes("all")) {
+    // For other cases, apply all filters including semester
     cutm1Data = cutm1Data.filter(applyAllFilters);
     regData = regData.filter(applyAllFilters);
     
-    console.log(`Filters applied - Batch: ${batchFilter || "all"}, Branch: ${branchFilter || "all"}`);
+    console.log(`Filters applied - Batch: ${batchFilters.join(", ") || "all"}, Branch: ${branchFilters.join(", ") || "all"}, Semester: ${semesterFilters.join(", ") || "all"}`);
     console.log(`Filtered CUTM1 records: ${cutm1Data.length}, Filtered Registration records: ${regData.length}`);
   }
   
@@ -204,6 +257,95 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null) {
     }
   }
   
+  // Always calculate performance metrics, even if no data (for filtered queries)
+  const performanceMetrics = cutm1Data.length > 0 
+    ? getPerformanceMetrics(cutm1Data)
+    : { totalRecords: 0, passedRecords: 0, failedRecords: 0, passRate: 0 };
+  
+  console.log('Performance Metrics:', {
+    batchFilters: batchFilters,
+    branchFilters: branchFilters,
+    semesterFilters: semesterFilters,
+    totalRecords: performanceMetrics.totalRecords,
+    passedRecords: performanceMetrics.passedRecords,
+    failedRecords: performanceMetrics.failedRecords,
+    passRate: performanceMetrics.passRate,
+    filteredCutm1DataLength: cutm1Data.length
+  });
+  
+  // Always return performanceMetrics, even if totalRecords is 0 (for filtered queries)
+  analytics.performanceMetrics = performanceMetrics;
+  
+  // OPTIMIZATION: Also return combination breakdowns when multiple filters are selected
+  // This allows frontend to calculate combinations faster
+  // Support batch + branch combinations (even without semester)
+  if ((batchFilters.length > 0 && !batchFilters.includes("all")) && 
+      (branchFilters.length > 0 && !branchFilters.includes("all"))) {
+    // Batch + Branch filters selected - calculate combination breakdowns
+    // If semester filters are also selected, use them; otherwise, include all semesters
+    const effectiveSemesterFilters = (semesterFilters.length > 0 && !semesterFilters.includes("all")) 
+      ? semesterFilters 
+      : ["1", "2", "3", "4", "5", "6", "7", "8"]; // All semesters if not specified
+    
+    const combinationBreakdowns = getPerformanceMetricsByCombination(cutm1Data, overridesMap, batchFilters, branchFilters, effectiveSemesterFilters);
+    if (combinationBreakdowns && combinationBreakdowns.length > 0) {
+      console.log('📊 Combination breakdowns calculated:', {
+        totalCombinations: combinationBreakdowns.length,
+        semesterFiltersProvided: semesterFilters.length > 0 && !semesterFilters.includes("all"),
+        sampleCombinations: combinationBreakdowns.slice(0, 3)
+      });
+      
+      // If no semester filters were specified OR if "all" is explicitly included, aggregate by batch+branch (sum across all semesters)
+      // Filter out "all" from semesterFilters to check if any specific semesters were selected
+      const specificSemesterFilters = semesterFilters.filter(s => s !== "all" && s !== "");
+      if (semesterFilters.length === 0 || (semesterFilters.includes("all") && specificSemesterFilters.length === 0)) {
+        console.log('📊 Aggregating combinations (no specific semester filters specified)');
+        const aggregatedCombinations = {};
+        combinationBreakdowns.forEach(combo => {
+          const key = `${combo.batch}_${combo.branch}`;
+          if (!aggregatedCombinations[key]) {
+            aggregatedCombinations[key] = {
+              batch: combo.batch,
+              branch: combo.branch,
+              total: 0,
+              passed: 0,
+              failed: 0
+            };
+          }
+          aggregatedCombinations[key].total += combo.total || 0;
+          aggregatedCombinations[key].passed += combo.passed || 0;
+          aggregatedCombinations[key].failed += combo.failed || 0;
+        });
+        
+        analytics.performanceMetricsByCombination = Object.values(aggregatedCombinations).map(group => ({
+          batch: group.batch,
+          branch: group.branch,
+          total: group.total,
+          passed: group.passed,
+          failed: group.failed,
+          passRate: group.total > 0 ? Math.round((group.passed / group.total) * 100 * 100) / 100 : 0
+        }));
+      } else {
+        console.log('📊 Returning individual semester combinations:', combinationBreakdowns.length);
+        console.log('📊 Semester filters provided:', semesterFilters);
+        // Filter combinations to only include the selected semesters (if specific semesters were selected)
+        const specificSemesterFilters = semesterFilters.filter(s => s !== "all" && s !== "");
+        let finalCombinations = combinationBreakdowns;
+        
+        if (specificSemesterFilters.length > 0) {
+          // Only return combinations for selected semesters
+          finalCombinations = combinationBreakdowns.filter(combo => 
+            specificSemesterFilters.includes(combo.semester)
+          );
+          console.log('📊 Filtered to selected semesters:', finalCombinations.length, 'combinations');
+        }
+        
+        // Return individual combinations with semester - this is what we want when semester filters are selected
+        analytics.performanceMetricsByCombination = finalCombinations;
+      }
+    }
+  }
+  
   // Only add grade-related charts if we have CUTM1 data with grades
   if (cutm1Data.length > 0) {
     const gradeStats = getGradeStats(cutm1Data);
@@ -211,33 +353,40 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null) {
       analytics.gradeStats = gradeStats;
     }
     
-    const performanceMetrics = getPerformanceMetrics(cutm1Data);
-    console.log('Performance Metrics:', {
-      batchFilter,
-      branchFilter,
-      totalRecords: performanceMetrics.totalRecords,
-      passedRecords: performanceMetrics.passedRecords,
-      failedRecords: performanceMetrics.failedRecords,
-      passRate: performanceMetrics.passRate,
-      filteredCutm1DataLength: cutm1Data.length
-    });
-    if (performanceMetrics.totalRecords > 0) {
-      analytics.performanceMetrics = performanceMetrics;
-    }
-    
-    // If branch is selected but batch is "all", calculate breakdown by batch
-    if (branchFilter && branchFilter !== "all" && (!batchFilter || batchFilter === "all")) {
+    // Calculate breakdowns based on filter combinations
+    // If only branch filters selected (no batch, no semester), calculate breakdown by semester AND batch
+    if (branchFilters.length > 0 && !branchFilters.includes("all") && 
+        (batchFilters.length === 0 || batchFilters.includes("all")) && 
+        (semesterFilters.length === 0 || semesterFilters.includes("all"))) {
+      // Breakdown by semester for selected branch
+      const semesterBreakdown = getPerformanceMetricsBySemester(cutm1Data);
+      if (semesterBreakdown && semesterBreakdown.length > 0) {
+        analytics.performanceMetricsBySemester = semesterBreakdown;
+      }
+      // Breakdown by batch for selected branch
       const batchBreakdown = getPerformanceMetricsByBatch(cutm1Data);
       if (batchBreakdown && batchBreakdown.length > 0) {
         analytics.performanceMetricsByBatch = batchBreakdown;
       }
     }
     
-    // If batch is selected but branch is "all", calculate breakdown by branch
-    if (batchFilter && batchFilter !== "all" && (!branchFilter || branchFilter === "all")) {
+    // If only batch filters selected (no branch, no semester), calculate breakdown by branch
+    if (batchFilters.length > 0 && !batchFilters.includes("all") && 
+        (branchFilters.length === 0 || branchFilters.includes("all")) && 
+        (semesterFilters.length === 0 || semesterFilters.includes("all"))) {
       const branchBreakdown = getPerformanceMetricsByBranch(cutm1Data, overridesMap);
       if (branchBreakdown && branchBreakdown.length > 0) {
         analytics.performanceMetricsByBranch = branchBreakdown;
+      }
+    }
+    
+    // If only semester filters selected (no batch, no branch), calculate breakdown by semester
+    if (semesterFilters.length > 0 && !semesterFilters.includes("all") && 
+        (batchFilters.length === 0 || batchFilters.includes("all")) && 
+        (branchFilters.length === 0 || branchFilters.includes("all"))) {
+      const semesterBreakdown = getPerformanceMetricsBySemester(cutm1Data);
+      if (semesterBreakdown && semesterBreakdown.length > 0) {
+        analytics.performanceMetricsBySemester = semesterBreakdown;
       }
     }
     
@@ -607,6 +756,257 @@ function getPerformanceMetricsByBranch(data, overridesMap = new Map()) {
       const group = branchGroups[branch];
       return {
         branch: branch,
+        total: group.total,
+        passed: group.passed,
+        failed: group.failed,
+        passRate: group.total > 0 ? Math.round((group.passed / group.total) * 100 * 100) / 100 : 0
+      };
+    });
+}
+
+// Helper function to calculate performance metrics by combination (batch + branch + semester)
+function getPerformanceMetricsByCombination(data, overridesMap, batchFilters, branchFilters, semesterFilters) {
+  console.log('🔍 getPerformanceMetricsByCombination called with:', {
+    dataLength: data.length,
+    batchFilters,
+    branchFilters,
+    semesterFilters
+  });
+  
+  const studentRecords = {};
+  
+  data.forEach(record => {
+    if (!record.Reg_No) return;
+    const regNo = String(record.Reg_No);
+    
+    if (!studentRecords[regNo]) {
+      studentRecords[regNo] = [];
+    }
+    studentRecords[regNo].push(record);
+  });
+  
+  console.log('🔍 Total unique students:', Object.keys(studentRecords).length);
+  
+  const branchMap = {
+    'CSE': ['2', '8'],
+    'ECE': ['3', '4'],
+    'EEE': ['5'],
+    'ME': ['6'],
+    'CIVIL': ['1', '9'],
+    'AIML': ['7']
+  };
+  
+  const branchNameMap = {
+    'CSE': ['computer science', 'cse', 'computer science engineering'],
+    'ECE': ['electronics & communication', 'ece', 'electronics and communication', 'electronics communication'],
+    'EEE': ['electrical & electronics', 'eee', 'electrical and electronics', 'electrical electronics'],
+    'ME': ['mechanical', 'me', 'mechanical engineering'],
+    'CIVIL': ['civil', 'civil engineering'],
+    'AIML': ['aiml', 'artificial intelligence', 'machine learning']
+  };
+  
+  const failedGrades = ['F', 'S', 'M', 'I', 'R'];
+  const combinationGroups = {};
+  
+  Object.keys(studentRecords).forEach(regNo => {
+    const records = studentRecords[regNo];
+    const regNoStr = String(regNo);
+    
+    // Extract batch
+    const batch = regNoStr.length >= 2 ? `20${regNoStr.substring(0, 2)}` : null;
+    if (!batch || !batchFilters.includes(batch)) return;
+    
+    // Extract branch
+    let branchName = null;
+    const override = overridesMap.get(regNo);
+    if (override) {
+      const overrideLower = override.toLowerCase();
+      for (const [branch, names] of Object.entries(branchNameMap)) {
+        if (names.some(n => overrideLower.includes(n.toLowerCase()) || n.toLowerCase().includes(overrideLower))) {
+          branchName = branch;
+          break;
+        }
+      }
+    } else if (regNoStr.length >= 8) {
+      const deptCode = regNoStr.charAt(7);
+      for (const [branch, codes] of Object.entries(branchMap)) {
+        if (codes.includes(deptCode)) {
+          branchName = branch;
+          break;
+        }
+      }
+    }
+    if (!branchName || !branchFilters.includes(branchName)) return;
+    
+    // Group by semester
+    const recordsBySemester = {};
+    records.forEach(record => {
+      if (!record.Sem) return;
+      const sem = String(record.Sem).trim();
+      if (!semesterFilters.includes(sem)) return;
+      
+      if (!recordsBySemester[sem]) {
+        recordsBySemester[sem] = [];
+      }
+      recordsBySemester[sem].push(record);
+    });
+    
+    // For each semester, check pass/fail
+    Object.keys(recordsBySemester).forEach(sem => {
+      const key = `${batch}_${branchName}_${sem}`;
+      if (!combinationGroups[key]) {
+        combinationGroups[key] = { passed: 0, failed: 0, total: 0, batch, branch: branchName, semester: sem };
+      }
+      
+      const semRecords = recordsBySemester[sem];
+      
+      // Check if this student has ANY failed grade in this specific semester
+      const hasFailed = semRecords.some(record => {
+        const grade = record.Grade?.toUpperCase().trim();
+        const isFailed = grade && failedGrades.includes(grade);
+        return isFailed;
+      });
+      
+      combinationGroups[key].total++;
+      if (hasFailed) {
+        combinationGroups[key].failed++;
+      } else {
+        combinationGroups[key].passed++;
+      }
+      
+      // Enhanced debug logging - show first few students for each semester
+      if (combinationGroups[key].total <= 3) {
+        const failedGradesInSem = semRecords
+          .filter(r => {
+            const g = r.Grade?.toUpperCase().trim();
+            return g && failedGrades.includes(g);
+          })
+          .map(r => r.Grade);
+        
+        console.log(`📊 Student ${regNo} in ${batch} ${branchName} Sem ${sem}:`, {
+          regNo,
+          semester: sem,
+          totalRecordsInSem: semRecords.length,
+          hasFailed,
+          failedGrades: failedGradesInSem,
+          allGrades: semRecords.map(r => r.Grade),
+          currentTotal: combinationGroups[key].total,
+          currentPassed: combinationGroups[key].passed,
+          currentFailed: combinationGroups[key].failed
+        });
+      }
+    });
+  });
+  
+  const results = Object.values(combinationGroups).map(group => {
+    const passRate = group.total > 0 ? Math.round((group.passed / group.total) * 100 * 100) / 100 : 0;
+    return {
+      batch: group.batch,
+      branch: group.branch,
+      semester: group.semester,
+      total: group.total,
+      passed: group.passed,
+      failed: group.failed,
+      passRate: passRate
+    };
+  });
+  
+  // Log results for debugging - show all combinations
+  console.log('📊 Semester-wise combinations calculated (ALL):');
+  results.forEach(r => {
+    console.log(`  ${r.batch} ${r.branch} Sem ${r.semester}:`, {
+      total: r.total,
+      passed: r.passed,
+      failed: r.failed,
+      passRate: r.passRate,
+      calculatedPassRate: r.total > 0 ? ((r.passed / r.total) * 100).toFixed(2) + '%' : '0%'
+    });
+  });
+  
+  // Check if all pass rates are the same (which would indicate a problem)
+  const uniquePassRates = [...new Set(results.map(r => r.passRate))];
+  if (uniquePassRates.length === 1 && results.length > 1) {
+    console.warn('⚠️ WARNING: All semesters have the same pass rate!', {
+      passRate: uniquePassRates[0],
+      numberOfSemesters: results.length,
+      combinations: results.map(r => `${r.batch} ${r.branch} Sem ${r.semester}`)
+    });
+  }
+  
+  return results;
+}
+
+function getPerformanceMetricsBySemester(data) {
+  // Group records by Reg_No (student) and then by semester
+  const studentRecords = {};
+  
+  data.forEach(record => {
+    if (!record.Reg_No) return;
+    const regNo = String(record.Reg_No);
+    
+    if (!studentRecords[regNo]) {
+      studentRecords[regNo] = [];
+    }
+    studentRecords[regNo].push(record);
+  });
+  
+  // Group students by semester
+  const semesterGroups = {};
+  const failedGrades = ['F', 'S', 'M', 'I', 'R'];
+  
+  Object.keys(studentRecords).forEach(regNo => {
+    const records = studentRecords[regNo];
+    
+    // Group records by semester for this student
+    const recordsBySemester = {};
+    records.forEach(record => {
+      if (!record.Sem) return;
+      const sem = String(record.Sem).trim();
+      
+      if (!recordsBySemester[sem]) {
+        recordsBySemester[sem] = [];
+      }
+      recordsBySemester[sem].push(record);
+    });
+    
+    // For each semester, check if student passed or failed
+    Object.keys(recordsBySemester).forEach(sem => {
+      if (!semesterGroups[sem]) {
+        semesterGroups[sem] = { passed: 0, failed: 0, total: 0 };
+      }
+      
+      const semRecords = recordsBySemester[sem];
+      
+      // Check if this student has ANY failed grade in this semester
+      const hasFailed = semRecords.some(record => {
+        const grade = record.Grade?.toUpperCase().trim();
+        return grade && failedGrades.includes(grade);
+      });
+      
+      semesterGroups[sem].total++;
+      if (hasFailed) {
+        semesterGroups[sem].failed++;
+      } else {
+        semesterGroups[sem].passed++;
+      }
+    });
+  });
+  
+  // Convert to array format for chart, sorted by semester
+  return Object.keys(semesterGroups)
+    .sort((a, b) => {
+      // Sort numerically if possible, otherwise alphabetically
+      const aNum = parseInt(a);
+      const bNum = parseInt(b);
+      if (!isNaN(aNum) && !isNaN(bNum)) {
+        return aNum - bNum;
+      }
+      return a.localeCompare(b);
+    })
+    .map(sem => {
+      const group = semesterGroups[sem];
+      return {
+        semester: sem,
         total: group.total,
         passed: group.passed,
         failed: group.failed,

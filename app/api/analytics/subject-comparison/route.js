@@ -38,6 +38,7 @@ export async function GET(req) {
     const { searchParams } = new URL(req.url);
     const batchFilter = searchParams.get('batch');
     const branchFilter = searchParams.get('branch');
+    const semesterFilter = searchParams.get('semester');
     const subjectsParam = searchParams.get('subjects');
     
     if (!subjectsParam) {
@@ -117,20 +118,31 @@ export async function GET(req) {
       return false;
     };
     
+    // Filter function for semester
+    const filterBySemester = (record) => {
+      if (!semesterFilter || semesterFilter === "all") return true;
+      if (!record.Sem) return false;
+      const sem = String(record.Sem).trim();
+      return sem === semesterFilter || sem.toLowerCase() === semesterFilter.toLowerCase();
+    };
+    
     // Apply filters
-    if ((batchFilter && batchFilter !== "all") || (branchFilter && branchFilter !== "all")) {
+    if ((batchFilter && batchFilter !== "all") || (branchFilter && branchFilter !== "all") || (semesterFilter && semesterFilter !== "all")) {
       cutm1Data = cutm1Data.filter(record => {
         const batchMatch = filterByBatch(record);
         const branchMatch = filterByBranch(record);
-        return batchMatch && branchMatch;
+        const semesterMatch = filterBySemester(record);
+        return batchMatch && branchMatch && semesterMatch;
       });
     }
     
-    // Filter by subject codes
+    // Filter by subject codes (handle both Subject_Code and Subject Code field names)
     cutm1Data = cutm1Data.filter(record => {
-      const subjectCode = String(record.Subject_Code || "").trim().toUpperCase();
+      const subjectCode = String(record.Subject_Code || record["Subject Code"] || "").trim().toUpperCase();
       return subjectCodes.some(code => subjectCode === code || subjectCode.includes(code) || code.includes(subjectCode));
     });
+    
+    console.log(`Filtered to ${cutm1Data.length} records matching subject codes: ${subjectCodes.join(', ')}`);
     
     // Calculate subject statistics
     const subjectStats = {};
@@ -138,8 +150,10 @@ export async function GET(req) {
     const failedGrades = ['F', 'S', 'M', 'I', 'R'];
     
     cutm1Data.forEach(record => {
-      if (record.Subject_Code && record.Grade) {
-        const subject = String(record.Subject_Code).trim().toUpperCase();
+      // Handle both Subject_Code and Subject Code field names
+      const subjectCode = record.Subject_Code || record["Subject Code"];
+      if (subjectCode && record.Grade) {
+        const subject = String(subjectCode).trim().toUpperCase();
         const grade = String(record.Grade).trim().toUpperCase();
         const points = gradePoints[grade] || 0;
         

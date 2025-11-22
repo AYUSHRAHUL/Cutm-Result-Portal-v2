@@ -276,6 +276,13 @@ export default function AdminDashboard() {
           >
             Override a student's branch by Reg_No; applies across all panels.
           </ModuleCard>
+          <ModuleCard 
+            title="Honours Degree" 
+            icon="🎓" 
+            onClick={() => go("/dashboard/admin/honours")}
+          >
+            Manage honours degree domain subjects and honours student list.
+          </ModuleCard>
           </div>
         </div>
       </section>
