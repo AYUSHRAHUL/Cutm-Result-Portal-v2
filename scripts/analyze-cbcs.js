@@ -10,7 +10,7 @@ if (!fs.existsSync(filePath)) {
   process.exit(1);
 }
 
-console.log('📊 Analyzing CBCS.xlsx file...\n');
+console.log('📊 Analyzing CBCS.xlsx file....\n');
 
 try {
   // Read the workbook
