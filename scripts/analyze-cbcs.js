@@ -33,7 +33,7 @@ try {
       return;
     }
     
-    console.log(`✅ Total Rows: ${data.length}`);
+    console.log(`✅  Total Rows: ${data.length}`);
     console.log(`📋 All Columns Found: ${Object.keys(data[0]).join(', ')}`);
     console.log(`\n📋 Column Details:`);
     Object.keys(data[0]).forEach((col, idx) => {
