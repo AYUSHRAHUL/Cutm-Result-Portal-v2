@@ -25,10 +25,10 @@ export default function AdminResultsPage() {
       .map(p => parseFloat(p) || 0)
       .reduce((a, b) => a + b, 0);
   }
-
+// TODAT E: Improve grade mapping as per institution's grading system
   function gradeToPoints(grade) {
     const g = String(grade || "").toUpperCase().trim();
-    const map = { "O": 10, "E": 9, "A": 8, "B": 7, "C": 6, "D": 5, "S": 0, "F": 0, "I": 0, "M": 0, "R": 0 };
+    const map = { "O": 10, "E": 9, "A": 8, "B": 7, "C": 6, "D": 5, "S": 0, "F": 2, "I": 0, "M": 0, "R": 0 };
     return map[g] ?? 0;
   }
 
