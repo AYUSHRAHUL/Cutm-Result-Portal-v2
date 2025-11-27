@@ -198,14 +198,14 @@ function ResultPageContent() {
         }
       `}</style>
 
-      <div className="min-h-screen bg-gray-50 py-8 px-4">
+      <div className="min-h-screen bg-gray-50 py-4 sm:py-8 px-2 sm:px-4">
         {/* Header Info */}
-        <div className="max-w-4xl mx-auto mb-6">
-          <div className="bg-white rounded-lg shadow-sm p-4 border-l-4 border-blue-600">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="max-w-4xl mx-auto mb-4 sm:mb-6">
+          <div className="bg-white rounded-lg shadow-sm p-2 sm:p-4 border-l-4 border-blue-600">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-4">
               <div className="flex-1">
-                <h1 className="text-lg font-bold text-gray-900">Academic Results</h1>
-                <p className="text-sm text-gray-600">
+                <h1 className="text-sm sm:text-lg font-bold text-gray-900">Academic Results</h1>
+                <p className="text-[10px] sm:text-sm text-gray-600">
                   Registration: <span className="font-mono font-semibold">{registration}</span>
                   {isMultipleSemesters ? (
                     <span className="block sm:inline"> • {Object.keys(allResults || {}).length} Semesters Selected</span>
@@ -215,8 +215,8 @@ function ResultPageContent() {
                 </p>
               </div>
               <div className="text-left sm:text-right">
-                <div className="text-sm text-gray-500">Generated on</div>
-                <div className="text-sm font-semibold text-gray-700">
+                <div className="text-[10px] sm:text-sm text-gray-500">Generated on</div>
+                <div className="text-[10px] sm:text-sm font-semibold text-gray-700">
                   {new Date().toLocaleDateString('en-GB', { 
                     day: '2-digit', 
                     month: 'short', 
@@ -231,36 +231,36 @@ function ResultPageContent() {
         </div>
         {/* Single Semester View */}
         {!isMultipleSemesters && result && (
-          <div className="print-area bg-white shadow-lg rounded-lg p-8 w-full max-w-4xl mx-auto">
+          <div className="print-area bg-white shadow-lg rounded-lg p-4 sm:p-8 w-full max-w-4xl mx-auto">
             {/* Header */}
-            <div className="text-center mb-6">
-              <div className="flex justify-center mb-3">
+            <div className="text-center mb-4 sm:mb-6">
+              <div className="flex justify-center mb-2 sm:mb-3">
           <img
             src="https://tse1.mm.bing.net/th/id/OIP.yR5DUnUlOBL5eCaPQ9HFgwHaHZ?rs=1&pid=ImgDetMain"
             alt="CUTM Logo"
-                  className="w-20 h-20 rounded-full "
+                  className="w-12 h-12 sm:w-20 sm:h-20 rounded-full "
           />
               </div>
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">
+              <h1 className="text-base sm:text-2xl font-bold text-gray-900 mb-1 sm:mb-2">
             Centurion University of Technology and Management
           </h1>
-              <h2 className="text-lg font-semibold text-gray-800 mb-1">
+              <h2 className="text-xs sm:text-lg font-semibold text-gray-800 mb-0.5 sm:mb-1">
             School Of Engineering & Technology, Paralakhemundi
           </h2>
-              <p className="text-base text-gray-700">Paralakhemundi Campus</p>
-              <h3 className="text-xl font-bold text-gray-900 mt-4">
+              <p className="text-[10px] sm:text-base text-gray-700">Paralakhemundi Campus</p>
+              <h3 className="text-sm sm:text-xl font-bold text-gray-900 mt-2 sm:mt-4">
                 Semester Grade Sheet
               </h3>
             </div>
 
             {/* Student Information */}
-            <div className="mb-6 space-y-2 text-sm">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="mb-4 sm:mb-6 space-y-1 sm:space-y-2 text-[10px] sm:text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
                 <p><span className="font-semibold">Student Regd. No.:</span> {registration}</p>
                 <p><span className="font-semibold">Semester:</span> {semester.replace('Semester ', 'Sem ')}</p>
               </div>
               <p><span className="font-semibold">Student Name:</span> {result.name || 'N/A'}</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
                 <p><span className="font-semibold">Course:</span> {result.course || 'B.Tech'}</p>
                 <p><span className="font-semibold">Batch:</span> {result.batch || 'N/A'}</p>
               </div>
@@ -269,24 +269,24 @@ function ResultPageContent() {
 
             {/* Results Table */}
             <div className="mb-6 overflow-x-auto avoid-break">
-              <table className="min-w-full border-collapse text-sm">
+              <table className="min-w-full border-collapse text-[11px] sm:text-sm">
                 <thead>
-                  <tr className="bg-blue-600 text-white">
-                    <th className="border border-gray-700 px-3 py-2 text-center font-bold">SL.NO</th>
-                    <th className="border border-gray-700 px-3 py-2 text-left font-bold">SUB.CODE</th>
-                    <th className="border border-gray-700 px-4 py-2 text-left font-bold">SUBJECT</th>
-                    <th className="border border-gray-700 px-3 py-2 text-center font-bold">CREDIT</th>
-                    <th className="border border-gray-700 px-3 py-2 text-center font-bold">GRADE</th>
+                  <tr className="bg-blue-600 text-white text-[10px] sm:text-xs">
+                    <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">SL.NO</th>
+                    <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-left font-bold">SUB.CODE</th>
+                    <th className="border border-gray-700 px-3 py-1 sm:px-4 sm:py-2 text-left font-bold">SUBJECT</th>
+                    <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">CREDIT</th>
+                    <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">GRADE</th>
                   </tr>
                 </thead>
                 <tbody>
                   {result.subjects.map((s, i) => (
                     <tr key={i} className="hover:bg-gray-50">
-                      <td className="border border-gray-300 px-3 py-2 text-center">{i + 1}</td>
-                      <td className="border border-gray-300 px-3 py-2 font-mono">{s.Subject_Code}</td>
-                      <td className="border border-gray-300 px-4 py-2">{s.Subject_Name}</td>
-                      <td className="border border-gray-300 px-3 py-2 text-center">{parseCredits(s.Credits)}</td>
-                      <td className={`border border-gray-300 px-3 py-2 text-center font-bold ${isFailingGrade(s.Grade) ? 'text-red-600' : 'text-gray-900'}`}>
+                      <td className="border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 text-center">{i + 1}</td>
+                      <td className="border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 font-mono">{s.Subject_Code}</td>
+                      <td className="border border-gray-300 px-3 py-1 sm:px-4 sm:py-2">{s.Subject_Name}</td>
+                      <td className="border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 text-center">{parseCredits(s.Credits)}</td>
+                      <td className={`border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold ${isFailingGrade(s.Grade) ? 'text-red-600' : 'text-gray-900'}`}>
                         {s.Grade}
                       </td>
                     </tr>
@@ -296,42 +296,42 @@ function ResultPageContent() {
             </div>
 
             {/* Summary Statistics */}
-            <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm print-summary">
-              <div className="flex items-center gap-2">
+            <div className="mb-4 sm:mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 text-[10px] sm:text-sm print-summary">
+              <div className="flex items-center gap-1 sm:gap-2">
                 <span className="font-semibold text-gray-700">Total Credits:</span>
                 <span className="font-bold text-gray-900">{totalCredits}</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 sm:gap-2">
                 <span className="font-semibold text-gray-700">Credits Cleared:</span>
                 <span className="font-bold text-gray-900">{creditsCleared}</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 sm:gap-2">
                 <span className="font-semibold text-gray-700">SGPA:</span>
                 <span className="font-bold text-gray-900">{result.sgpa}</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 sm:gap-2">
                 <span className="font-semibold text-gray-700">CGPA:</span>
                 <span className="font-bold text-gray-900">{result.cgpa}</span>
               </div>
             </div>
 
             {/* Footer */}
-            <div className="flex justify-between text-sm text-gray-700 border-t pt-4 mt-8">
+            <div className="flex justify-between text-[10px] sm:text-sm text-gray-700 border-t pt-2 sm:pt-4 mt-4 sm:mt-8">
               <p>Date : {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
               <p className="font-semibold">Dean, Examinations</p>
         </div>
 
             {/* Action Buttons */}
-            <div className="no-print mt-8 flex flex-col sm:flex-row justify-between gap-4">
+            <div className="no-print mt-4 sm:mt-8 flex flex-col sm:flex-row justify-between gap-2 sm:gap-4">
               <button
                 onClick={() => router.push("/dashboard/user")}
-                className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold px-5 py-2 rounded-lg transition"
+                className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold px-3 py-1.5 sm:px-5 sm:py-2 text-xs sm:text-base rounded-lg transition"
               >
                 ← Back
               </button>
               <button
                 onClick={() => window.print()}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2 rounded-lg transition shadow-md"
+                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 py-1.5 sm:px-5 sm:py-2 text-xs sm:text-base rounded-lg transition shadow-md"
               >
                 🖨️ Print / Save as PDF
               </button>
@@ -343,31 +343,31 @@ function ResultPageContent() {
         {isMultipleSemesters && allResults && (
           <div className="flex flex-col lg:flex-row gap-6 max-w-7xl mx-auto">
             {/* Sidebar Navigation */}
-            <div className="w-full lg:w-80 bg-white rounded-lg shadow-sm p-4 lg:h-fit lg:sticky lg:top-4 order-2 lg:order-1">
-              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
-                <span className="mr-2">📊</span>
+            <div className="w-full lg:w-80 bg-white rounded-lg shadow-sm p-2 sm:p-4 lg:h-fit lg:sticky lg:top-4 order-2 lg:order-1">
+              <h3 className="text-sm sm:text-lg font-bold text-gray-900 mb-2 sm:mb-4 flex items-center">
+                <span className="mr-1 sm:mr-2 text-xs sm:text-base">📊</span>
                 Semester Navigation
               </h3>
-              <div className="space-y-2">
+              <div className="space-y-1.5 sm:space-y-2">
                 {Object.entries(allResults).map(([sem, data], index) => (
                   <button
                     key={sem}
                     onClick={() => setActiveSemester(index)}
-                    className={`w-full text-left p-3 rounded-lg transition-all duration-200 ${
+                    className={`w-full text-left p-2 sm:p-3 rounded-lg transition-all duration-200 ${
                       activeSemester === index
                         ? 'bg-blue-600 text-white shadow-md'
                         : 'bg-gray-50 hover:bg-gray-100 text-gray-700'
                     }`}
                   >
-                    <div className="font-semibold text-sm">{sem.replace('Semester ', 'Sem ')}</div>
-                    <div className={`text-xs mt-1 ${
+                    <div className="font-semibold text-xs sm:text-sm">{sem.replace('Semester ', 'Sem ')}</div>
+                    <div className={`text-[10px] sm:text-xs mt-0.5 sm:mt-1 ${
                       activeSemester === index ? 'text-blue-100' : 'text-gray-500'
                     }`}>
                       <span className="block sm:inline">SGPA: <span className="font-semibold">{data.sgpa || 'N/A'}</span></span>
                       <span className="hidden sm:inline"> • </span>
                       <span className="block sm:inline">CGPA: <span className="font-semibold">{data.cgpa || data.cumulativeCgpa || 'N/A'}</span></span>
                     </div>
-                    <div className={`text-xs mt-1 ${
+                    <div className={`text-[10px] sm:text-xs mt-0.5 sm:mt-1 ${
                       activeSemester === index ? 'text-blue-100' : 'text-gray-500'
                     }`}>
                       <span className="block sm:inline">{data.subjects.length} Subjects</span>
@@ -379,9 +379,9 @@ function ResultPageContent() {
               </div>
               
               {/* Quick Stats */}
-              <div className="mt-6 p-3 bg-gray-50 rounded-lg">
-                <h4 className="font-semibold text-gray-900 text-sm mb-2">Overall Summary</h4>
-                <div className="space-y-1 text-xs text-gray-600">
+              <div className="mt-4 sm:mt-6 p-2 sm:p-3 bg-gray-50 rounded-lg">
+                <h4 className="font-semibold text-gray-900 text-xs sm:text-sm mb-1.5 sm:mb-2">Overall Summary</h4>
+                <div className="space-y-0.5 sm:space-y-1 text-[10px] sm:text-xs text-gray-600">
                   <div className="flex justify-between">
                     <span>Total Semesters:</span>
                     <span className="font-semibold">{Object.keys(allResults).length}</span>
@@ -398,16 +398,16 @@ function ResultPageContent() {
               </div>
 
               {/* Action Buttons */}
-              <div className="mt-4 space-y-2">
+              <div className="mt-3 sm:mt-4 space-y-1.5 sm:space-y-2">
                 <button
                   onClick={() => router.push("/dashboard/user")}
-                  className="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold px-4 py-2 rounded-lg transition text-sm"
+                  className="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg transition text-xs sm:text-sm"
                 >
                   ← Back to Dashboard
                 </button>
                 <button
                   onClick={() => window.print()}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg transition text-sm"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg transition text-xs sm:text-sm"
                 >
                   🖨️ Print All Semesters
                 </button>
@@ -419,39 +419,39 @@ function ResultPageContent() {
               {Object.entries(allResults).map(([sem, data], index) => (
                 <div 
                   key={sem} 
-                  className={`print-area bg-white shadow-lg rounded-lg p-8 ${
+                  className={`print-area bg-white shadow-lg rounded-lg p-4 sm:p-8 ${
                     activeSemester === index ? 'block' : 'hidden'
                   }`}
                 >
                   {/* Header for each semester */}
-                  <div className="text-center mb-6">
-                    <div className="flex justify-center mb-3">
+                  <div className="text-center mb-4 sm:mb-6">
+                    <div className="flex justify-center mb-2 sm:mb-3">
                       <img
                         src="https://tse1.mm.bing.net/th/id/OIP.yR5DUnUlOBL5eCaPQ9HFgwHaHZ?rs=1&pid=ImgDetMain"
                         alt="CUTM Logo"
-                        className="w-20 h-20 rounded-full  "
+                        className="w-12 h-12 sm:w-20 sm:h-20 rounded-full  "
                       />
               </div>
-                    <h1 className="text-2xl font-bold text-gray-900 mb-2">
+                    <h1 className="text-base sm:text-2xl font-bold text-gray-900 mb-1 sm:mb-2">
                       Centurion University of Technology and Management
                     </h1>
-                    <h2 className="text-lg font-semibold text-gray-800 mb-1">
+                    <h2 className="text-xs sm:text-lg font-semibold text-gray-800 mb-0.5 sm:mb-1">
                       School Of Engineering & Technology, Paralakhemundi
                     </h2>
-                    <p className="text-base text-gray-700">Paralakhemundi Campus</p>
-                    <h3 className="text-xl font-bold text-gray-900 mt-4">
+                    <p className="text-[10px] sm:text-base text-gray-700">Paralakhemundi Campus</p>
+                    <h3 className="text-sm sm:text-xl font-bold text-gray-900 mt-2 sm:mt-4">
                       Semester Grade Sheet
                   </h3>
                   </div>
 
                   {/* Student Information for each semester */}
-                  <div className="mb-6 space-y-2 text-sm">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="mb-4 sm:mb-6 space-y-1 sm:space-y-2 text-[10px] sm:text-sm">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
                       <p><span className="font-semibold">Student Regd. No.:</span> {registration}</p>
                       <p><span className="font-semibold">Semester:</span> {sem.replace('Semester ', 'Sem ')}</p>
                     </div>
                     <p><span className="font-semibold">Student Name:</span> {data.name || 'N/A'}</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
                       <p><span className="font-semibold">Course:</span> {data.course || 'B.Tech'}</p>
                       <p><span className="font-semibold">Batch:</span> {data.batch || 'N/A'}</p>
                     </div>
@@ -460,24 +460,24 @@ function ResultPageContent() {
 
                   {/* Results Table for each semester */}
                   <div className="mb-6 overflow-x-auto avoid-break">
-                    <table className="min-w-full border-collapse text-sm">
+                    <table className="min-w-full border-collapse text-[11px] sm:text-sm">
                       <thead>
-                        <tr className="bg-blue-600 text-white">
-                          <th className="border border-gray-700 px-3 py-2 text-center font-bold">SL.NO</th>
-                          <th className="border border-gray-700 px-3 py-2 text-left font-bold">SUB.CODE</th>
-                          <th className="border border-gray-700 px-4 py-2 text-left font-bold">SUBJECT</th>
-                          <th className="border border-gray-700 px-3 py-2 text-center font-bold">CREDIT</th>
-                          <th className="border border-gray-700 px-3 py-2 text-center font-bold">GRADE</th>
+                        <tr className="bg-blue-600 text-white text-[10px] sm:text-xs">
+                          <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">SL.NO</th>
+                          <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-left font-bold">SUB.CODE</th>
+                          <th className="border border-gray-700 px-3 py-1 sm:px-4 sm:py-2 text-left font-bold">SUBJECT</th>
+                          <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">CREDIT</th>
+                          <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">GRADE</th>
                         </tr>
                       </thead>
                       <tbody>
                         {data.subjects.map((s, i) => (
                           <tr key={i} className="hover:bg-gray-50">
-                            <td className="border border-gray-300 px-3 py-2 text-center">{i + 1}</td>
-                            <td className="border border-gray-300 px-3 py-2 font-mono">{s.Subject_Code}</td>
-                            <td className="border border-gray-300 px-4 py-2">{s.Subject_Name}</td>
-                            <td className="border border-gray-300 px-3 py-2 text-center">{parseCredits(s.Credits)}</td>
-                            <td className={`border border-gray-300 px-3 py-2 text-center font-bold ${isFailingGrade(s.Grade) ? 'text-red-600' : 'text-gray-900'}`}>
+                            <td className="border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 text-center">{i + 1}</td>
+                            <td className="border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 font-mono">{s.Subject_Code}</td>
+                            <td className="border border-gray-300 px-3 py-1 sm:px-4 sm:py-2">{s.Subject_Name}</td>
+                            <td className="border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 text-center">{parseCredits(s.Credits)}</td>
+                            <td className={`border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold ${isFailingGrade(s.Grade) ? 'text-red-600' : 'text-gray-900'}`}>
                               {s.Grade}
                             </td>
                           </tr>
@@ -487,27 +487,27 @@ function ResultPageContent() {
                   </div>
 
                   {/* Summary Statistics for each semester */}
-                  <div className="mb-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm print-summary">
-                    <div className="flex items-center gap-2">
+                  <div className="mb-4 sm:mb-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 text-[10px] sm:text-sm print-summary">
+                    <div className="flex items-center gap-1 sm:gap-2">
                       <span className="font-semibold text-gray-700">Total Credits:</span>
                       <span className="font-bold text-gray-900">{data.subjects.reduce((sum, s) => sum + parseCredits(s?.Credits), 0)}</span>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1 sm:gap-2">
                       <span className="font-semibold text-gray-700">Credits Cleared:</span>
                       <span className="font-bold text-gray-900">{getCreditsCleared(data.subjects)}</span>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1 sm:gap-2">
                       <span className="font-semibold text-gray-700">SGPA:</span>
                       <span className="font-bold text-gray-900">{data.sgpa}</span>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1 sm:gap-2">
                       <span className="font-semibold text-gray-700">CGPA:</span>
                       <span className="font-bold text-gray-900">{data.cgpa || data.cumulativeCgpa || 'N/A'}</span>
                     </div>
                   </div>
 
                   {/* Footer for each semester */}
-                  <div className="flex justify-between text-sm text-gray-700 border-t pt-4 mt-8">
+                  <div className="flex justify-between text-[10px] sm:text-sm text-gray-700 border-t pt-2 sm:pt-4 mt-4 sm:mt-8">
                     <p>Date : {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
                     <p className="font-semibold">Dean, Examinations</p>
                   </div>
@@ -559,24 +559,24 @@ function ResultPageContent() {
 
                 {/* Results Table for each semester */}
                 <div className="mb-6 overflow-x-auto avoid-break">
-                  <table className="min-w-full border-collapse text-sm">
+                <table className="min-w-full border-collapse text-[11px] sm:text-sm">
                     <thead>
-                      <tr className="bg-blue-600 text-white">
-                        <th className="border border-gray-700 px-3 py-2 text-center font-bold">SL.NO</th>
-                        <th className="border border-gray-700 px-3 py-2 text-left font-bold">SUB.CODE</th>
-                        <th className="border border-gray-700 px-4 py-2 text-left font-bold">SUBJECT</th>
-                        <th className="border border-gray-700 px-3 py-2 text-center font-bold">CREDIT</th>
-                        <th className="border border-gray-700 px-3 py-2 text-center font-bold">GRADE</th>
+                    <tr className="bg-blue-600 text-white text-[10px] sm:text-xs">
+                      <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">SL.NO</th>
+                      <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-left font-bold">SUB.CODE</th>
+                      <th className="border border-gray-700 px-3 py-1 sm:px-4 sm:py-2 text-left font-bold">SUBJECT</th>
+                      <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">CREDIT</th>
+                      <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">GRADE</th>
                   </tr>
                 </thead>
                 <tbody>
                       {data.subjects.map((s, i) => (
                         <tr key={i} className="hover:bg-gray-50">
-                          <td className="border border-gray-300 px-3 py-2 text-center">{i + 1}</td>
-                          <td className="border border-gray-300 px-3 py-2 font-mono">{s.Subject_Code}</td>
-                          <td className="border border-gray-300 px-4 py-2">{s.Subject_Name}</td>
-                          <td className="border border-gray-300 px-3 py-2 text-center">{parseCredits(s.Credits)}</td>
-                          <td className={`border border-gray-300 px-3 py-2 text-center font-bold ${isFailingGrade(s.Grade) ? 'text-red-600' : 'text-gray-900'}`}>
+                          <td className="border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 text-center">{i + 1}</td>
+                          <td className="border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 font-mono">{s.Subject_Code}</td>
+                          <td className="border border-gray-300 px-3 py-1 sm:px-4 sm:py-2">{s.Subject_Name}</td>
+                          <td className="border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 text-center">{parseCredits(s.Credits)}</td>
+                          <td className={`border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold ${isFailingGrade(s.Grade) ? 'text-red-600' : 'text-gray-900'}`}>
                         {s.Grade}
                       </td>
                     </tr>

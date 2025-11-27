@@ -1,25 +1,15 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { useState, useEffect, useMemo, useCallback } from "react";
 
 export default function UserBasketTrack() {
-  const router = useRouter();
   const [user, setUser] = useState(null);
   const [registration, setRegistration] = useState("");
-  const [semesters, setSemesters] = useState([]);
-  const [semesterValues, setSemesterValues] = useState([]);
-  const [basket, setBasket] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [loadingSemesters, setLoadingSemesters] = useState(false);
-  
-  // Results state
-  const [searchPerformed, setSearchPerformed] = useState(false);
   const [studentData, setStudentData] = useState(null);
   const [basketProgress, setBasketProgress] = useState({});
-  const [dataSources, setDataSources] = useState(null);
+  const [autoFetched, setAutoFetched] = useState(false);
   
   // Basket detail state
   const [selectedBasket, setSelectedBasket] = useState(null);
@@ -50,43 +40,26 @@ export default function UserBasketTrack() {
     fetchUserData();
   }, []);
 
-  function clearFilters() {
-    setSemesterValues([]);
-    setBasket("");
+  const fetchBasketProgress = useCallback(async () => {
     setError("");
-    setStudentData(null);
-    setBasketProgress({});
-    setDataSources(null);
-    setSearchPerformed(false);
-    setSemesters([]);
-  }
-
-  async function onSubmit(e) {
-    e.preventDefault();
-    setError("");
-    setSearchPerformed(true);
     setLoading(true);
-    
-    // Reset previous results immediately
     setStudentData(null);
     setBasketProgress({});
     
     try {
-      // Enhanced validation for individual search
       if (!registration || registration.trim().length < 6) {
         throw new Error("Please enter a valid registration number (minimum 6 characters)");
       }
       
-      // Individual student search with proper filtering
       const requestBody = {
-        department: "", // Users can only view their own data
+        department: "",
         batch: "", 
         registration: registration.trim().toUpperCase(), 
-        semesters: semesterValues.length > 0 && !semesterValues.includes("All") ? semesterValues : [], 
-        basket: basket && basket !== "All" ? basket : ""
+        semesters: [],
+        basket: ""
       };
       
-      console.log("User individual search request:", requestBody);
+      console.log("User auto basket request:", requestBody);
       
       const res = await fetch("/api/cbcs/track", {
         method: "POST",
@@ -115,7 +88,6 @@ export default function UserBasketTrack() {
         }
       }
       
-      // Enhanced individual data processing
       const student = data.student || data.data;
       const progress = data.basketProgress || data.progress || {};
       
@@ -125,7 +97,6 @@ export default function UserBasketTrack() {
       
       setStudentData(student);
       setBasketProgress(progress);
-      setDataSources(data.dataSources || null);
     } catch (err) {
       setError(err.message);
       setStudentData(null);
@@ -133,47 +104,14 @@ export default function UserBasketTrack() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [registration]);
 
-  // Load semesters for registration
-  async function loadSemestersForRegistration(value) {
-    if (!value || value === "all") {
-      setSemesters([]);
-      return;
+  useEffect(() => {
+    if (registration && registration.trim().length >= 6 && !autoFetched) {
+      fetchBasketProgress();
+      setAutoFetched(true);
     }
-    
-    try {
-      setLoadingSemesters(true);
-      const res = await fetch("/api/semesters", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ registration: value }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "No semesters found");
-      setSemesters(data.semesters || []);
-    } catch (err) {
-      setError(err.message);
-      setSemesters([]);
-    } finally {
-      setLoadingSemesters(false);
-    }
-  }
-
-  // Handle registration change
-  const handleRegistrationChange = (e) => {
-    const reg = e.target.value.toUpperCase();
-    setRegistration(reg);
-    setError("");
-    setSemesterValues([]);
-    
-    // Auto-fetch when registration has 6+ characters
-    if (reg.length >= 6) {
-      loadSemestersForRegistration(reg);
-    } else {
-      setSemesters([]);
-    }
-  };
+  }, [registration, autoFetched, fetchBasketProgress]);
 
   // Stats calculation with lateral entry support
   const overallStats = useMemo(() => {
@@ -802,100 +740,17 @@ export default function UserBasketTrack() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-6">
-            <div>
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="py-6 text-center">
               <h1 className="text-3xl font-bold text-gray-900">Basket Progress Tracker</h1>
               <p className="mt-1 text-sm text-gray-500">
                 Track your CBCS basket completion progress
               </p>
-            </div>
-            <Link
-              href="/dashboard/user"
-              className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-            >
-              ← Back to Dashboard
-            </Link>
           </div>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Search Form */}
-        <div className="bg-white rounded-lg shadow-sm border mb-8">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Search Your Basket Progress</h2>
-            <p className="text-sm text-gray-600 mt-1">
-              Enter your registration number to view your CBCS basket progress
-            </p>
-          </div>
-          
-          <form onSubmit={onSubmit} className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Registration Number */}
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Registration Number:</label>
-                <input
-                  type="text"
-                  value={registration}
-                  readOnly
-                  placeholder="Your registration number"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
-                  required
-                />
-                <div className="text-xs text-gray-500">
-                  💡 Your registration number is auto-filled from your profile and cannot be changed
-                </div>
-              </div>
-
-              {/* Semester */}
-           
-
-              {/* Basket */}
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Basket:</label>
-                <select 
-                  value={basket} 
-                  onChange={e => setBasket(e.target.value)} 
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
-                >
-                  <option value="">Select Basket</option>
-                  <option value="All">All Baskets</option>
-                  <option value="Basket I">Basket I (17/6 credits)</option>
-                  <option value="Basket II">Basket II (12/9 credits)</option>
-                  <option value="Basket III">Basket III (25 credits)</option>
-                  <option value="Basket IV">Basket IV (58/60/48 credits)</option>
-                  <option value="Basket V">Basket V (48/46/32 credits)</option>
-                </select>
-                <div className="text-xs text-gray-500">
-                  💡 Filter results by specific basket or view all baskets
-                </div>
-              </div>
-            </div>
-
-            {/* Submit and Clear Buttons */}
-            <div className="flex justify-center space-x-4 mt-6">
-              <button 
-                type="submit" 
-                className={`px-8 py-3 bg-green-600 text-white font-medium rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors ${
-                  loading ? 'opacity-70 cursor-not-allowed' : ''
-                }`}
-                disabled={loading}
-              >
-                {loading ? "Loading..." : "Search Progress"}
-              </button>
-              
-              <button 
-                type="button"
-                onClick={clearFilters}
-                className="px-8 py-3 bg-gray-600 text-white font-medium rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
-              >
-                Clear Filters
-              </button>
-            </div>
-          </form>
-        </div>
-
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Error Display */}
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-md p-4 mb-6">
@@ -906,7 +761,7 @@ export default function UserBasketTrack() {
                 </svg>
               </div>
               <div className="ml-3">
-                <h3 className="text-sm font-medium text-red-800">Search Error</h3>
+                <h3 className="text-sm font-medium text-red-800">Unable to load basket progress</h3>
                 <div className="mt-2 text-sm text-red-700">
                   <p>{error}</p>
                 </div>
@@ -925,56 +780,26 @@ export default function UserBasketTrack() {
           </div>
         )}
 
-        {/* Search Status Information */}
-        {searchPerformed && !loading && (
-          <div className="bg-green-50 border border-green-200 rounded-md p-4 mb-6">
-            <div className="text-green-800 text-sm">
-              <strong>Search Completed:</strong><br/>
-              Registration: {registration}<br/>
-              Semester: {semesterValues.length > 0 && semesterValues[0] !== "All" ? semesterValues[0] : "All Semesters"}<br/>
-              Basket: {basket || 'All Baskets'}<br/>
-              {studentData && (
-                <span className="text-green-600">
-                  ✅ Your basket progress has been loaded successfully
-                </span>
-              )}
-            </div>
+        {/* Empty State */}
+        {!loading && !error && autoFetched && !studentData && (
+          <div className="bg-white rounded-lg shadow-sm border p-6 text-center text-gray-600">
+            <div className="text-4xl mb-3">🔍</div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">No basket data found</h3>
+            <p className="text-sm">
+              We couldn’t find any CBCS basket progress for registration <strong>{registration}</strong>.
+              Please contact your department if you believe this is incorrect.
+            </p>
           </div>
         )}
 
-        {/* No Results Message */}
-        {searchPerformed && !loading && !studentData && (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-md p-6 mb-6">
-            <div className="text-center">
-              <div className="text-yellow-600 text-4xl mb-4">🔍</div>
-              <h3 className="text-lg font-semibold text-yellow-800 mb-2">No Data Found</h3>
-              <p className="text-yellow-700 mb-4">
-                No basket progress data found for registration number: <strong>{registration}</strong>
-              </p>
-              <ul className="text-yellow-700 text-sm text-left max-w-md mx-auto">
-                <li>• Verify the registration number is correct</li>
-                <li>• Check if you have any academic records</li>
-                <li>• Try removing semester filters</li>
-                <li>• Contact administrator if the issue persists</li>
-              </ul>
-              <button 
-                onClick={clearFilters}
-                className="mt-4 px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-600 transition-colors"
-              >
-                Clear All Filters
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Individual Results Display */}
-        {searchPerformed && !loading && studentData && (
+        {/* Basket Results */}
+        {!loading && studentData && (
           <div className="bg-white rounded-lg shadow-sm border">
             {/* Export Buttons */}
             <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-gray-900">Your Basket Progress</h3>
-                <div className="flex space-x-2">
+                <div className="flex flex-wrap gap-2 justify-end">
                   {/* <button 
                     onClick={exportToCSV} 
                     className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
@@ -1022,46 +847,26 @@ export default function UserBasketTrack() {
                 </div>
               )}
 
-              {/* Data Source Information */}
-              {dataSources && (
-                <div className="mb-6 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="text-md font-semibold text-blue-900 mb-3">📊 Data Sources Used</h4>
-                  <div className="flex items-center space-x-4">
-                    {dataSources.sources?.cutm1 && (
-                      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
-                        🔵 CUTM1 Collection ({dataSources.cutm1Records} records)
-                      </span>
-                    )}
-                    {dataSources.sources?.registrationData && (
-                      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
-                        🟢 Registration Data Collection ({dataSources.registrationDataRecords} records)
-                      </span>
-                    )}
-                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800">
-                      ⚪ Total Combined ({dataSources.totalRecords} records)
-                    </span>
-                  </div>
-                </div>
-              )}
-
               {/* Student Information Section */}
               <div className="mb-6">
                 <h4 className="text-md font-semibold text-gray-800 mb-3">Student Information</h4>
                 <div className="border border-gray-300 rounded-lg overflow-hidden">
-                  <table className="w-full border-collapse">
-                    <tbody>
-                      <tr className="border-b border-gray-200">
-                        <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50 w-1/4">Name:</td>
-                        <td className="px-4 py-3 text-gray-900">{studentData.name || 'Unknown'}</td>
-                      </tr>
-                      <tr className="border-b border-gray-200">
-                        <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Department:</td>
-                        <td className="px-4 py-3 text-gray-900">{studentData.department || 'Unknown'}</td>
-                      </tr>
-                      <tr className="border-b border-gray-200">
-                        <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Registration No:</td>
-                        <td className="px-4 py-3 text-gray-900 font-mono">{studentData.registration || 'Unknown'}</td>
-                      </tr>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-xs sm:text-sm">
+                      <tbody>
+                        <tr className="border-b border-gray-200">
+                          <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50 w-1/3">Student:</td>
+                          <td className="px-4 py-3 text-gray-900">
+                            <div className="font-semibold text-base sm:text-lg">{studentData.name || 'Unknown'}</div>
+                            <div className="text-xs sm:text-sm text-gray-600 mt-1">
+                              Reg. No: <span className="font-mono">{studentData.registration || 'Unknown'}</span>
+                            </div>
+                          </td>
+                        </tr>
+                        <tr className="border-b border-gray-200">
+                          <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Department:</td>
+                          <td className="px-4 py-3 text-gray-900">{studentData.department || 'Unknown'}</td>
+                        </tr>
                       <tr className="border-b border-gray-200">
                         <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Student Type:</td>
                         <td className="px-4 py-3 text-gray-900">
@@ -1086,12 +891,11 @@ export default function UserBasketTrack() {
                       </tr>
                       <tr>
                         <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Semester:</td>
-                        <td className="px-4 py-3 text-gray-900">
-                          {semesterValues.length > 0 && semesterValues[0] !== "All" ? semesterValues[0] : "All Semesters"}
-                        </td>
+                          <td className="px-4 py-3 text-gray-900">All Semesters</td>
                       </tr>
                     </tbody>
                   </table>
+                  </div>
                 </div>
               </div>
 
@@ -1099,16 +903,16 @@ export default function UserBasketTrack() {
               <div>
                 <h4 className="text-md font-semibold text-gray-800 mb-3">Basket Progress</h4>
                 <div className="border border-gray-300 rounded-lg overflow-hidden">
-                  <table className="w-full border-collapse">
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-[11px] sm:text-sm">
                     <thead>
-                      <tr className="bg-gray-100 border-b-2 border-gray-300">
-                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Sl.No</th>
-                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Basket</th>
-                        <th className="px-4 py-3 text-center font-semibold text-gray-900">Required Credits</th>
-                        <th className="px-4 py-3 text-center font-semibold text-gray-900">Earned Credits</th>
-                        <th className="px-4 py-3 text-center font-semibold text-gray-900">Failed Credits</th>
-                        <th className="px-4 py-3 text-center font-semibold text-gray-900">Total Credits</th>
-                        <th className="px-4 py-3 text-center font-semibold text-gray-900">Status</th>
+                      <tr className="bg-gray-100 border-b-2 border-gray-300 text-[10px] sm:text-xs">
+                        <th className="px-2 py-1 sm:px-4 sm:py-3 text-left font-semibold text-gray-900">Basket</th>
+                        <th className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">Required Credits</th>
+                        <th className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">Earned Credits</th>
+                        <th className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">Failed Credits</th>
+                        <th className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">Total Credits</th>
+                        <th className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">Status</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1122,21 +926,20 @@ export default function UserBasketTrack() {
                           const status = isCompleted ? "Completed" : "Not Completed";
 
                           return (
-                            <tr key={basketName} className="border-b border-gray-200 hover:bg-gray-50 transition-colors">
-                              <td className="px-4 py-3 text-center text-gray-900">{index + 1}</td>
+                            <tr key={basketName} className="border-b border-gray-200 hover:bg-gray-50 transition-colors text-[11px] sm:text-sm">
                               <td 
-                                className="px-4 py-3 cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                                className="px-2 py-1 sm:px-4 sm:py-3 cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
                                 onClick={() => handleBasketClick(basketName, info)}
                                 title="Click to view detailed subjects"
                               >
                                 {basketName} 📋
                               </td>
-                              <td className="px-4 py-3 text-center text-gray-900">{requiredCredits}</td>
-                              <td className="px-4 py-3 text-center text-green-600 font-medium">{earnedCredits}</td>
-                              <td className="px-4 py-3 text-center text-red-600 font-medium">{failedCredits}</td>
-                              <td className="px-4 py-3 text-center text-gray-900 font-semibold">{totalCredits}</td>
-                              <td className="px-4 py-3 text-center">
-                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                              <td className="px-2 py-1 sm:px-4 sm:py-3 text-center text-gray-900">{requiredCredits}</td>
+                              <td className="px-2 py-1 sm:px-4 sm:py-3 text-center text-green-600 font-medium">{earnedCredits}</td>
+                              <td className="px-2 py-1 sm:px-4 sm:py-3 text-center text-red-600 font-medium">{failedCredits}</td>
+                              <td className="px-2 py-1 sm:px-4 sm:py-3 text-center text-gray-900 font-semibold">{totalCredits}</td>
+                              <td className="px-2 py-1 sm:px-4 sm:py-3 text-center">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium ${
                                   isCompleted 
                                     ? 'bg-green-100 text-green-800' 
                                     : 'bg-red-100 text-red-800'
@@ -1156,20 +959,20 @@ export default function UserBasketTrack() {
                       )}
                       
                       {Object.entries(basketProgress || {}).length > 0 && (
-                        <tr className="bg-gray-50 border-t-2 border-gray-300">
-                          <td className="px-4 py-3 font-semibold text-center text-gray-900" colSpan="2">
+                        <tr className="bg-gray-50 border-t-2 border-gray-300 text-[11px] sm:text-sm">
+                          <td className="px-2 py-1 sm:px-4 sm:py-3 font-semibold text-center text-gray-900">
                             {overallStats.isLateralEntry ? "Lateral Entry Total" : "Total"}
                           </td>
-                          <td className="px-4 py-3 text-center font-semibold text-gray-900">
+                          <td className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">
                             {overallStats.totalRequired}
                             {overallStats.isLateralEntry && (
                               <div className="text-xs text-orange-600 mt-1">Lateral Entry</div>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-center font-semibold text-green-600">{overallStats.totalEarned}</td>
-                          <td className="px-4 py-3 text-center font-semibold text-red-600">{overallStats.totalFailed}</td>
-                          <td className="px-4 py-3 text-center font-semibold text-gray-900">{overallStats.totalCredits}</td>
-                          <td className="px-4 py-3 text-center">
+                          <td className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-green-600">{overallStats.totalEarned}</td>
+                          <td className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-red-600">{overallStats.totalFailed}</td>
+                          <td className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">{overallStats.totalCredits}</td>
+                          <td className="px-2 py-1 sm:px-4 sm:py-3 text-center">
                             {/* Total status is "Completed" ONLY when ALL individual baskets are completed */}
                             {(() => {
                               // CRITICAL: Check if ALL baskets are completed
@@ -1186,7 +989,7 @@ export default function UserBasketTrack() {
                               });
                               
                               return (
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
+                            <span className={`px-2 py-1 rounded text-[10px] sm:text-xs font-medium ${
                                   allBasketsCompleted
                                 ? 'bg-green-100 text-green-800' 
                                 : 'bg-red-100 text-red-800'
@@ -1200,6 +1003,7 @@ export default function UserBasketTrack() {
                       )}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1226,7 +1030,7 @@ export default function UserBasketTrack() {
                 </div>
                 
                 <div className="mb-4">
-                  <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div className="grid grid-cols-2 gap-4 text-xs sm:text-sm">
                     <div>
                       <span className="font-medium text-gray-700">Required Credits:</span>
                       <span className="ml-2 text-gray-900">{selectedBasket.info?.required_credits || 0}</span>
@@ -1248,59 +1052,16 @@ export default function UserBasketTrack() {
                   </div>
                 </div>
 
-                {/* Legend */}
-                <div className="mb-4 bg-gray-50 p-3 rounded-lg">
-                  <h5 className="text-sm font-semibold text-gray-700 mb-2">📋 Legend:</h5>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-                    <div>
-                      <span className="font-medium text-gray-700">Data Sources:</span>
-                      <div className="mt-1 space-y-1">
-                        <div className="flex items-center">
-                          <span className="inline-block w-3 h-3 bg-green-100 border border-green-300 rounded mr-2"></span>
-                          <span className="text-green-800">Reg - Registration Data</span>
-                        </div>
-                        <div className="flex items-center">
-                          <span className="inline-block w-3 h-3 bg-gray-100 border border-gray-300 rounded mr-2"></span>
-                          <span className="text-gray-800">CUTM1 - Academic Records</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div>
-                      <span className="font-medium text-gray-700">Grade Status:</span>
-                      <div className="mt-1 space-y-1">
-                        <div className="flex items-center">
-                          <span className="inline-block w-3 h-3 bg-green-100 border border-green-300 rounded mr-2"></span>
-                          <span className="text-green-800">Completed</span>
-                        </div>
-                        <div className="flex items-center">
-                          <span className="inline-block w-3 h-3 bg-yellow-100 border border-yellow-300 rounded mr-2"></span>
-                          <span className="text-yellow-800">Result Not Published</span>
-                        </div>
-                        <div className="flex items-center">
-                          <span className="inline-block w-3 h-3 bg-red-100 border border-red-300 rounded mr-2"></span>
-                          <span className="text-red-800">Failed</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div>
-                      <span className="font-medium text-gray-700">Lateral Entry:</span>
-                      <div className="mt-1 text-orange-700">
-                        Students with "1" as 9th character in registration number require 120 total credits instead of 160.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
                 {selectedBasket.subjects && selectedBasket.subjects.length > 0 ? (
                   <div className="border rounded-lg overflow-hidden">
-                    <table className="w-full">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs sm:text-sm">
                       <thead className="bg-gray-50">
                         <tr>
-                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Subject Code</th>
-                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Subject Name</th>
-                          <th className="px-4 py-2 text-center text-sm font-medium text-gray-700">Credits</th>
-                          <th className="px-4 py-2 text-center text-sm font-medium text-gray-700">Grade</th>
-                          <th className="px-4 py-2 text-center text-sm font-medium text-gray-700">Data Source</th>
+                          <th className="px-3 py-2 sm:px-4 sm:py-3 text-left font-medium text-gray-700">Subject Code</th>
+                          <th className="px-3 py-2 sm:px-4 sm:py-3 text-left font-medium text-gray-700">Subject Name</th>
+                            <th className="px-3 py-2 sm:px-4 sm:py-3 text-center font-medium text-gray-700">Credits</th>
+                            <th className="px-3 py-2 sm:px-4 sm:py-3 text-center font-medium text-gray-700">Grade</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1308,11 +1069,11 @@ export default function UserBasketTrack() {
                           const grade = String(subject?.grade || subject?.Grade || "").toUpperCase();
                           return (
                             <tr key={index} className="border-t">
-                              <td className="px-4 py-2 text-sm text-gray-900">{subject.code}</td>
-                              <td className="px-4 py-2 text-sm text-gray-900">{subject.name}</td>
-                              <td className="px-4 py-2 text-sm text-center text-gray-900">{subject.credits}</td>
-                              <td className="px-4 py-2 text-sm text-center">
-                                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                              <td className="px-3 py-2 sm:px-4 sm:py-3 text-gray-900">{subject.code}</td>
+                              <td className="px-3 py-2 sm:px-4 sm:py-3 text-gray-900 whitespace-normal break-words">{subject.name}</td>
+                              <td className="px-3 py-2 sm:px-4 sm:py-3 text-center text-gray-900">{subject.credits}</td>
+                              <td className="px-3 py-2 sm:px-4 sm:py-3 text-center">
+                                <span className={`px-2 py-1 rounded text-[10px] sm:text-xs font-medium ${
                                   grade === 'RESULT NOT PUBLISHED'
                                     ? 'bg-yellow-100 text-yellow-800'
                                     : ["O","E","A"].includes(grade) ? 'bg-green-100 text-green-800' :
@@ -1322,22 +1083,13 @@ export default function UserBasketTrack() {
                                   {grade || '—'}
                                 </span>
                               </td>
-                              <td className="px-4 py-2 text-sm text-center">
-                                {subject.dataSource && (
-                                  <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                    subject.dataSource === 'Registration' 
-                                      ? 'bg-green-100 text-green-800' 
-                                      : 'bg-gray-100 text-gray-800'
-                                  }`}>
-                                    {subject.dataSource === 'Registration' ? 'Reg' : 'CUTM1'}
-                                  </span>
-                                )}
-                              </td>
+                                
                             </tr>
                           );
                         })}
                       </tbody>
                     </table>
+                    </div>
                   </div>
                 ) : (
                   <div className="text-center py-8 text-gray-500">

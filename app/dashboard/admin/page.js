@@ -283,6 +283,13 @@ export default function AdminDashboard() {
           >
             Manage honours degree domain subjects and honours student list.
           </ModuleCard>
+          <ModuleCard 
+            title="User Management" 
+            icon="👥" 
+            onClick={() => go("/dashboard/admin/users")}
+          >
+            Block, edit, and manage registered users with role-based access control.
+          </ModuleCard>
           </div>
         </div>
       </section>

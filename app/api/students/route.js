@@ -120,6 +120,25 @@ export async function POST(req) {
 
 export async function PUT(req) {
   try {
+    // Check authentication
+    const token = req.cookies.get("token")?.value;
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized - Please login first" }, { status: 401 });
+    }
+
+    const payload = await verifyToken(token);
+    if (!payload?.email) {
+      return NextResponse.json({ error: "Unauthorized - Invalid token" }, { status: 401 });
+    }
+
+    // Check if user is admin or teacher
+    const userRole = payload.role?.toLowerCase();
+    if (userRole !== 'admin' && userRole !== 'teacher') {
+      return NextResponse.json({ 
+        error: "Access denied - Only admins and teachers can update records" 
+      }, { status: 403 });
+    }
+
     const update = await req.json();
     const { Reg_No, Subject_Code, Grade } = update;
     if (!Reg_No || !Subject_Code || !Grade) return NextResponse.json({ error: "Reg_No, Subject_Code, Grade required" }, { status: 400 });
@@ -131,6 +150,59 @@ export async function PUT(req) {
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error("/api/students PUT error", err);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
+}
+
+export async function DELETE(req) {
+  try {
+    // Check authentication
+    const token = req.cookies.get("token")?.value;
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized - Please login first" }, { status: 401 });
+    }
+
+    const payload = await verifyToken(token);
+    if (!payload?.email) {
+      return NextResponse.json({ error: "Unauthorized - Invalid token" }, { status: 401 });
+    }
+
+    // Check if user is admin
+    const userRole = payload.role?.toLowerCase();
+    if (userRole !== 'admin') {
+      return NextResponse.json({ 
+        error: "Access denied - Only admins can delete records" 
+      }, { status: 403 });
+    }
+
+    const body = await req.json();
+    const { Reg_No, Subject_Code, Sem } = body;
+    
+    if (!Reg_No || !Subject_Code) {
+      return NextResponse.json({ error: "Reg_No and Subject_Code required" }, { status: 400 });
+    }
+
+    const client = await clientPromise;
+    const db = client.db("cutm1");
+    const cutm = db.collection("CUTM1");
+    
+    // Build query
+    const query = { Reg_No, Subject_Code };
+    if (Sem) {
+      query.Sem = Sem;
+    }
+    
+    const res = await cutm.deleteOne(query);
+    if (res.deletedCount === 0) {
+      return NextResponse.json({ error: "Record not found" }, { status: 404 });
+    }
+    
+    return NextResponse.json({ 
+      success: true, 
+      message: "Record deleted successfully" 
+    });
+  } catch (err) {
+    console.error("/api/students DELETE error", err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

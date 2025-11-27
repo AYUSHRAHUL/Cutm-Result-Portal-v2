@@ -23,6 +23,18 @@ export default function AdminCBCSIndex() {
   const [studentFilter, setStudentFilter] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50);
+  
+  // Edit and delete states
+  const [selectedRecords, setSelectedRecords] = useState([]);
+  const [editingRecord, setEditingRecord] = useState(null);
+  const [editForm, setEditForm] = useState({
+    Reg_No: "",
+    Name: "",
+    Subject_Code: "",
+    Subject_Name: "",
+    Credits: "",
+    Sem: ""
+  });
 
   // Available semesters
   const semesters = [
@@ -75,6 +87,125 @@ export default function AdminCBCSIndex() {
         setRegistrationData([]);
         setFilteredData([]);
         setDataStats(null);
+        setSelectedRecords([]);
+      } else {
+        setUploadMessage(`Error: ${result.error}`);
+      }
+    } catch (error) {
+      setUploadMessage(`Error: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Toggle record selection
+  const toggleRecordSelection = (recordId) => {
+    setSelectedRecords(prev => 
+      prev.includes(recordId) 
+        ? prev.filter(id => id !== recordId)
+        : [...prev, recordId]
+    );
+  };
+
+  // Select all visible records
+  const toggleSelectAll = () => {
+    const visibleRecords = filteredData
+      .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+      .map(item => item._id);
+    
+    if (visibleRecords.every(id => selectedRecords.includes(id))) {
+      setSelectedRecords(prev => prev.filter(id => !visibleRecords.includes(id)));
+    } else {
+      setSelectedRecords(prev => [...new Set([...prev, ...visibleRecords])]);
+    }
+  };
+
+  // Open edit modal
+  const openEditModal = (record) => {
+    setEditingRecord(record);
+    setEditForm({
+      Reg_No: record.Reg_No || "",
+      Name: record.Name || "",
+      Subject_Code: record.Subject_Code || "",
+      Subject_Name: record.Subject_Name || "",
+      Credits: record.Credits || "",
+      Sem: record.Sem || ""
+    });
+  };
+
+  // Close edit modal
+  const closeEditModal = () => {
+    setEditingRecord(null);
+    setEditForm({
+      Reg_No: "",
+      Name: "",
+      Subject_Code: "",
+      Subject_Name: "",
+      Credits: "",
+      Sem: ""
+    });
+  };
+
+  // Update record
+  const handleUpdateRecord = async (e) => {
+    e.preventDefault();
+    if (!editingRecord) return;
+
+    setLoading(true);
+    setUploadMessage("");
+
+    try {
+      const response = await fetch('/api/registration-data', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recordId: editingRecord._id,
+          updates: editForm
+        })
+      });
+
+      const result = await response.json();
+      
+      if (response.ok) {
+        setUploadMessage(`Successfully updated record for ${editForm.Name}`);
+        await fetchRegistrationData();
+        closeEditModal();
+      } else {
+        setUploadMessage(`Error: ${result.error}`);
+      }
+    } catch (error) {
+      setUploadMessage(`Error: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Delete selected records
+  const deleteSelectedRecords = async () => {
+    if (selectedRecords.length === 0) {
+      setUploadMessage("Please select at least one record to delete");
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete ${selectedRecords.length} selected record(s)? This action cannot be undone.`)) {
+      return;
+    }
+
+    setLoading(true);
+    setUploadMessage("");
+
+    try {
+      const ids = selectedRecords.join(',');
+      const response = await fetch(`/api/registration-data?ids=${ids}`, {
+        method: 'DELETE'
+      });
+
+      const result = await response.json();
+      
+      if (response.ok) {
+        setUploadMessage(`Successfully deleted ${result.deletedCount} record(s)`);
+        setSelectedRecords([]);
+        await fetchRegistrationData();
       } else {
         setUploadMessage(`Error: ${result.error}`);
       }
@@ -122,6 +253,8 @@ export default function AdminCBCSIndex() {
       
       setFilteredData(filtered);
       setCurrentPage(1);
+      // Clear selections when filters change
+      setSelectedRecords([]);
     } catch (error) {
       setFilteredData(registrationData || []);
     }
@@ -411,6 +544,7 @@ export default function AdminCBCSIndex() {
                     setSemesterFilter("");
                     setDepartmentFilter("");
                     setStudentFilter("");
+                    setSelectedRecords([]);
                   }}
                   className="text-[#5A6C7D] hover:text-[#1A1F29] text-2xl sm:text-3xl font-bold w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors"
                 >
@@ -524,36 +658,24 @@ export default function AdminCBCSIndex() {
                 
                 <div className="flex flex-col gap-2">
                   <label className="block text-xs sm:text-sm font-bold text-[#1A1F29] mb-2">Actions:</label>
-                  <div className="grid grid-cols-3 gap-2">
+                  {selectedRecords.length > 0 && (
                     <button
-                      onClick={fetchRegistrationData}
+                      onClick={deleteSelectedRecords}
                       disabled={loading}
-                      className="px-2 py-2 rounded-lg text-white font-bold transition-all hover:shadow-lg active:scale-95 disabled:opacity-50 text-xs min-h-[44px]"
-                      style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
-                      title="Refresh"
+                      className="w-full px-2 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 font-bold transition-all active:scale-95 text-xs min-h-[44px]"
+                      title="Delete Selected"
                     >
-                      🔄
+                      🗑️ Delete Selected ({selectedRecords.length})
                     </button>
-                    <button
-                      onClick={() => {
-                        setSemesterFilter("");
-                        setDepartmentFilter("");
-                        setStudentFilter("");
-                      }}
-                      className="px-2 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 font-bold transition-all active:scale-95 text-xs min-h-[44px]"
-                      title="Reset Filters"
-                    >
-                      ↺
-                    </button>
-                    <button
-                      onClick={clearAllRegistrationData}
-                      disabled={loading}
-                      className="px-2 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 font-bold transition-all active:scale-95 text-xs min-h-[44px]"
-                      title="Clear All"
-                    >
-                      🗑️
-                    </button>
-                  </div>
+                  )}
+                  <button
+                    onClick={clearAllRegistrationData}
+                    disabled={loading}
+                    className="w-full px-2 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 font-bold transition-all active:scale-95 text-xs min-h-[44px]"
+                    title="Clear All"
+                  >
+                    🗑️ Clear All
+                  </button>
                 </div>
               </div>
 
@@ -590,28 +712,58 @@ export default function AdminCBCSIndex() {
                         style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
                       >
                         <tr className="text-white">
-                          <th className="px-3 sm:px-4 py-2 sm:py-3 text-left font-black text-xs uppercase">Reg No</th>
-                          <th className="px-3 sm:px-4 py-2 sm:py-3 text-left font-black text-xs uppercase">Name</th>
-                          <th className="px-3 sm:px-4 py-2 sm:py-3 text-left font-black text-xs uppercase">Code</th>
-                          <th className="px-3 sm:px-4 py-2 sm:py-3 text-left font-black text-xs uppercase">Subject</th>
-                          <th className="px-3 sm:px-4 py-2 sm:py-3 text-center font-black text-xs uppercase">Credits</th>
-                          <th className="px-3 sm:px-4 py-2 sm:py-3 text-center font-black text-xs uppercase">Sem</th>
+                          <th className="px-1 sm:px-2 py-1.5 sm:py-2 text-center font-black text-xs uppercase">
+                            <input
+                              type="checkbox"
+                              checked={filteredData
+                                .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+                                .every(item => selectedRecords.includes(item._id)) && filteredData.length > 0}
+                              onChange={toggleSelectAll}
+                              className="w-4 h-4 rounded border-2 cursor-pointer"
+                            />
+                          </th>
+                          <th className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-left font-black text-xs uppercase">Reg No</th>
+                          <th className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-left font-black text-xs uppercase">Name</th>
+                          <th className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-left font-black text-xs uppercase">Code</th>
+                          <th className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-left font-black text-xs uppercase">Subject</th>
+                          <th className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-center font-black text-xs uppercase">Credits</th>
+                          <th className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-center font-black text-xs uppercase">Sem</th>
+                          <th className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-center font-black text-xs uppercase">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
                         {filteredData
                           .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
                           .map((item, index) => (
-                          <tr key={index} className="border-b-2 hover:bg-[#05A3C7]/5" style={{ borderColor: "rgba(5,163,199,0.1)" }}>
-                            <td className="px-3 sm:px-4 py-2 sm:py-3 font-mono font-bold" style={{ color: "#05A3C7" }}>{item.Reg_No}</td>
-                            <td className="px-3 sm:px-4 py-2 sm:py-3 text-[#1A1F29] font-medium">{item.Name}</td>
-                            <td className="px-3 sm:px-4 py-2 sm:py-3 font-mono text-green-600 font-bold">{item.Subject_Code}</td>
-                            <td className="px-3 sm:px-4 py-2 sm:py-3 text-[#1A1F29]">{item.Subject_Name}</td>
-                            <td className="px-3 sm:px-4 py-2 sm:py-3 text-center font-bold text-[#1A1F29]">{item.Credits}</td>
-                            <td className="px-3 sm:px-4 py-2 sm:py-3 text-center">
-                              <span className="px-2 py-1 rounded-full text-xs font-bold text-white" style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}>
+                          <tr key={item._id || index} className="border-b-2 hover:bg-[#05A3C7]/5" style={{ borderColor: "rgba(5,163,199,0.1)" }}>
+                            <td className="px-1 sm:px-2 py-1.5 sm:py-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={selectedRecords.includes(item._id)}
+                                onChange={() => toggleRecordSelection(item._id)}
+                                className="w-4 h-4 rounded border-2 cursor-pointer"
+                                style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                              />
+                            </td>
+                            <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 font-mono font-bold text-xs sm:text-sm" style={{ color: "#05A3C7" }}>{item.Reg_No}</td>
+                            <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-[#1A1F29] font-medium text-xs sm:text-sm">{item.Name}</td>
+                            <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 font-mono text-green-600 font-bold text-xs sm:text-sm">{item.Subject_Code}</td>
+                            <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-[#1A1F29] text-xs sm:text-sm">{item.Subject_Name}</td>
+                            <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-center font-bold text-[#1A1F29] text-xs sm:text-sm">{item.Credits}</td>
+                            <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-center">
+                              <span className="px-1.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold text-white" style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}>
                                 {item.Sem}
                               </span>
+                            </td>
+                            <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-center">
+                              <button
+                                onClick={() => openEditModal(item)}
+                                className="px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg text-white font-bold text-[10px] sm:text-xs hover:shadow-md transition-all"
+                                style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+                                title="Edit"
+                              >
+                                ✏️ Edit
+                              </button>
                             </td>
                           </tr>
                         ))}
@@ -654,6 +806,142 @@ export default function AdminCBCSIndex() {
           </div>
         )}
 
+        {/* Edit Modal */}
+        {editingRecord && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl sm:rounded-2xl p-4 sm:p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-4 sm:mb-6">
+                <h3 className="text-lg sm:text-xl font-black text-[#1A1F29] flex items-center gap-2">
+                  ✏️ Edit Registration Record
+                </h3>
+                <button
+                  onClick={closeEditModal}
+                  className="text-[#5A6C7D] hover:text-[#1A1F29] text-2xl sm:text-3xl font-bold w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors"
+                >
+                  ×
+                </button>
+              </div>
+
+              <form onSubmit={handleUpdateRecord} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-[#1A1F29] mb-2">Registration Number</label>
+                    <input
+                      type="text"
+                      required
+                      className="w-full rounded-xl border-2 bg-white px-3 sm:px-4 py-2.5 sm:py-3 outline-none focus:ring-4 focus:ring-[#05A3C7]/20 text-[#1A1F29] font-medium text-sm sm:text-base min-h-[44px]"
+                      style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                      value={editForm.Reg_No}
+                      onChange={e => setEditForm({ ...editForm, Reg_No: e.target.value.toUpperCase() })}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-[#1A1F29] mb-2">Student Name</label>
+                    <input
+                      type="text"
+                      required
+                      className="w-full rounded-xl border-2 bg-white px-3 sm:px-4 py-2.5 sm:py-3 outline-none focus:ring-4 focus:ring-[#05A3C7]/20 text-[#1A1F29] font-medium text-sm sm:text-base min-h-[44px]"
+                      style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                      value={editForm.Name}
+                      onChange={e => setEditForm({ ...editForm, Name: e.target.value })}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-[#1A1F29] mb-2">Subject Code</label>
+                    <input
+                      type="text"
+                      required
+                      className="w-full rounded-xl border-2 bg-white px-3 sm:px-4 py-2.5 sm:py-3 outline-none focus:ring-4 focus:ring-[#05A3C7]/20 text-[#1A1F29] font-medium text-sm sm:text-base min-h-[44px]"
+                      style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                      value={editForm.Subject_Code}
+                      onChange={e => setEditForm({ ...editForm, Subject_Code: e.target.value.toUpperCase() })}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-[#1A1F29] mb-2">Subject Name</label>
+                    <input
+                      type="text"
+                      required
+                      className="w-full rounded-xl border-2 bg-white px-3 sm:px-4 py-2.5 sm:py-3 outline-none focus:ring-4 focus:ring-[#05A3C7]/20 text-[#1A1F29] font-medium text-sm sm:text-base min-h-[44px]"
+                      style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                      value={editForm.Subject_Name}
+                      onChange={e => setEditForm({ ...editForm, Subject_Name: e.target.value })}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-[#1A1F29] mb-2">Credits</label>
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      step="0.5"
+                      className="w-full rounded-xl border-2 bg-white px-3 sm:px-4 py-2.5 sm:py-3 outline-none focus:ring-4 focus:ring-[#05A3C7]/20 text-[#1A1F29] font-medium text-sm sm:text-base min-h-[44px]"
+                      style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                      value={editForm.Credits}
+                      onChange={e => setEditForm({ ...editForm, Credits: e.target.value })}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-[#1A1F29] mb-2">Semester</label>
+                    <select
+                      required
+                      className="w-full rounded-xl border-2 bg-white px-3 sm:px-4 py-2.5 sm:py-3 outline-none focus:ring-4 focus:ring-[#05A3C7]/20 text-[#1A1F29] font-medium text-sm sm:text-base min-h-[44px]"
+                      style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                      value={editForm.Sem}
+                      onChange={e => setEditForm({ ...editForm, Sem: e.target.value })}
+                    >
+                      <option value="">Select Semester</option>
+                      {semesters.map((sem) => (
+                        <option key={sem} value={sem}>
+                          {sem}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {uploadMessage && (
+                  <div className={`rounded-lg p-3 sm:p-4 ${
+                    uploadMessage.includes('Error') 
+                      ? 'bg-red-50 border-2 border-red-200 text-red-700' 
+                      : 'bg-green-50 border-2 border-green-200 text-green-700'
+                  }`}>
+                    <div className="font-bold text-sm sm:text-base">
+                      {uploadMessage.includes('Error') ? '⚠️ Error' : '✅ Success'}
+                    </div>
+                    <div className="text-xs sm:text-sm mt-1">
+                      {uploadMessage}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={closeEditModal}
+                    className="flex-1 px-4 py-2.5 rounded-xl border-2 text-[#1A1F29] font-bold text-sm sm:text-base hover:bg-gray-50 transition-all min-h-[44px]"
+                    style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="flex-1 px-4 py-2.5 rounded-xl text-white font-bold text-sm sm:text-base hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+                    style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+                  >
+                    {loading ? "Updating..." : "Update Record"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
     
       </div>
     </div>

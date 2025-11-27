@@ -22,25 +22,45 @@ export default function AdminBacklogPage() {
   const [sortBy, setSortBy] = useState("");
   const [filterGrade, setFilterGrade] = useState("");
   const formRef = useRef(null);
+  const [studentSummary, setStudentSummary] = useState([]);
+  const [showAllMode, setShowAllMode] = useState(false);
+  const [selectedStudentInfo, setSelectedStudentInfo] = useState(null);
 
   // CSV Export Function
   function exportCSV() {
     if (rows.length === 0) return;
     
-    const headers = ["Reg No", "Name", "Branch", "Batch", "Semester", "Subject Code", "Subject Name", "Grade"];
-    const csvRows = rows.map(b => [
-      b.Reg_No || b.registration || '',
-      b.Name || '',
-      b.Branch || '',
-      b.Batch || '',
-      b.Sem || '',
-      b.Subject_Code || b.subject_code || '',
-      b.Subject_Name || '',
-      b.Grade || ''
-    ].map(field => {
-      const str = String(field).replace(/"/g, '""');
-      return /[",\n]/.test(str) ? `"${str}"` : str;
-    }).join(','));
+    // Determine if this is a subject search
+    const isSubjectSearchExport = !selectedReg && !registration && (selectedSubject || subjectCode);
+    
+    const headers = isSubjectSearchExport
+      ? ["Name", "Registration No", "Branch", "Batch", "Subject Code", "Subject Name", "Semester", "Grade"]
+      : ["Subject Code", "Subject Name", "Semester", "Grade"];
+    
+    const csvRows = rows.map(b => {
+      const rowData = isSubjectSearchExport
+        ? [
+            b.Name || '',
+            b.Reg_No || b.registration || '',
+            b.Branch || '',
+            b.Batch || '',
+            b.Subject_Code || b.subject_code || '',
+            b.Subject_Name || '',
+            b.Sem || '',
+            b.Grade || ''
+          ]
+        : [
+            b.Subject_Code || b.subject_code || '',
+            b.Subject_Name || '',
+            b.Sem || '',
+            b.Grade || ''
+          ];
+      
+      return rowData.map(field => {
+        const str = String(field).replace(/"/g, '""');
+        return /[",\n]/.test(str) ? `"${str}"` : str;
+      }).join(',');
+    });
     
     const csv = [headers.join(','), ...csvRows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -57,6 +77,8 @@ export default function AdminBacklogPage() {
   async function search(e) {
     e?.preventDefault();
     setMessage(""); setError(""); setRows([]); setCount(0);
+    setSelectedStudentInfo(null);
+    setShowAllMode(false);
     try {
       setLoading(true);
       let regValue = regMode === "list" ? selectedReg : registration;
@@ -69,6 +91,57 @@ export default function AdminBacklogPage() {
       if (regMode === "list" && selectedReg === "ALL") {
         regValue = "";
         isAll = true;
+        setShowAllMode(true);
+      } else if (regValue) {
+        setShowAllMode(false);
+        // Helper function to convert short branch to full name
+        const getFullBranchName = (shortBranch) => {
+          const branchMap = {
+            'CSE': 'Computer Science Engineering',
+            'ECE': 'Electronics & Communication Engineering',
+            'EEE': 'Electrical & Electronics Engineering',
+            'Mechanical': 'Mechanical Engineering',
+            'Civil': 'Civil Engineering',
+            'AIML': 'AIML'
+          };
+          return branchMap[shortBranch] || shortBranch;
+        };
+        
+        // Find student info for selected registration
+        const studentInfo = studentSummary.find(s => s.Reg_No === regValue);
+        if (studentInfo) {
+          // Student info already has full branch name from summary fetching
+          setSelectedStudentInfo({
+            Reg_No: studentInfo.Reg_No || regValue,
+            Name: studentInfo.Name || "",
+            Branch: studentInfo.Branch || "",
+            Batch: studentInfo.Batch || ""
+          });
+        } else {
+          // Try to extract branch from registration number if not found
+          let extractedBranch = "";
+          if (regValue.length >= 8) {
+            const deptCode = regValue.charAt(7);
+            const branchMap = {
+              '1': 'Civil', '2': 'CSE', '3': 'ECE', '4': 'ECE',
+              '5': 'EEE', '6': 'Mechanical', '7': 'AIML',
+              '8': 'CSE', '9': 'Civil'
+            };
+            const shortBranch = branchMap[deptCode] || "";
+            if (shortBranch) {
+              extractedBranch = getFullBranchName(shortBranch);
+            }
+          }
+          if (!extractedBranch && branch && branch !== "All") {
+            extractedBranch = getFullBranchName(branch);
+          }
+          setSelectedStudentInfo({
+            Reg_No: regValue,
+            Name: "",
+            Branch: extractedBranch,
+            Batch: year || ""
+          });
+        }
       }
       // Guard: avoid unfiltered query that could fetch whole data on first load
       if (!isAll && !regValue && !subjValue && !branch && !year) {
@@ -106,6 +179,71 @@ export default function AdminBacklogPage() {
       setRows(list);
       setCount(list.length);
       setMessage(data.message || "Results loaded");
+      
+      // Update student info from results if not already set
+      if (regValue && !selectedStudentInfo && list.length > 0) {
+        const firstRow = list[0];
+        
+        // Helper function to convert short branch to full name
+        const getFullBranchName = (shortBranch) => {
+          const branchMap = {
+            'CSE': 'Computer Science Engineering',
+            'ECE': 'Electronics & Communication Engineering',
+            'EEE': 'Electrical & Electronics Engineering',
+            'Mechanical': 'Mechanical Engineering',
+            'Civil': 'Civil Engineering',
+            'AIML': 'AIML'
+          };
+          return branchMap[shortBranch] || shortBranch;
+        };
+        
+        // Fetch branch override
+        let studentBranch = firstRow.Branch || "";
+        try {
+          const overrideRes = await fetch(`/api/branch-change?reg=${regValue}`);
+          if (overrideRes.ok) {
+            const overrideData = await overrideRes.json();
+            if (overrideData.override) {
+              studentBranch = overrideData.override;
+            }
+          }
+        } catch {}
+        
+        // If no override, get from first row or extract from reg number
+        if (!studentBranch) {
+          studentBranch = firstRow.Branch || "";
+          // Convert short form to full name if needed
+          if (studentBranch && studentBranch.length <= 5 && studentBranch !== "AIML") {
+            studentBranch = getFullBranchName(studentBranch);
+          }
+        }
+        
+        // Extract from registration number if still not found
+        if (!studentBranch && regValue.length >= 8) {
+          const deptCode = regValue.charAt(7);
+          const branchMap = {
+            '1': 'Civil', '2': 'CSE', '3': 'ECE', '4': 'ECE',
+            '5': 'EEE', '6': 'Mechanical', '7': 'AIML',
+            '8': 'CSE', '9': 'Civil'
+          };
+          const shortBranch = branchMap[deptCode] || "";
+          if (shortBranch) {
+            studentBranch = getFullBranchName(shortBranch);
+          }
+        }
+        
+        // Fallback to selected branch filter
+        if (!studentBranch && branch && branch !== "All") {
+          studentBranch = getFullBranchName(branch);
+        }
+        
+        setSelectedStudentInfo({
+          Reg_No: firstRow.Reg_No || firstRow.registration || regValue,
+          Name: firstRow.Name || "",
+          Branch: studentBranch,
+          Batch: firstRow.Batch || year || ""
+        });
+      }
     } catch (err) {
       setError(err.message);
     } finally { setLoading(false); }
@@ -122,11 +260,13 @@ export default function AdminBacklogPage() {
         if (regMode !== "list") { 
           setRegList([]); 
           setSelectedReg("");
+          setStudentSummary([]);
           return; 
         }
         if (!branch && !year) { 
           setRegList([]); 
           setSelectedReg("");
+          setStudentSummary([]);
           return; 
         }
         
@@ -151,13 +291,142 @@ export default function AdminBacklogPage() {
             .sort();
           setRegList(Array.from(new Set(list)));
           setSelectedReg("");
+
+          // Helper function to convert short branch to full name
+          const getFullBranchName = (shortBranch) => {
+            const branchMap = {
+              'CSE': 'Computer Science Engineering',
+              'ECE': 'Electronics & Communication Engineering',
+              'EEE': 'Electrical & Electronics Engineering',
+              'Mechanical': 'Mechanical Engineering',
+              'Civil': 'Civil Engineering',
+              'AIML': 'AIML'
+            };
+            return branchMap[shortBranch] || shortBranch;
+          };
+
+          // Helper function to get branch from registration number (returns short form)
+          const getBranchFromRegNo = (regNo) => {
+            if (!regNo || regNo.length < 8) return "";
+            const deptCode = regNo.charAt(7);
+            const branchMap = {
+              '1': 'Civil',
+              '2': 'CSE',
+              '3': 'ECE',
+              '4': 'ECE',
+              '5': 'EEE',
+              '6': 'Mechanical',
+              '7': 'AIML',
+              '8': 'CSE',
+              '9': 'Civil'
+            };
+            return branchMap[deptCode] || "";
+          };
+
+          // Fetch branch overrides for all students in parallel
+          const uniqueRegNos = Array.from(new Set(list));
+          const overridePromises = uniqueRegNos.map(regNo =>
+            fetch(`/api/branch-change?reg=${regNo}`)
+              .then(res => res.ok ? res.json() : null)
+              .then(data => data?.override ? { reg: regNo.toUpperCase(), branch: data.override } : null)
+              .catch(() => null)
+          );
+          
+          const overrideResults = await Promise.all(overridePromises);
+          const branchOverrides = new Map();
+          overrideResults.forEach(ov => {
+            if (ov && ov.reg && ov.branch) {
+              branchOverrides.set(ov.reg, ov.branch);
+            }
+          });
+
+          // Fetch backlog counts for each student
+          const summaryPromises = uniqueRegNos.map(async (regNo) => {
+            try {
+              const backlogRes = await fetch("/api/backlogs", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ registration: regNo })
+              });
+              const backlogData = await backlogRes.json();
+              const backlogs = backlogData.backlogs || backlogData.result || [];
+              
+              // Find student info from batch data
+              const studentInfo = students.find(s => (s.Reg_No || s.registration) === regNo);
+              
+              // Get branch in priority order: override > student info > backlog data > reg number > filter
+              let studentBranch = "";
+              
+              // 1. Check branch overrides first
+              if (branchOverrides.has(regNo.toUpperCase())) {
+                studentBranch = branchOverrides.get(regNo.toUpperCase());
+              }
+              // 2. Check student info from batch data
+              else if (studentInfo?.Branch) {
+                studentBranch = studentInfo.Branch;
+                // Convert short form to full name if needed
+                if (studentBranch && studentBranch.length <= 5 && studentBranch !== "AIML") {
+                  studentBranch = getFullBranchName(studentBranch);
+                }
+              }
+              // 3. Check backlog data
+              else if (backlogs.length > 0 && backlogs[0]?.Branch) {
+                studentBranch = backlogs[0].Branch;
+                // Convert short form to full name if needed
+                if (studentBranch && studentBranch.length <= 5 && studentBranch !== "AIML") {
+                  studentBranch = getFullBranchName(studentBranch);
+                }
+              }
+              // 4. Extract from registration number and convert to full name
+              else {
+                const shortBranch = getBranchFromRegNo(regNo);
+                if (shortBranch) {
+                  studentBranch = getFullBranchName(shortBranch);
+                }
+              }
+              // 5. Fallback to selected branch filter
+              if (!studentBranch && branch && branch !== "All") {
+                studentBranch = getFullBranchName(branch);
+              }
+              
+              // Get name from student info or backlog data
+              let studentName = studentInfo?.Name || "";
+              if (!studentName && backlogs.length > 0) {
+                studentName = backlogs[0]?.Name || "";
+              }
+              
+              return {
+                Reg_No: regNo,
+                Name: studentName,
+                Branch: studentBranch,
+                Batch: studentInfo?.Batch || year || "",
+                TotalBacklogs: backlogs.length
+              };
+            } catch {
+              // Fallback: try to get branch from reg number and convert to full name
+              const shortBranch = getBranchFromRegNo(regNo);
+              const fallbackBranch = shortBranch ? getFullBranchName(shortBranch) : (branch && branch !== "All" ? getFullBranchName(branch) : "");
+              return {
+                Reg_No: regNo,
+                Name: "",
+                Branch: fallbackBranch,
+                Batch: year || "",
+                TotalBacklogs: 0
+              };
+            }
+          });
+
+          const summaries = await Promise.all(summaryPromises);
+          setStudentSummary(summaries);
         } else {
           setRegList([]);
           setSelectedReg("");
+          setStudentSummary([]);
         }
       } catch (err) {
         setRegList([]);
         setSelectedReg("");
+        setStudentSummary([]);
       }
     }, 150);
     return () => clearTimeout(t);
@@ -208,54 +477,9 @@ export default function AdminBacklogPage() {
 
   const filteredRows = getFilteredRows();
   const uniqueGrades = Array.from(new Set(rows.map(r => r.Grade).filter(Boolean)));
-  const summary = useMemo(() => {
-    const m = new Map();
-    rows.forEach(r => {
-      const batch = r.Batch || 'N/A';
-      const br = r.Branch || 'N/A';
-      const key = `${batch}|${br}`;
-      m.set(key, (m.get(key) || 0) + 1);
-    });
-    const arr = Array.from(m.entries()).map(([k, cnt]) => {
-      const [batch, br] = k.split('|');
-      return { batch, branch: br, count: cnt };
-    });
-    // sort by batch desc then branch
-    arr.sort((a,b) => (b.batch || '').localeCompare(a.batch || '') || (a.branch||'').localeCompare(b.branch||''));
-    return arr;
-  }, [rows]);
   
-  function toBranchKeyFromName(name) {
-    const s = String(name || '').toUpperCase();
-    if (s.includes('COMPUTER')) return 'CSE';
-    if (s.includes('ELECTRONICS') && s.includes('COMMUNICATION')) return 'ECE';
-    if (s.includes('ELECTRICAL') && !s.includes('COMMUNICATION')) return 'EEE';
-    if (s.includes('CIVIL')) return 'Civil';
-    if (s.includes('MECHANICAL')) return 'Mechanical';
-    if (s.includes('AIML')) return 'AIML';
-    return name;
-  }
-
-  function exportSummaryCSV() {
-    if (!summary || summary.length === 0) return;
-    const header = ["Batch","Branch","Backlogs"];
-    const rowsCsv = summary.map(r => [r.batch, r.branch, r.count]
-      .map(val => {
-        const str = String(val ?? "");
-        const esc = str.replace(/"/g, '""');
-        return /[",\n]/.test(esc) ? `"${esc}"` : esc;
-      }).join(","));
-    const csv = [header.join(","), ...rowsCsv].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `backlog_summary_${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  }
+  // Determine if this is a subject search (not registration search)
+  const isSubjectSearch = !selectedReg && !registration && (selectedSubject || subjectCode);
 
   return (
     <div 
@@ -359,6 +583,7 @@ export default function AdminBacklogPage() {
                   >
                     <option value="">{regList.length === 0 ? (branch && year ? "No students found" : "Select batch & branch") : `Select Registration (${regList.length})`}</option>
                     {(branch === "All" && year === "All") && <option value="ALL">All</option>}
+                    {studentSummary.length > 0 && <option value="ALL">All ({studentSummary.length} students)</option>}
                     {regList.map(r=> <option key={r} value={r}>{r}</option>)}
                   </select>
                   <button 
@@ -472,8 +697,93 @@ export default function AdminBacklogPage() {
           </div>
         )}
 
+        {/* Student Info Card - Show when specific student is selected */}
+        {selectedStudentInfo && !showAllMode && (
+          <div className="mb-4 sm:mb-6 rounded-xl sm:rounded-2xl border-2 bg-white p-4 sm:p-5 shadow-lg" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
+            <h3 className="text-[#1A1F29] font-black mb-3 text-base sm:text-lg">Student Information</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              <div>
+                <div className="text-xs sm:text-sm text-[#5A6C7D] font-medium mb-1">Name</div>
+                <div className="text-sm sm:text-base text-[#1A1F29] font-bold">{selectedStudentInfo.Name || "-"}</div>
+              </div>
+              <div>
+                <div className="text-xs sm:text-sm text-[#5A6C7D] font-medium mb-1">Registration Number</div>
+                <div className="text-sm sm:text-base font-bold" style={{ color: "#05A3C7" }}>{selectedStudentInfo.Reg_No || "-"}</div>
+              </div>
+              <div>
+                <div className="text-xs sm:text-sm text-[#5A6C7D] font-medium mb-1">Branch</div>
+                <div className="text-sm sm:text-base text-[#1A1F29] font-bold">{selectedStudentInfo.Branch || "-"}</div>
+              </div>
+              <div>
+                <div className="text-xs sm:text-sm text-[#5A6C7D] font-medium mb-1">Batch</div>
+                <div className="text-sm sm:text-base text-[#1A1F29] font-bold">{selectedStudentInfo.Batch || "-"}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* All Students Summary Table - Show when "All" is selected */}
+        {showAllMode && studentSummary.length > 0 && (
+          <div className="mb-4 sm:mb-6 rounded-xl sm:rounded-2xl border-2 bg-white shadow-lg" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
+            <div 
+              className="text-white px-3 sm:px-4 lg:px-6 py-3 sm:py-4"
+              style={{
+                background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
+              }}
+            >
+              <h3 className="font-black text-sm sm:text-base lg:text-lg">All Students Summary ({studentSummary.length} students)</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr style={{ background: "rgba(5,163,199,0.1)" }}>
+                    <th className="px-3 sm:px-4 py-2 sm:py-3 text-left font-black text-xs uppercase">Name</th>
+                    <th className="px-3 sm:px-4 py-2 sm:py-3 text-left font-black text-xs uppercase">Registration No</th>
+                    <th className="px-3 sm:px-4 py-2 sm:py-3 text-left font-black text-xs uppercase">Branch</th>
+                    <th className="px-3 sm:px-4 py-2 sm:py-3 text-center font-black text-xs uppercase">Total Backlogs</th>
+                    <th className="px-3 sm:px-4 py-2 sm:py-3 text-center font-black text-xs uppercase">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {studentSummary.map((student, idx) => (
+                    <tr 
+                      key={student.Reg_No || idx} 
+                      className="border-t-2 border-[#05A3C7]/10 hover:bg-[#05A3C7]/5 transition-colors"
+                    >
+                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-[#1A1F29] font-medium">{student.Name || "-"}</td>
+                      <td className="px-3 sm:px-4 py-2 sm:py-3 font-bold" style={{ color: "#05A3C7" }}>{student.Reg_No}</td>
+                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-[#1A1F29] font-medium">{student.Branch || "-"}</td>
+                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-center font-bold text-[#1A1F29]">{student.TotalBacklogs}</td>
+                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-center">
+                        <button
+                          onClick={() => {
+                            setSelectedReg(student.Reg_No);
+                            setShowAllMode(false);
+                            // Set student info immediately
+                            setSelectedStudentInfo({
+                              Reg_No: student.Reg_No,
+                              Name: student.Name || "",
+                              Branch: student.Branch || "",
+                              Batch: student.Batch || ""
+                            });
+                            setTimeout(() => search(), 100);
+                          }}
+                          className="px-3 py-1 rounded-lg text-white font-bold text-xs hover:shadow-md transition-all"
+                          style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+                        >
+                          View Details
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* Filter and Sort */}
-        {rows.length > 0 && (
+        {rows.length > 0 && !showAllMode && (
           <div className="mb-3 sm:mb-4 flex flex-col sm:flex-row gap-2 sm:gap-3">
             <select 
               className="w-full sm:w-auto rounded-lg border-2 bg-white px-3 py-2 sm:py-2.5 text-[#1A1F29] text-sm font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
@@ -498,56 +808,9 @@ export default function AdminBacklogPage() {
           </div>
         )}
 
-        {/* Summary by Batch and Branch */}
-        {rows.length > 0 && (
-          <div className="mb-4 sm:mb-6 rounded-xl sm:rounded-2xl border-2 bg-white p-3 sm:p-4 lg:p-5 shadow-lg" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
-            <div className="flex items-center justify-between mb-2 sm:mb-3">
-              <h3 className="text-[#1A1F29] font-black text-sm sm:text-base lg:text-lg">Backlog Summary (Batch × Branch)</h3>
-              <button
-                onClick={exportSummaryCSV}
-                className="px-3 py-1.5 rounded-lg text-white font-bold text-xs sm:text-sm"
-                style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
-              >
-                Export Summary
-              </button>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="text-white" style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}>
-                    {["Batch","Branch","Backlogs","Action"].map(h => (
-                      <th key={h} className="px-4 py-3 text-left uppercase tracking-wider font-black text-xs whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {summary.map((row, idx) => (
-                    <tr key={`${row.batch}-${row.branch}-${idx}`} className="border-t-2 border-[#05A3C7]/10">
-                      <td className="px-4 py-3 text-[#1A1F29] font-medium whitespace-nowrap">{row.batch}</td>
-                      <td className="px-4 py-3 text-[#1A1F29] font-medium whitespace-nowrap">{row.branch}</td>
-                      <td className="px-4 py-3 text-[#1A1F29] font-bold">{row.count}</td>
-                      <td className="px-4 py-3">
-                        <button
-                          className="px-3 py-1 rounded-lg text-white font-bold text-xs"
-                          style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
-                          onClick={() => {
-                            setYear(row.batch);
-                            setBranch(toBranchKeyFromName(row.branch));
-                            setTimeout(() => search(), 0);
-                          }}
-                        >
-                          View Details
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
 
-        {/* Results Table */}
+        {/* Results Table - Hide when in "All" mode */}
+        {!showAllMode && (
         <div className="rounded-xl sm:rounded-2xl overflow-hidden border-2 bg-white shadow-lg" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
           <div 
             className="text-white px-3 sm:px-4 lg:px-6 py-3 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3"
@@ -585,6 +848,16 @@ export default function AdminBacklogPage() {
                       <div className="flex-1 min-w-0">
                         <div className="text-[#1A1F29] font-bold text-sm sm:text-base truncate">{b.Name || '-'}</div>
                         <div className="text-[#5A6C7D] text-xs sm:text-sm font-medium">{b.Reg_No || b.registration || '-'}</div>
+                        {isSubjectSearch && (
+                          <div className="flex flex-wrap gap-2 mt-1">
+                            {b.Branch && (
+                              <span className="text-[#5A6C7D] text-xs font-medium">Branch: {b.Branch}</span>
+                            )}
+                            {b.Batch && (
+                              <span className="text-[#5A6C7D] text-xs font-medium">Batch: {b.Batch}</span>
+                            )}
+                          </div>
+                        )}
                       </div>
                       <span className="px-2 sm:px-2.5 py-1 rounded-lg text-xs sm:text-sm font-bold bg-red-100 text-red-700 flex-shrink-0">
                         {b.Grade || '-'}
@@ -615,7 +888,10 @@ export default function AdminBacklogPage() {
                     background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
                   }}
                 >
-                  {["Reg No","Name","Branch","Batch","Semester","Subject Code","Subject Name","Grade"].map(h => (
+                  {(isSubjectSearch 
+                    ? ["Name","Registration No","Branch","Batch","Subject Code","Subject Name","Semester","Grade"]
+                    : ["Subject Code","Subject Name","Semester","Grade"]
+                  ).map(h => (
                     <th key={h} className="px-4 py-3 text-left uppercase tracking-wider font-black text-xs whitespace-nowrap">
                       {h}
                     </th>
@@ -625,28 +901,36 @@ export default function AdminBacklogPage() {
               <tbody>
                 {filteredRows.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-3 py-8 lg:py-10 text-center text-[#5A6C7D] font-medium">
+                    <td colSpan={isSubjectSearch ? 8 : 4} className="px-3 py-8 lg:py-10 text-center text-[#5A6C7D] font-medium">
                       {rows.length === 0 ? "No backlog results" : "No results match filters"}
                     </td>
                   </tr>
                 )}
                 {filteredRows.map((b, i) => (
                   <tr key={i} className="border-t-2 border-[#05A3C7]/10 hover:bg-[#05A3C7]/5 transition-colors">
-                    <td className="px-4 py-3 text-[#1A1F29] font-medium whitespace-nowrap">{b.Reg_No || b.registration || '-'}</td>
-                    <td className="px-4 py-3 text-[#1A1F29] font-medium">{b.Name || '-'}</td>
-                    <td className="px-4 py-3 text-[#1A1F29] font-medium">{b.Branch || '-'}</td>
-                    <td className="px-4 py-3 text-[#1A1F29] font-medium whitespace-nowrap">{b.Batch || '-'}</td>
-                    <td className="px-4 py-3">
-                      <span className="px-3 py-1 rounded-full text-xs bg-[#05A3C7]/10 text-[#05A3C7] font-bold whitespace-nowrap">
-                        {b.Sem || '-'}
-                      </span>
-                    </td>
+                    {isSubjectSearch && (
+                      <>
+                        <td className="px-4 py-3 text-[#1A1F29] font-medium">{b.Name || '-'}</td>
+                        <td className="px-4 py-3">
+                          <code className="text-[#05A3C7] bg-[#05A3C7]/10 px-2 py-1 rounded font-bold whitespace-nowrap">
+                            {b.Reg_No || b.registration || '-'}
+                          </code>
+                        </td>
+                        <td className="px-4 py-3 text-[#1A1F29] font-medium">{b.Branch || '-'}</td>
+                        <td className="px-4 py-3 text-[#1A1F29] font-medium">{b.Batch || '-'}</td>
+                      </>
+                    )}
                     <td className="px-4 py-3">
                       <code className="text-[#05A3C7] bg-[#05A3C7]/10 px-2 py-1 rounded font-bold whitespace-nowrap">
                         {b.Subject_Code || b.subject_code || '-'}
                       </code>
                     </td>
                     <td className="px-4 py-3 text-[#1A1F29] font-medium">{b.Subject_Name || '-'}</td>
+                    <td className="px-4 py-3">
+                      <span className="px-3 py-1 rounded-full text-xs bg-[#05A3C7]/10 text-[#05A3C7] font-bold whitespace-nowrap">
+                        {b.Sem || '-'}
+                      </span>
+                    </td>
                     <td className="px-4 py-3">
                       <span className="px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 whitespace-nowrap">
                         {b.Grade || '-'}
@@ -658,6 +942,7 @@ export default function AdminBacklogPage() {
             </table>
           </div>
         </div>
+        )}
 
         {/* Loading Overlay */}
         {loading && (

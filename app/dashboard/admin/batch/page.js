@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 
 export default function AdminBatchPage() {
   const [branch, setBranch] = useState("");
@@ -10,10 +10,21 @@ export default function AdminBatchPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [expandedStudents, setExpandedStudents] = useState(new Set());
+  const [editingRecord, setEditingRecord] = useState(null);
+  const [editForm, setEditForm] = useState({
+    Reg_No: "",
+    Subject_Code: "",
+    Subject_Name: "",
+    Credits: "",
+    Sem: "",
+    Grade: ""
+  });
 
   async function onSubmit(e) {
     e.preventDefault();
     setMessage(""); setError(""); setRows([]); setCount(0);
+    setExpandedStudents(new Set());
     try {
       setLoading(true);
       const res = await fetch("/api/batch", {
@@ -31,6 +42,196 @@ export default function AdminBatchPage() {
       setError(err.message);
     } finally { setLoading(false); }
   }
+
+  // Group records by student
+  const studentSummary = useMemo(() => {
+    const grouped = {};
+    rows.forEach(record => {
+      const regNo = record.Reg_No;
+      if (!grouped[regNo]) {
+        grouped[regNo] = {
+          Reg_No: regNo,
+          Name: record.Name || "",
+          subjects: [],
+          totalSubjects: 0,
+          totalCredits: 0
+        };
+      }
+      grouped[regNo].subjects.push(record);
+      grouped[regNo].totalSubjects++;
+      const credits = computeCreditsSum(record.Credits);
+      grouped[regNo].totalCredits += parseFloat(credits) || 0;
+    });
+    return Object.values(grouped);
+  }, [rows]);
+
+  // Toggle expand/collapse
+  const toggleExpand = (regNo) => {
+    setExpandedStudents(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(regNo)) {
+        newSet.delete(regNo);
+      } else {
+        newSet.add(regNo);
+      }
+      return newSet;
+    });
+  };
+
+  // Open edit modal
+  const openEditModal = (record) => {
+    setEditingRecord(record);
+    setEditForm({
+      Reg_No: record.Reg_No || "",
+      Subject_Code: record.Subject_Code || "",
+      Subject_Name: record.Subject_Name || "",
+      Credits: record.Credits || "",
+      Sem: record.Sem || "",
+      Grade: record.Grade || ""
+    });
+  };
+
+  // Close edit modal
+  const closeEditModal = () => {
+    setEditingRecord(null);
+    setEditForm({
+      Reg_No: "",
+      Subject_Code: "",
+      Subject_Name: "",
+      Credits: "",
+      Sem: "",
+      Grade: ""
+    });
+  };
+
+  // Refresh data
+  const refreshData = async () => {
+    if (!branch && !batch) return;
+    setMessage(""); setError(""); setRows([]); setCount(0);
+    setExpandedStudents(new Set());
+    try {
+      setLoading(true);
+      const res = await fetch("/api/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ branch, batch })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "No data found");
+      const records = data.records || data.result || [];
+      setRows(records);
+      setCount(records.length);
+      setMessage(data.message || `${records.length} records loaded`);
+    } catch (err) {
+      setError(err.message);
+    } finally { setLoading(false); }
+  };
+
+  // Update record
+  const handleUpdateRecord = async (e) => {
+    e.preventDefault();
+    if (!editingRecord) return;
+
+    setLoading(true);
+    setError("");
+    setMessage("");
+
+    try {
+      const res = await fetch("/api/students", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          Reg_No: editForm.Reg_No,
+          Subject_Code: editForm.Subject_Code,
+          Grade: editForm.Grade
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update record");
+
+      setMessage("Record updated successfully");
+      closeEditModal();
+      await refreshData();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Delete record
+  const handleDeleteRecord = async (record) => {
+    if (!confirm(`Are you sure you want to delete this record?\n${record.Subject_Code} - ${record.Subject_Name}`)) {
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setMessage("");
+
+    try {
+      const res = await fetch("/api/students", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          Reg_No: record.Reg_No,
+          Subject_Code: record.Subject_Code,
+          Sem: record.Sem
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to delete record");
+
+      setMessage("Record deleted successfully");
+      await refreshData();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Delete all records for a student
+  const handleDeleteStudent = async (student) => {
+    if (!confirm(`Are you sure you want to delete ALL records for ${student.Name} (${student.Reg_No})?\n\nThis will delete ${student.totalSubjects} subject record(s). This action cannot be undone.`)) {
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setMessage("");
+
+    try {
+      // Delete all subjects for this student
+      const deletePromises = student.subjects.map(subject =>
+        fetch("/api/students", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            Reg_No: subject.Reg_No,
+            Subject_Code: subject.Subject_Code,
+            Sem: subject.Sem
+          })
+        })
+      );
+
+      const results = await Promise.all(deletePromises);
+      const errors = results.filter(r => !r.ok);
+      
+      if (errors.length > 0) {
+        throw new Error(`Failed to delete some records. ${errors.length} record(s) could not be deleted.`);
+      }
+
+      setMessage(`Successfully deleted all ${student.totalSubjects} record(s) for ${student.Name}`);
+      await refreshData();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   function exportCSV() {
     if (rows.length === 0) return;
@@ -175,125 +376,117 @@ export default function AdminBatchPage() {
               </div>
             )}
 
-            {/* Results Section */}
-            {rows.length > 0 && (
+            {/* Results Section - Summary View */}
+            {studentSummary.length > 0 && (
               <div className="mt-4 sm:mt-6">
-                {/* Export Buttons */}
-                <div className="rounded-xl sm:rounded-2xl p-3 sm:p-4 border-2 shadow-sm mb-4" style={{ borderColor: "rgba(5,163,199,0.2)", background: "rgba(5,163,199,0.05)" }}>
-                  <h5 className="font-black mb-3 text-center text-sm sm:text-base" style={{ color: "#04748F" }}>
-                    📥 Export Results ({count} records)
-                  </h5>
-                  <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center justify-center gap-2 sm:gap-3">
-                    <button 
-                      onClick={exportCSV} 
-                      className="export-btn px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-white font-bold text-xs sm:text-sm hover:shadow-lg active:scale-95 transition-all min-h-[44px]" 
-                      style={{ background: "linear-gradient(135deg,#28a745,#20c997)" }}
-                    >
-                      <span className="hidden xs:inline">💾 </span>CSV
-                    </button>
-                    <button 
-                      onClick={exportExcel} 
-                      className="export-btn px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-white font-bold text-xs sm:text-sm hover:shadow-lg active:scale-95 transition-all min-h-[44px]" 
-                      style={{ background: "linear-gradient(135deg,#fd7e14,#ffc107)" }}
-                    >
-                      <span className="hidden xs:inline">📊 </span>Excel
-                    </button>
-                    <button 
-                      onClick={exportPDF} 
-                      className="export-btn px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-white font-bold text-xs sm:text-sm hover:shadow-lg active:scale-95 transition-all min-h-[44px]" 
-                      style={{ background: "linear-gradient(135deg,#dc3545,#e83e8c)" }}
-                    >
-                      <span className="hidden xs:inline">📄 </span>PDF
-                    </button>
-                    <button 
-                      onClick={() => window.print()} 
-                      className="export-btn px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-white font-bold text-xs sm:text-sm hover:shadow-lg active:scale-95 transition-all min-h-[44px] col-span-2 sm:col-span-1" 
-                      style={{ background: "linear-gradient(135deg,#6c757d,#495057)" }}
-                    >
-                      <span className="hidden xs:inline">🖨️ </span>Print
-                    </button>
-                  </div>
-                </div>
-
-                {/* Mobile Card View */}
-                <div className="block lg:hidden space-y-3">
-                  {rows.map((r, i) => (
-                    <div 
-                      key={i} 
-                      className="rounded-xl border-2 bg-white p-3 sm:p-4 shadow-sm hover:shadow-md transition-shadow"
-                      style={{ borderColor: "rgba(5,163,199,0.2)" }}
-                    >
-                      <div className="flex justify-between items-start mb-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="font-bold text-sm sm:text-base mb-0.5" style={{ color: "#05A3C7" }}>
-                            {r.Reg_No}
-                          </div>
-                          <div className="text-[#1A1F29] font-semibold text-xs sm:text-sm truncate">
-                            {r.Name}
-                          </div>
-                        </div>
-                        <div className="flex-shrink-0 ml-2">
-                          <span className="inline-block px-2.5 py-1 rounded-full text-xs font-bold text-white" style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}>
-                            Sem {r.Sem}
-                          </span>
-                        </div>
-                      </div>
-                      
-                      <div className="mt-2 pt-2 border-t-2" style={{ borderColor: "rgba(5,163,199,0.1)" }}>
-                        <div className="text-[#1A1F29] font-medium text-xs sm:text-sm mb-1.5">
-                          {r.Subject_Name}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2 text-xs">
-                          <code className="text-[#05A3C7] bg-[#05A3C7]/10 px-2 py-1 rounded font-bold">
-                            {r.Subject_Code}
-                          </code>
-                          <span className="text-[#5A6C7D]">
-                            Credits: <span className="font-bold text-[#1A1F29]">{computeCreditsSum(r.Credits)}</span>
-                          </span>
-                          <span className="ml-auto px-2.5 py-1 rounded-full bg-green-100 text-green-700 font-bold">
-                            {r.Grade}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Desktop Table View */}
-                <div className="hidden lg:block overflow-auto rounded-xl sm:rounded-2xl border-2 shadow-sm" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
-                  <table className="w-full min-w-[900px]">
+                {/* Summary Table */}
+                <div className="overflow-auto rounded-xl sm:rounded-2xl border-2 shadow-sm" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
+                  <table className="w-full min-w-[600px]">
                     <thead>
                       <tr style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}>
-                        {['Reg No','Name','Semester','Subject Code','Subject Name','Credits','Grade'].map(h => (
-                          <th key={h} className="px-3 sm:px-4 py-3 text-white text-left text-xs sm:text-sm font-black uppercase tracking-wider whitespace-nowrap">
-                            {h}
-                          </th>
-                        ))}
+                        <th className="px-3 sm:px-4 py-3 text-white text-left text-xs sm:text-sm font-black uppercase tracking-wider">Reg No</th>
+                        <th className="px-3 sm:px-4 py-3 text-white text-left text-xs sm:text-sm font-black uppercase tracking-wider">Name</th>
+                        <th className="px-3 sm:px-4 py-3 text-white text-center text-xs sm:text-sm font-black uppercase tracking-wider">Total Subjects</th>
+                        <th className="px-3 sm:px-4 py-3 text-white text-center text-xs sm:text-sm font-black uppercase tracking-wider">Total Credits</th>
+                        <th className="px-3 sm:px-4 py-3 text-white text-center text-xs sm:text-sm font-black uppercase tracking-wider">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map((r, i) => (
-                        <tr key={i} className="border-b-2 hover:bg-[#05A3C7]/5 transition-colors" style={{ borderColor: "rgba(5,163,199,0.1)" }}>
-                          <td className="px-3 sm:px-4 py-3 font-bold text-sm" style={{ color: "#05A3C7" }}>{r.Reg_No}</td>
-                          <td className="px-3 sm:px-4 py-3 text-[#1A1F29] font-medium text-sm">{r.Name}</td>
-                          <td className="px-3 sm:px-4 py-3 text-sm text-center">
-                            <span className="px-2.5 py-1 rounded-full text-xs font-bold text-white" style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}>
-                              {r.Sem}
+                      {studentSummary.map((student, i) => (
+                        <React.Fragment key={student.Reg_No}>
+                          <tr 
+                            className="border-b-2 hover:bg-[#05A3C7]/5 transition-colors cursor-pointer" 
+                            style={{ borderColor: "rgba(5,163,199,0.1)" }}
+                            onClick={() => toggleExpand(student.Reg_No)}
+                          >
+                            <td className="px-3 sm:px-4 py-3 font-bold text-sm" style={{ color: "#05A3C7" }}>{student.Reg_No}</td>
+                            <td className="px-3 sm:px-4 py-3 text-[#1A1F29] font-medium text-sm">{student.Name}</td>
+                            <td className="px-3 sm:px-4 py-3 text-sm text-center font-bold text-[#1A1F29]">{student.totalSubjects}</td>
+                            <td className="px-3 sm:px-4 py-3 text-sm text-center font-bold text-[#1A1F29]">{student.totalCredits.toFixed(1)}</td>
+                            <td className="px-3 sm:px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center justify-center gap-2">
+                                <span className="text-xs text-[#5A6C7D] cursor-pointer">
+                                  {expandedStudents.has(student.Reg_No) ? "▼" : "▶"}
+                                </span>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteStudent(student);
+                                  }}
+                                  className="px-2 py-1 rounded bg-red-600 text-white text-xs font-bold hover:bg-red-700 transition-all"
+                                  title="Delete all records for this student"
+                                  disabled={loading}
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                          {expandedStudents.has(student.Reg_No) && (
+                            <tr key={`${student.Reg_No}-expanded`}>
+                              <td colSpan="5" className="px-0 py-0 bg-gray-50">
+                                <div className="p-4">
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-xs sm:text-sm">
+                                      <thead>
+                                        <tr style={{ background: "rgba(5,163,199,0.1)" }}>
+                                          <th className="px-2 py-2 text-left font-bold">Sem</th>
+                                          <th className="px-2 py-2 text-left font-bold">Subject Code</th>
+                                          <th className="px-2 py-2 text-left font-bold">Subject Name</th>
+                                          <th className="px-2 py-2 text-center font-bold">Credits</th>
+                                          <th className="px-2 py-2 text-center font-bold">Grade</th>
+                                          <th className="px-2 py-2 text-center font-bold">Actions</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {student.subjects.map((subject, idx) => (
+                                          <tr key={`${student.Reg_No}-${subject.Subject_Code}-${subject.Sem || idx}`} className="border-b hover:bg-white">
+                                            <td className="px-2 py-2">
+                                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold text-white" style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}>
+                                                {subject.Sem}
                             </span>
                           </td>
-                          <td className="px-3 sm:px-4 py-3 text-sm">
-                            <code className="bg-[#05A3C7]/10 text-[#05A3C7] px-2 py-1 rounded text-xs font-bold">
-                              {r.Subject_Code}
-                            </code>
-                          </td>
-                          <td className="px-3 sm:px-4 py-3 text-[#1A1F29] font-medium text-sm">{r.Subject_Name}</td>
-                          <td className="px-3 sm:px-4 py-3 text-sm text-center font-bold text-[#1A1F29]">{computeCreditsSum(r.Credits)}</td>
-                          <td className="px-3 sm:px-4 py-3 text-center">
-                            <span className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">
-                              {r.Grade}
+                                            <td className="px-2 py-2 font-mono text-green-600 font-bold">{subject.Subject_Code}</td>
+                                            <td className="px-2 py-2 text-[#1A1F29]">{subject.Subject_Name}</td>
+                                            <td className="px-2 py-2 text-center font-bold">{computeCreditsSum(subject.Credits)}</td>
+                                            <td className="px-2 py-2 text-center">
+                                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700">
+                                                {subject.Grade}
                             </span>
+                                            </td>
+                                            <td className="px-2 py-2">
+                                              <div className="flex items-center justify-center gap-1">
+                                                <button
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openEditModal(subject);
+                                                  }}
+                                                  className="px-2 py-1 rounded text-white text-[10px] font-bold hover:shadow-md transition-all"
+                                                  style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+                                                >
+                                                  ✏️
+                                                </button>
+                                                <button
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDeleteRecord(subject);
+                                                  }}
+                                                  className="px-2 py-1 rounded bg-red-600 text-white text-[10px] font-bold hover:bg-red-700 transition-all"
+                                                >
+                                                  🗑️
+                                                </button>
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
                           </td>
                         </tr>
+                          )}
+                        </React.Fragment>
                       ))}
                     </tbody>
                   </table>
@@ -303,8 +496,123 @@ export default function AdminBatchPage() {
           </div>
         </div>
 
+        {/* Edit Modal */}
+        {editingRecord && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl sm:rounded-2xl p-4 sm:p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-4 sm:mb-6">
+                <h3 className="text-lg sm:text-xl font-black text-[#1A1F29] flex items-center gap-2">
+                  ✏️ Edit Record
+                </h3>
+                <button
+                  onClick={closeEditModal}
+                  className="text-[#5A6C7D] hover:text-[#1A1F29] text-2xl sm:text-3xl font-bold w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors"
+                >
+                  ×
+                </button>
+              </div>
+
+              <form onSubmit={handleUpdateRecord} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-[#1A1F29] mb-2">Registration Number</label>
+                    <input
+                      type="text"
+                      disabled
+                      className="w-full rounded-xl border-2 bg-gray-100 px-3 sm:px-4 py-2.5 sm:py-3 outline-none text-[#5A6C7D] font-medium text-sm sm:text-base min-h-[44px] cursor-not-allowed"
+                      style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                      value={editForm.Reg_No}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-[#1A1F29] mb-2">Subject Code</label>
+                    <input
+                      type="text"
+                      disabled
+                      className="w-full rounded-xl border-2 bg-gray-100 px-3 sm:px-4 py-2.5 sm:py-3 outline-none text-[#5A6C7D] font-medium text-sm sm:text-base min-h-[44px] cursor-not-allowed"
+                      style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                      value={editForm.Subject_Code}
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label className="block text-sm font-bold text-[#1A1F29] mb-2">Subject Name</label>
+                    <input
+                      type="text"
+                      disabled
+                      className="w-full rounded-xl border-2 bg-gray-100 px-3 sm:px-4 py-2.5 sm:py-3 outline-none text-[#5A6C7D] font-medium text-sm sm:text-base min-h-[44px] cursor-not-allowed"
+                      style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                      value={editForm.Subject_Name}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-[#1A1F29] mb-2">Semester</label>
+                    <input
+                      type="text"
+                      disabled
+                      className="w-full rounded-xl border-2 bg-gray-100 px-3 sm:px-4 py-2.5 sm:py-3 outline-none text-[#5A6C7D] font-medium text-sm sm:text-base min-h-[44px] cursor-not-allowed"
+                      style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                      value={editForm.Sem}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-bold text-[#1A1F29] mb-2">Grade *</label>
+                    <select
+                      required
+                      className="w-full rounded-xl border-2 bg-white px-3 sm:px-4 py-2.5 sm:py-3 outline-none focus:ring-4 focus:ring-[#05A3C7]/20 text-[#1A1F29] font-medium text-sm sm:text-base min-h-[44px]"
+                      style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                      value={editForm.Grade}
+                      onChange={e => setEditForm({ ...editForm, Grade: e.target.value })}
+                    >
+                      <option value="">Select Grade</option>
+                      {["O","E","A","B","C","D","F","S","M","I","R"].map(g => (
+                        <option key={g} value={g}>{g}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {message && message.includes("updated") && (
+                  <div className="rounded-lg p-3 sm:p-4 bg-green-50 border-2 border-green-200 text-green-700">
+                    <div className="font-bold text-sm sm:text-base">✅ Success</div>
+                    <div className="text-xs sm:text-sm mt-1">{message}</div>
+                  </div>
+                )}
+                {error && (
+                  <div className="rounded-lg p-3 sm:p-4 bg-red-50 border-2 border-red-200 text-red-700">
+                    <div className="font-bold text-sm sm:text-base">⚠️ Error</div>
+                    <div className="text-xs sm:text-sm mt-1">{error}</div>
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={closeEditModal}
+                    className="flex-1 px-4 py-2.5 rounded-xl border-2 text-[#1A1F29] font-bold text-sm sm:text-base hover:bg-gray-50 transition-all min-h-[44px]"
+                    style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="flex-1 px-4 py-2.5 rounded-xl text-white font-bold text-sm sm:text-base hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+                    style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+                  >
+                    {loading ? "Updating..." : "Update Record"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         {/* Loading Overlay */}
-        {loading && (
+        {loading && !editingRecord && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 px-4">
             <div 
               className="rounded-xl sm:rounded-2xl p-4 sm:p-6 flex items-center gap-3 shadow-2xl max-w-sm w-full"

@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { FaGithub, FaLinkedinIn, FaTwitter, FaFacebookF } from "react-icons/fa";
+
 
 export default function UserDashboard() {
   const router = useRouter();
@@ -267,469 +269,75 @@ export default function UserDashboard() {
     }
   };
 
-  // ENHANCED LOADING OVERLAY WITH SPINNER.JPG
+  // Loading overlay (match Teacher panel animation style)
   if (isLoading) {
     return (
-      <div className="loading-overlay">
-        {/* Floating Icons Around Spinner */}
-        <div className="floating-icons">
-          <div className="floating-icon" style={{top: '15%', left: '20%', color: '#ff6b6b', animationDelay: '0s'}}>🎓</div>
-          <div className="floating-icon" style={{top: '25%', right: '25%', color: '#48dbfb', animationDelay: '2s'}}>📚</div>
-          <div className="floating-icon" style={{bottom: '35%', left: '25%', color: '#ff9ff3', animationDelay: '4s'}}>🏆</div>
-          <div className="floating-icon" style={{bottom: '25%', right: '20%', color: '#5f27cd', animationDelay: '6s'}}>📊</div>
-            </div>
-
-        {/* Colorful Particles */}
-        <div className="loading-particles">
-          <div className="particle"></div>
-          <div className="particle"></div>
-          <div className="particle"></div>
-          <div className="particle"></div>
-          <div className="particle"></div>
-          <div className="particle"></div>
-          </div>
-
-        {/* Main Spinner Container */}
-        <div className="spinner-container">
-          <div className="pulse-bg"></div>
-          <div className="spinner-ring ring-3"></div>
-          <div className="spinner-ring ring-2"></div>
-          <div className="spinner-ring ring-1"></div>
-          <div className="main-spinner">
+      <div 
+        className="fixed inset-0 flex flex-col items-center justify-center z-50"
+        style={{
+          background: 'linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)',
+          backgroundSize: '400% 400%',
+          animation: 'gradientShift 8s ease-in-out infinite'
+        }}
+      >
+        {/* Spinner Container */}
+        <div className="relative flex items-center justify-center mb-8">
+          <div className="w-28 h-28 sm:w-32 sm:h-32 lg:w-36 lg:h-36">
             <img 
-              className="spinner-logo" 
+              className="w-full h-full rounded-full object-cover p-2 backdrop-blur-lg"
+              style={{
+                border: '4px solid rgba(255, 255, 255, 0.4)',
+                boxShadow: '0 0 60px rgba(255, 255, 255, 0.6)',
+                animation: 'logoSpin 3s ease-in-out infinite'
+              }}
               src="/spinner.jpg"  
               alt="CUTM Logo Loading" 
             />
             </div>
           </div>
 
-        {/* Enhanced Loading Text */}
-        <div className="loading-text">{loadingMessage}</div>
-        
-        {/* Colorful Progress Bar */}
-        <div className="progress-container">
-          <div className="progress-bar-custom"></div>
+        {/* Loading Text */}
+        <div 
+          className="text-white text-xl sm:text-2xl lg:text-3xl font-black text-center mb-6 px-4"
+          style={{
+            textShadow: '0 0 20px rgba(255, 255, 255, 0.8)',
+            letterSpacing: '1.5px'
+          }}
+        >
+          {loadingMessage}
         </div>
         
-        {/* Dynamic Status */}
-        <div className="loading-status">{loadingStatus}</div>
+        {/* Progress Bar */}
+        <div className="w-56 sm:w-64 lg:w-72 h-1.5 sm:h-2 bg-white/20 rounded-full overflow-hidden mb-4">
+          <div 
+            className="h-full rounded-full"
+            style={{
+              background: 'linear-gradient(90deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.5) 100%)',
+              animation: 'progressFill 3s ease-in-out infinite'
+            }}
+          ></div>
+        </div>
+        
+        {/* Status */}
+        <div className="text-white/90 text-sm sm:text-base text-center px-4 font-semibold flex items-center gap-2">
+          <span className="text-xl">🎓</span>
+          <span>Student Portal Access</span>
+        </div>
 
         <style jsx>{`
-          .loading-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(
-              135deg,
-              #667eea 0%,
-              #764ba2 25%,
-              #f093fb 50%,
-              #4facfe 75%,
-              #00f2fe 100%
-            );
-            background-size: 400% 400%;
-            animation: gradientShift 8s ease-in-out infinite;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 9999;
-          }
-
           @keyframes gradientShift {
             0% { background-position: 0% 50%; }
             50% { background-position: 100% 50%; }
             100% { background-position: 0% 50%; }
           }
-
-          .spinner-container {
-            position: relative;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 40px;
-            animation: containerFloat 4s ease-in-out infinite;
-          }
-
-          @keyframes containerFloat {
-            0%, 100% { transform: translateY(0px); }
-            50% { transform: translateY(-15px); }
-          }
-
-          .loading-particles {
-            position: absolute;
-            width: 400px;
-            height: 400px;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            pointer-events: none;
-          }
-
-          .particle {
-            position: absolute;
-            border-radius: 50%;
-            animation: particleFloat 6s ease-in-out infinite;
-          }
-
-          .particle:nth-child(1) {
-            width: 16px;
-            height: 16px;
-            background: linear-gradient(45deg, #ff6b6b, #feca57);
-            top: 10%;
-            left: 20%;
-            animation-delay: 0s;
-          }
-
-          .particle:nth-child(2) {
-            width: 12px;
-            height: 12px;
-            background: linear-gradient(45deg, #48dbfb, #0abde3);
-            top: 20%;
-            right: 15%;
-            animation-delay: 1s;
-          }
-
-          .particle:nth-child(3) {
-            width: 20px;
-            height: 20px;
-            background: linear-gradient(45deg, #ff9ff3, #f368e0);
-            bottom: 20%;
-            left: 15%;
-            animation-delay: 2s;
-          }
-
-          .particle:nth-child(4) {
-            width: 14px;
-            height: 14px;
-            background: linear-gradient(45deg, #54a0ff, #2e86de);
-            bottom: 15%;
-            right: 25%;
-            animation-delay: 3s;
-          }
-
-          .particle:nth-child(5) {
-            width: 18px;
-            height: 18px;
-            background: linear-gradient(45deg, #5f27cd, #a55eea);
-            top: 60%;
-            left: 10%;
-            animation-delay: 4s;
-          }
-
-          .particle:nth-child(6) {
-            width: 13px;
-            height: 13px;
-            background: linear-gradient(45deg, #00d2d3, #01a3a4);
-            top: 40%;
-            right: 10%;
-            animation-delay: 5s;
-          }
-
-          @keyframes particleFloat {
-            0%, 100% { 
-              transform: translateY(0px) rotate(0deg); 
-              opacity: 0.7;
-              scale: 1;
-            }
-            33% { 
-              transform: translateY(-25px) rotate(120deg); 
-              opacity: 1;
-              scale: 1.2;
-            }
-            66% { 
-              transform: translateY(18px) rotate(240deg); 
-              opacity: 0.8;
-              scale: 0.9;
-            }
-          }
-
-          .main-spinner {
-            width: 120px;
-            height: 120px;
-            position: relative;
-            z-index: 10;
-          }
-
-          .spinner-logo {
-            width: 100%;
-            height: 100%;
-            border-radius: 50%;
-            object-fit: cover;
-            background: linear-gradient(45deg, 
-              rgba(255, 255, 255, 0.3) 0%,
-              rgba(255, 255, 255, 0.1) 50%,
-              rgba(255, 255, 255, 0.3) 100%
-            );
-            padding: 8px;
-            backdrop-filter: blur(15px);
-            border: 3px solid rgba(255, 255, 255, 0.4);
-            animation: logoSpin 3s ease-in-out infinite;
-            box-shadow: 
-              0 0 40px rgba(255, 255, 255, 0.5),
-              0 0 80px rgba(59, 130, 246, 0.4),
-              inset 0 0 20px rgba(255, 255, 255, 0.2);
-          }
-
           @keyframes logoSpin {
-            0% { 
-              transform: rotate(0deg) scale(1); 
-              box-shadow: 
-                0 0 40px rgba(255, 255, 255, 0.5),
-                0 0 80px rgba(59, 130, 246, 0.4);
-            }
-            25% { 
-              transform: rotate(90deg) scale(1.1); 
-              box-shadow: 
-                0 0 50px rgba(255, 107, 107, 0.6),
-                0 0 100px rgba(255, 107, 107, 0.3);
-            }
-            50% { 
-              transform: rotate(180deg) scale(1); 
-              box-shadow: 
-                0 0 45px rgba(72, 219, 251, 0.6),
-                0 0 90px rgba(72, 219, 251, 0.3);
-            }
-            75% { 
-              transform: rotate(270deg) scale(1.1); 
-              box-shadow: 
-                0 0 50px rgba(255, 159, 243, 0.6),
-                0 0 100px rgba(255, 159, 243, 0.3);
-            }
-            100% { 
-              transform: rotate(360deg) scale(1); 
-              box-shadow: 
-                0 0 40px rgba(255, 255, 255, 0.5),
-                0 0 80px rgba(59, 130, 246, 0.4);
-            }
+            0% { transform: rotate(0deg) scale(1); }
+            50% { transform: rotate(180deg) scale(1.05); }
+            100% { transform: rotate(360deg) scale(1); }
           }
-
-          .spinner-ring {
-            position: absolute;
-            border-radius: 50%;
-            border: 3px solid transparent;
-            animation: ringRotate 2s linear infinite;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-          }
-
-          .ring-1 {
-            width: 150px;
-            height: 150px;
-            border-top: 3px solid #ff6b6b;
-            border-right: 3px solid rgba(255, 107, 107, 0.3);
-            border-bottom: 3px solid #feca57;
-            border-left: 3px solid rgba(254, 202, 87, 0.3);
-            animation-duration: 1.5s;
-            filter: drop-shadow(0 0 15px rgba(255, 107, 107, 0.5));
-          }
-
-          .ring-2 {
-            width: 180px;
-            height: 180px;
-            border-top: 3px solid #48dbfb;
-            border-right: 3px solid rgba(72, 219, 251, 0.3);
-            border-bottom: 3px solid #ff9ff3;
-            border-left: 3px solid rgba(255, 159, 243, 0.3);
-            animation-duration: 2.5s;
-            animation-direction: reverse;
-            filter: drop-shadow(0 0 15px rgba(72, 219, 251, 0.5));
-          }
-
-          .ring-3 {
-            width: 210px;
-            height: 210px;
-            border-top: 3px solid #5f27cd;
-            border-right: 3px solid rgba(95, 39, 205, 0.3);
-            border-bottom: 3px solid #00d2d3;
-            border-left: 3px solid rgba(0, 210, 211, 0.3);
-            animation-duration: 3.5s;
-            filter: drop-shadow(0 0 15px rgba(95, 39, 205, 0.5));
-          }
-
-          @keyframes ringRotate {
-            0% { transform: translate(-50%, -50%) rotate(0deg); }
-            100% { transform: translate(-50%, -50%) rotate(360deg); }
-          }
-
-          .pulse-bg {
-            position: absolute;
-            width: 280px;
-            height: 280px;
-            background: radial-gradient(
-              circle,
-              rgba(255, 107, 107, 0.2) 0%,
-              rgba(72, 219, 251, 0.2) 25%,
-              rgba(255, 159, 243, 0.2) 50%,
-              rgba(95, 39, 205, 0.2) 75%,
-              transparent 100%
-            );
-            border-radius: 50%;
-            animation: pulseGlow 2.5s ease-in-out infinite;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-          }
-
-          @keyframes pulseGlow {
-            0%, 100% { 
-              transform: translate(-50%, -50%) scale(0.8); 
-              opacity: 0.6; 
-            }
-            50% { 
-              transform: translate(-50%, -50%) scale(1.3); 
-              opacity: 0.9; 
-            }
-          }
-
-          .loading-text {
-            color: white;
-            font-size: 1.4rem;
-            font-weight: 800;
-            text-align: center;
-            margin-bottom: 20px;
-            text-shadow: 
-              0 0 10px rgba(255, 255, 255, 0.8),
-              0 0 20px rgba(255, 107, 107, 0.6),
-              0 0 30px rgba(72, 219, 251, 0.4);
-            letter-spacing: 1.5px;
-            font-family: 'Poppins', sans-serif;
-            background: linear-gradient(
-              45deg,
-              #ff6b6b,
-              #feca57,
-              #48dbfb,
-              #ff9ff3,
-              #5f27cd,
-              #00d2d3
-            );
-            background-size: 400% 400%;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            animation: gradientText 4s ease-in-out infinite;
-          }
-
-          @keyframes gradientText {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-          }
-
-          .progress-container {
-            width: 220px;
-            height: 6px;
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 15px;
-            overflow: hidden;
-            margin-bottom: 15px;
-            box-shadow: 
-              inset 0 1px 3px rgba(0, 0, 0, 0.2),
-              0 0 15px rgba(255, 255, 255, 0.3);
-          }
-
-          .progress-bar-custom {
-            height: 100%;
-            background: linear-gradient(
-              90deg,
-              #ff6b6b 0%,
-              #feca57 20%,
-              #48dbfb 40%,
-              #ff9ff3 60%,
-              #5f27cd 80%,
-              #00d2d3 100%
-            );
-            background-size: 200% 100%;
-            border-radius: 15px;
-            animation: progressFill 4s ease-in-out infinite, progressGradient 3s ease-in-out infinite;
-            box-shadow: 0 0 15px rgba(255, 107, 107, 0.6);
-          }
-
           @keyframes progressFill {
             0% { width: 0%; }
-            25% { width: 40%; }
-            50% { width: 70%; }
-            75% { width: 90%; }
             100% { width: 100%; }
-          }
-
-          @keyframes progressGradient {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-          }
-
-          .loading-status {
-            color: rgba(255, 255, 255, 0.9);
-            font-size: 0.9rem;
-            text-align: center;
-            font-weight: 600;
-            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
-            animation: statusPulse 2s ease-in-out infinite;
-            letter-spacing: 1px;
-          }
-
-          @keyframes statusPulse {
-            0%, 100% { opacity: 0.8; transform: translateY(0); }
-            50% { opacity: 1; transform: translateY(-3px); }
-          }
-
-          .floating-icons {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            top: 0;
-            left: 0;
-            pointer-events: none;
-            z-index: 5;
-          }
-
-          .floating-icon {
-            position: absolute;
-            font-size: 1.2rem;
-            animation: iconFloat 8s ease-in-out infinite;
-          }
-
-          @keyframes iconFloat {
-            0%, 100% { 
-              transform: translateY(0px) rotate(0deg) scale(1); 
-              opacity: 0.7; 
-            }
-            25% { 
-              transform: translateY(-20px) rotate(90deg) scale(1.2); 
-              opacity: 1; 
-            }
-            50% { 
-              transform: translateY(0px) rotate(180deg) scale(0.9); 
-              opacity: 0.7; 
-            }
-            75% { 
-              transform: translateY(15px) rotate(270deg) scale(1.1); 
-              opacity: 1; 
-            }
-          }
-
-          @media (max-width: 768px) {
-            .main-spinner {
-              width: 100px;
-              height: 100px;
-            }
-
-            .ring-1 { width: 130px; height: 130px; }
-            .ring-2 { width: 160px; height: 160px; }
-            .ring-3 { width: 190px; height: 190px; }
-
-            .loading-text {
-              font-size: 1.1rem;
-            }
-
-            .progress-container {
-              width: 180px;
-            }
           }
         `}</style>
       </div>
@@ -739,7 +347,7 @@ export default function UserDashboard() {
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #60a5fa 100%)',
+      background: 'linear-gradient(135deg, #05A3C7 0%, #04748F 45%, #023945 100%)',
       position: 'relative',
       overflowX: 'hidden'
     }}>
@@ -758,7 +366,7 @@ export default function UserDashboard() {
           width: '80px',
           height: '80px',
           left: '10%',
-          background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(30, 64, 175, 0.05))',
+          background: 'linear-gradient(135deg, rgba(5, 163, 199, 0.12), rgba(2, 57, 69, 0.08))',
           borderRadius: '50%',
           animationName: 'floatShape',
           animationDuration: '15s',
@@ -771,7 +379,7 @@ export default function UserDashboard() {
           width: '120px',
           height: '120px',
           right: '10%',
-          background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(30, 64, 175, 0.05))',
+          background: 'linear-gradient(135deg, rgba(5, 163, 199, 0.12), rgba(2, 57, 69, 0.08))',
           borderRadius: '50%',
           animationName: 'floatShape',
           animationDuration: '15s',
@@ -784,7 +392,7 @@ export default function UserDashboard() {
           width: '60px',
           height: '60px',
           left: '50%',
-          background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(30, 64, 175, 0.05))',
+          background: 'linear-gradient(135deg, rgba(5, 163, 199, 0.12), rgba(2, 57, 69, 0.08))',
           borderRadius: '50%',
           animationName: 'floatShape',
           animationDuration: '15s',
@@ -795,7 +403,10 @@ export default function UserDashboard() {
       </div>
 
       {/* Hero Section */}
-      <section style={{padding: '40px 0 10px', textAlign: 'center', position: 'relative', overflow: 'hidden'}}>
+      <section
+        className="user-hero-section"
+        style={{padding: '40px 0 10px', textAlign: 'center', position: 'relative', overflow: 'hidden'}}
+      >
         <div className="container mx-auto px-6">
           <div style={{animation: 'heroFadeInUp 1.2s ease-out'}}>
             <h1 style={{
@@ -827,11 +438,14 @@ export default function UserDashboard() {
       
 
       {/* Main Form Section */}
-      <section style={{padding: '60px 0', position: 'relative', zIndex: 10}}>
+      <section
+        className="user-main-section"
+        style={{padding: '60px 0', position: 'relative', zIndex: 10}}
+      >
         <div className="container mx-auto px-6">
           <div className="flex justify-center">
-            <div className="w-full max-w-lg">
-              <div className="main-card" style={{
+            <div className="w-full max-w-lg user-main-card-wrapper">
+              <div className="main-card user-main-card" style={{
                 background: 'rgba(255, 255, 255, 0.98)',
                 borderRadius: '20px',
                 padding: '2.5rem 2rem',
@@ -1312,7 +926,9 @@ export default function UserDashboard() {
       </section>
 
       {/* Stats Section */}
-      <section style={{
+      <section
+        className="user-stats-section"
+        style={{
         background: 'rgba(255, 255, 255, 0.95)',
         padding: '4rem 0',
         position: 'relative',
@@ -1433,7 +1049,10 @@ export default function UserDashboard() {
       </section>
 
       {/* Features Section */}
-      <section style={{padding: '5rem 0', background: 'white'}}>
+      <section
+        className="user-features-section"
+        style={{padding: '5rem 0', background: 'white'}}
+      >
         <div className="container mx-auto px-6">
           <div style={{textAlign: 'center', marginBottom: '4rem'}}>
             <h2 style={{
@@ -1560,7 +1179,7 @@ export default function UserDashboard() {
 
       {/* Enhanced Footer */}
       <footer style={{
-        background: 'linear-gradient(135deg, #1e3a8a, #1e40af)',
+        background: 'linear-gradient(135deg, #05A3C7 0%, #04748F 45%, #023945 100%)',
         color: 'rgba(255, 255, 255, 0.9)',
         padding: '3rem 0 2rem',
         position: 'relative',
@@ -1581,54 +1200,54 @@ export default function UserDashboard() {
               Empowering students with transparent, secure, and instant access to their academic achievements through innovative technology.
             </p>
             
-            <div style={{margin: '2rem 0'}}>
-              {[
-                {href: 'https://github.com/AYUSHRAHUL', icon: 'fab fa-github'},
-                {href: 'https://www.linkedin.com/in/ayush-kumar-singh7/', icon: 'fab fa-linkedin-in'},
-                {href: '#', icon: 'fab fa-twitter'},
-                {href: '#', icon: 'fab fa-facebook-f'}
-              ].map((social, idx) => (
-                <a
-                  key={idx}
-                  href={social.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    display: 'inline-block',
-                    margin: '0 1rem',
-                    padding: '1rem',
-                    background: 'rgba(255, 255, 255, 0.1)',
-                    border: '1px solid rgba(255, 255, 255, 0.2)',
-                    borderRadius: '50%',
-                    color: 'rgba(255, 255, 255, 0.8)',
-                    fontSize: '1.25rem',
-                    width: '50px',
-                    height: '50px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                    backdropFilter: 'blur(10px)',
-                    textDecoration: 'none'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
-                    e.currentTarget.style.color = 'white';
-                    e.currentTarget.style.transform = 'translateY(-6px) scale(1.15)';
-                    e.currentTarget.style.boxShadow = '0 10px 25px rgba(0, 0, 0, 0.3)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                    e.currentTarget.style.color = 'rgba(255, 255, 255, 0.8)';
-                    e.currentTarget.style.transform = 'none';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
-                >
-                  <i className={social.icon}></i>
-                </a>
-              ))}
-              </div>
-            
+          
+<div style={{ margin: "2rem 0" }}>
+  {[
+    { href: "https://github.com/AYUSHRAHUL", icon: <FaGithub /> },
+    { href: "https://www.linkedin.com/in/ayush-kumar-singh7/", icon: <FaLinkedinIn /> },
+    { href: "#", icon: <FaTwitter /> },
+    { href: "#", icon: <FaFacebookF /> },
+  ].map((social, idx) => (
+    <a
+      key={idx}
+      href={social.href}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        display: "inline-block",
+        margin: "0 1rem",
+        padding: "1rem",
+        background: "rgba(255, 255, 255, 0.1)",
+        border: "1px solid rgba(255, 255, 255, 0.2)",
+        borderRadius: "50%",
+        color: "rgba(255, 255, 255, 0.8)",
+        fontSize: "1.25rem",
+        width: "50px",
+        height: "50px",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
+        backdropFilter: "blur(10px)",
+        textDecoration: "none",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = "rgba(255, 255, 255, 0.2)";
+        e.currentTarget.style.color = "white";
+        e.currentTarget.style.transform = "translateY(-6px) scale(1.15)";
+        e.currentTarget.style.boxShadow = "0 10px 25px rgba(0, 0, 0, 0.3)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)";
+        e.currentTarget.style.color = "rgba(255, 255, 255, 0.8)";
+        e.currentTarget.style.transform = "none";
+        e.currentTarget.style.boxShadow = "none";
+      }}
+    >
+      {social.icon}
+    </a>
+  ))}
+</div>
             <div style={{
               borderTop: '1px solid rgba(255,255,255,0.2)',
               paddingTop: '1.5rem',
@@ -1787,37 +1406,52 @@ export default function UserDashboard() {
           border-color: #3b82f6;
         }
 
-        /* Responsive Design */
+        /* Responsive Design - dedicated mobile tuning for User Dashboard */
         @media (max-width: 768px) {
-          h1 {
-            font-size: 2.25rem !important;
+          .user-hero-section {
+            padding: 24px 0 8px !important;
           }
-          
-          p {
-            font-size: 1.1rem !important;
+
+          .user-main-section {
+            padding: 32px 0 !important;
           }
-          
-          .main-card {
-            padding: 2rem 1.5rem !important;
+
+          .user-main-card-wrapper {
+            max-width: 100% !important;
+          }
+
+          .main-card.user-main-card {
+            padding: 1.75rem 1.25rem !important;
             margin: 0 1rem !important;
+            border-radius: 1rem !important;
           }
-          
-          h2 {
-            font-size: 1.75rem !important;
+
+          .user-stats-section {
+            padding: 2.5rem 0 !important;
           }
-          
-          .feature-card {
-            padding: 2rem 1.5rem !important;
+
+          .user-features-section {
+            padding: 3rem 0 2.5rem !important;
+          }
+
+          .user-hero-section h1 {
+            font-size: 1.9rem !important;
+            line-height: 2.2rem !important;
+          }
+
+          .user-hero-section p {
+            font-size: 1rem !important;
           }
         }
 
         @media (max-width: 576px) {
-          h1 {
-            font-size: 1.75rem !important;
-          }
-          
-          .main-card {
+          .main-card.user-main-card {
             padding: 1.5rem 1rem !important;
+            margin: 0 0.75rem !important;
+          }
+
+          .user-hero-section h1 {
+            font-size: 1.6rem !important;
           }
         }
       `}</style>
