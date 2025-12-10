@@ -16,47 +16,19 @@ function parseCredits(creditStr) {
   return parts.reduce((a, b) => a + b, 0);
 }
 
-// Calculate CGPA (considering both CUTM1 and RegistrationData)
+// Calculate CGPA (ONLY from CUTM1, NOT from RegistrationData)
 async function calculateCGPA(db, registration) {
   const reg = registration.toUpperCase();
   
-  // Get results from CUTM1
+  // Get results ONLY from CUTM1
   const resultsCUTM1 = await db.collection("CUTM1")
     .find({ Reg_No: reg })
     .project({ _id: 0, Subject_Code: 1, Credits: 1, Grade: 1 })
     .toArray();
 
-  // Get results from RegistrationData
-  const regAsNumber = parseInt(reg);
-  const resultsRegData = await db.collection("RegistrationData")
-    .find({
-      $or: [
-        { Reg_No: reg },
-        { Reg_No: regAsNumber }
-      ]
-    })
-    .project({ _id: 0, Subject_Code: 1, Credits: 1, Grade: 1, Type: 1 })
-    .toArray();
-
-  // Combine results, prioritizing CUTM1 (more accurate grades)
+  // Use only CUTM1 data for CGPA calculation
   const subjectMap = new Map(); // code -> { credits, grade }
   
-  // First add RegistrationData (may have subjects not yet graded)
-  resultsRegData.forEach(row => {
-    const code = (row.Subject_Code || "").toUpperCase().trim();
-    if (!code) return;
-    
-    const credits = parseCredits(row.Credits);
-    const grade = (row.Grade || "").toUpperCase().trim();
-    
-    // For RegistrationData, if no grade or Type is 'Registration', don't count in CGPA
-    // Only count if there's an actual grade
-    if (grade && !['F', 'S', 'I', 'M', 'R'].includes(grade)) {
-      subjectMap.set(code, { credits, grade });
-    }
-  });
-  
-  // Then add/override with CUTM1 data (more accurate)
   resultsCUTM1.forEach(row => {
     const code = (row.Subject_Code || "").toUpperCase().trim();
     if (!code) return;
@@ -64,8 +36,10 @@ async function calculateCGPA(db, registration) {
     const credits = parseCredits(row.Credits);
     const grade = (row.Grade || "").toUpperCase().trim();
     
-    // CUTM1 data takes precedence
-    subjectMap.set(code, { credits, grade });
+    // Only count passed subjects
+    if (grade && !['F', 'S', 'I', 'M', 'R'].includes(grade)) {
+      subjectMap.set(code, { credits, grade });
+    }
   });
 
   let totalCredits = 0;
@@ -334,6 +308,131 @@ function getBatchFromReg(registration) {
   return null;
 }
 
+// Check Honours Subjects eligibility
+// Student must have passed at least 2 honours subjects from honours_domain_subjects
+async function checkHonoursSubjects(db, registration) {
+  const reg = registration.toUpperCase();
+  
+  // Get all results for the student from CUTM1
+  const resultsCUTM1 = await db.collection("CUTM1")
+    .find({ Reg_No: reg })
+    .project({ _id: 0, Reg_No: 1, Subject_Code: 1, Subject_Name: 1, Credits: 1, Grade: 1 })
+    .toArray();
+
+  // Also get results from RegistrationData collection
+  const regAsNumber = parseInt(reg);
+  const resultsRegData = await db.collection("RegistrationData")
+    .find({
+      $or: [
+        { Reg_No: reg },
+        { Reg_No: regAsNumber }
+      ]
+    })
+    .project({ _id: 0, Reg_No: 1, Subject_Code: 1, Subject_Name: 1, Credits: 1, Grade: 1, Type: 1 })
+    .toArray();
+
+  // Get all honours subjects from honours_domain_subjects collection
+  const honoursSubjects = await db.collection("honours_domain_subjects")
+    .find({})
+    .toArray();
+
+  // Create a set of honours subject codes (exclude domain headers)
+  const honoursSubjectCodes = new Set();
+  honoursSubjects.forEach(subject => {
+    const domain = (subject.Domain || "").trim();
+    const subjectName = (subject.Subject_Name || "").trim();
+    const subjectCode = (subject["Subject Code"] || subject.SubjectCode || "").toUpperCase().trim();
+    
+    // Skip domain headers (when SubjectName === Domain, it's the domain header itself)
+    if (domain && subjectName && domain === subjectName) {
+      return;
+    }
+    
+    if (subjectCode) {
+      honoursSubjectCodes.add(subjectCode);
+    }
+  });
+
+  console.log(`[Honours] ${reg}: Found ${honoursSubjectCodes.size} honours subjects in system`);
+
+  // Track student's passed honours subjects
+  const studentPassedHonoursSubjects = new Set();
+  const studentHonoursSubjectsDetails = [];
+
+  // Process RegistrationData first
+  resultsRegData.forEach(r => {
+    const code = (r.Subject_Code || "").toUpperCase().trim();
+    if (!code) return;
+    
+    const grade = (r.Grade || "").toUpperCase().trim();
+    const isPassed = !['F', 'S', 'I', 'M', 'R'].includes(grade);
+    
+    // For RegistrationData, only count if there's a valid grade
+    if (r.Type === 'Registration' && !grade) {
+      return; // Don't count ungraded registration data
+    }
+    
+    if (isPassed && honoursSubjectCodes.has(code)) {
+      if (!studentPassedHonoursSubjects.has(code)) {
+        studentPassedHonoursSubjects.add(code);
+        studentHonoursSubjectsDetails.push({
+          code,
+          name: r.Subject_Name || "",
+          credits: parseCredits(r.Credits),
+          grade,
+          source: 'RegistrationData'
+        });
+      }
+    }
+  });
+  
+  // Then process CUTM1 (takes precedence, more accurate)
+  resultsCUTM1.forEach(r => {
+    const code = (r.Subject_Code || "").toUpperCase().trim();
+    if (!code) return;
+    
+    const grade = (r.Grade || "").toUpperCase().trim();
+    const isPassed = !['F', 'S', 'I', 'M', 'R'].includes(grade);
+    
+    if (isPassed && honoursSubjectCodes.has(code)) {
+      // Check if already added from RegistrationData
+      const existingIndex = studentHonoursSubjectsDetails.findIndex(s => s.code === code);
+      if (existingIndex >= 0) {
+        // Update with CUTM1 data (more accurate)
+        studentHonoursSubjectsDetails[existingIndex] = {
+          code,
+          name: r.Subject_Name || "",
+          credits: parseCredits(r.Credits),
+          grade,
+          source: 'CUTM1'
+        };
+      } else {
+        studentPassedHonoursSubjects.add(code);
+        studentHonoursSubjectsDetails.push({
+          code,
+          name: r.Subject_Name || "",
+          credits: parseCredits(r.Credits),
+          grade,
+          source: 'CUTM1'
+        });
+      }
+    }
+  });
+
+  const honoursSubjectsCount = studentPassedHonoursSubjects.size;
+  const isEligible = honoursSubjectsCount >= 2;
+
+  console.log(`[Honours] ${reg}: Found ${honoursSubjectsCount} passed honours subjects, Eligible: ${isEligible}`);
+
+  return {
+    honoursSubjectsCount,
+    requiredCount: 2,
+    isEligible,
+    passedHonoursSubjects: studentHonoursSubjectsDetails,
+    status: isEligible ? "Eligible" : (honoursSubjectsCount > 0 ? "In Progress" : "Not Started")
+  };
+}
+
 // Check Basket 5 eligibility
 // For batch 2024 onwards: 66 credits (46+20) + 2 complete domains
 // For batch before 2024: 2 complete domains only
@@ -347,19 +446,26 @@ async function checkBasket5(db, registration) {
     .toArray();
 
   // Also get results from RegistrationData collection
+  // Try multiple formats to ensure we get all data
   const regAsNumber = parseInt(reg);
+  const regAsString = String(reg);
+  
+  // Query RegistrationData with multiple matching strategies
   const resultsRegData = await db.collection("RegistrationData")
     .find({
       $or: [
         { Reg_No: reg },
-        { Reg_No: regAsNumber }
+        { Reg_No: regAsNumber },
+        { Reg_No: regAsString },
+        { Reg_No: { $regex: `^${reg}`, $options: "i" } },
+        { $expr: { $eq: [{ $toString: "$Reg_No" }, regAsString.toUpperCase()] } },
+        { $expr: { $eq: [{ $toString: "$Reg_No" }, regAsString] } }
       ]
     })
     .project({ _id: 0, Reg_No: 1, Subject_Code: 1, Subject_Name: 1, Credits: 1, Grade: 1, Sem: 1, Type: 1 })
     .toArray();
 
-  // Combine results from both collections
-  const results = [...resultsCUTM1, ...resultsRegData];
+  console.log(`[Basket5] ${reg}: RegistrationData query returned ${resultsRegData.length} records`);
   
   console.log(`[Basket5] ${reg}: Found ${resultsCUTM1.length} from CUTM1, ${resultsRegData.length} from RegistrationData`);
 
@@ -395,12 +501,15 @@ async function checkBasket5(db, registration) {
     }
   });
 
-  // Get student's passed subjects (prioritize CUTM1 over RegistrationData)
+  // Get student's passed subjects from BOTH CUTM1 and RegistrationData
+  // For domain completion, we need to count subjects from BOTH sources
   const studentCodes = new Set();
   const studentSubjectCredits = new Map();
   const subjectCodeMap = new Map(); // Track which source has the subject
+  const subjectDetails = new Map(); // Track full subject details
   
-  // First process RegistrationData (may have registered but not graded subjects)
+  // First process RegistrationData - IMPORTANT: Count all passed subjects for domain check
+  // RegistrationData subjects are crucial for domain completion
   resultsRegData.forEach(r => {
     const code = (r.Subject_Code || "").toUpperCase().trim();
     if (!code) return;
@@ -408,23 +517,31 @@ async function checkBasket5(db, registration) {
     const grade = (r.Grade || "").toUpperCase().trim();
     const isPassed = !['F', 'S', 'I', 'M', 'R'].includes(grade);
     
-    // For RegistrationData, only count if there's a valid grade
-    // Type 'Registration' without grade means not yet completed
-    if (r.Type === 'Registration' && !grade) {
-      return; // Don't count ungraded registration data
-    }
-    
-    if (isPassed) {
+    // For RegistrationData: Count if there's a valid grade
+    // Even if Type is 'Registration', if there's a grade, count it for domain completion
+    if (grade && grade !== "" && isPassed) {
       const credits = parseCredits(r.Credits);
-      if (!subjectCodeMap.has(code)) {
+      // Add to set - RegistrationData subjects MUST count for domain completion
+      if (!studentCodes.has(code)) {
         studentCodes.add(code);
         studentSubjectCredits.set(code, credits);
         subjectCodeMap.set(code, 'RegistrationData');
+        subjectDetails.set(code, {
+          code,
+          name: r.Subject_Name || "",
+          credits,
+          grade,
+          source: 'RegistrationData'
+        });
+        console.log(`[Basket5] ${reg}: Added subject ${code} from RegistrationData (grade: ${grade})`);
       }
+    } else if (!grade || grade === "") {
+      // Log subjects without grades for debugging
+      console.log(`[Basket5] ${reg}: Skipping ${code} from RegistrationData - no grade or failed (Type: ${r.Type || 'N/A'})`);
     }
   });
   
-  // Then process CUTM1 (takes precedence, more accurate)
+  // Then process CUTM1 (takes precedence for credits/grade, but both count for domains)
   resultsCUTM1.forEach(r => {
     const code = (r.Subject_Code || "").toUpperCase().trim();
     if (!code) return;
@@ -434,42 +551,74 @@ async function checkBasket5(db, registration) {
     
     if (isPassed) {
       const credits = parseCredits(r.Credits);
-      // CUTM1 data overrides RegistrationData
-      studentCodes.add(code);
-      studentSubjectCredits.set(code, credits);
-      subjectCodeMap.set(code, 'CUTM1');
+      // CUTM1 data overrides RegistrationData for credits/grade
+      // But domain completion uses subjects from BOTH sources
+      const wasFromRegData = subjectCodeMap.get(code) === 'RegistrationData';
+      studentCodes.add(code); // Add to set (if not already there from RegistrationData)
+      studentSubjectCredits.set(code, credits); // CUTM1 credits take precedence
+      subjectCodeMap.set(code, 'CUTM1'); // Mark as CUTM1 (but domain check uses both)
+      subjectDetails.set(code, {
+        code,
+        name: r.Subject_Name || "",
+        credits,
+        grade,
+        source: 'CUTM1',
+        alsoInRegData: wasFromRegData
+      });
+      if (wasFromRegData) {
+        console.log(`[Basket5] ${reg}: Subject ${code} also found in CUTM1, using CUTM1 data but both count for domains`);
+      }
     }
   });
   
-  console.log(`[Basket5] ${reg}: Found ${studentCodes.size} passed subjects (${Array.from(subjectCodeMap.values()).filter(v => v === 'CUTM1').length} from CUTM1, ${Array.from(subjectCodeMap.values()).filter(v => v === 'RegistrationData').length} from RegistrationData)`);
+  const regDataCount = Array.from(subjectCodeMap.values()).filter(v => v === 'RegistrationData').length;
+  const cutm1Count = Array.from(subjectCodeMap.values()).filter(v => v === 'CUTM1').length;
+  console.log(`[Basket5] ${reg}: Found ${studentCodes.size} passed subjects (${cutm1Count} from CUTM1, ${regDataCount} from RegistrationData) for domain completion check`);
 
   const completedDomains = [];
   const inProgressDomains = [];
 
-  // Check each domain
+  // Check each domain - uses subjects from BOTH CUTM1 and RegistrationData
   domainMap.forEach((subjects, domain) => {
     if (subjects.length === 0) return;
 
+    // Find which subjects from this domain the student has passed (from either source)
     const completed = subjects.filter(code => studentCodes.has(code));
+    const missing = subjects.filter(code => !studentCodes.has(code));
     const completionRate = completed.length / subjects.length;
+    
+    // Log domain check details
+    const regDataInDomain = completed.filter(code => subjectCodeMap.get(code) === 'RegistrationData' || (subjectDetails.get(code)?.alsoInRegData)).length;
+    const cutm1InDomain = completed.filter(code => subjectCodeMap.get(code) === 'CUTM1').length;
+    console.log(`[Basket5] ${reg}: Domain "${domain}": ${completed.length}/${subjects.length} subjects (${cutm1InDomain} from CUTM1, ${regDataInDomain} from RegistrationData), Missing: ${missing.join(', ') || 'none'}`);
     
     if (completionRate === 1) {
       // Domain is 100% complete
       completedDomains.push({
         domain,
         totalSubjects: subjects.length,
-        completedSubjects: completed.length
+        completedSubjects: completed.length,
+        fromCUTM1: cutm1InDomain,
+        fromRegistrationData: regDataInDomain
       });
+      console.log(`[Basket5] ${reg}: Domain "${domain}" is COMPLETE (${completed.length}/${subjects.length} subjects)`);
     } else if (completionRate > 0) {
       // Domain is partially complete
       inProgressDomains.push({
         domain,
         totalSubjects: subjects.length,
         completedSubjects: completed.length,
-        completionRate: (completionRate * 100).toFixed(1)
+        completionRate: (completionRate * 100).toFixed(1),
+        fromCUTM1: cutm1InDomain,
+        fromRegistrationData: regDataInDomain
       });
+      console.log(`[Basket5] ${reg}: Domain "${domain}" is IN PROGRESS (${completed.length}/${subjects.length} subjects, ${(completionRate * 100).toFixed(1)}%)`);
+    } else {
+      console.log(`[Basket5] ${reg}: Domain "${domain}" is NOT STARTED (0/${subjects.length} subjects)`);
     }
   });
+  
+  console.log(`[Basket5] ${reg}: Domain completion summary - ${completedDomains.length} complete, ${inProgressDomains.length} in progress`);
 
   // For batch 2024 onwards: Check credits requirement (66 credits total from Basket 5)
   let basket5Credits = 0;
@@ -557,6 +706,14 @@ export async function POST(req) {
     }
 
     const { branch, batch } = await req.json();
+    
+    // Validate inputs
+    if (!branch && !batch) {
+      return NextResponse.json({ 
+        error: "Please provide at least Branch or Batch to check eligibility" 
+      }, { status: 400 });
+    }
+    
     const client = await clientPromise;
     const db = client.db("cutm1");
 
@@ -574,30 +731,42 @@ export async function POST(req) {
       'AIML': ['7']
     };
     
-    if (branch && branch !== "All" && branch !== "") {
-      queryCUTM1.Branch = branch;
+    const branchValue = branch && branch !== "All" && branch !== "" ? branch.trim() : null;
+    const batchValue = batch && batch !== "All" && batch !== "" ? batch.trim() : null;
+    
+    console.log(`[Query] Branch: ${branchValue}, Batch: ${batchValue}`);
+    
+    if (branchValue) {
+      queryCUTM1.Branch = branchValue;
       
       // For RegistrationData, check multiple ways:
       // 1. Branch field
       // 2. Department field
       // 3. Registration number pattern (8th character)
       // 4. Branch overrides
-      const branchCodes = branchCodeMap[branch] || [];
+      const branchCodes = branchCodeMap[branchValue] || [];
       const orConditions = [
-        { Branch: branch },
-        { Department: branch }
+        { Branch: branchValue },
+        { Department: branchValue }
       ];
       
-      // Add registration number pattern matching
+      // Add registration number pattern matching (handle both string and number Reg_No)
       if (branchCodes.length > 0) {
         branchCodes.forEach(code => {
+          // Match 8th character (0-indexed position 7)
           orConditions.push({ Reg_No: { $regex: `^.{7}${code}` } });
+          // Also try as number (convert to string first)
+          orConditions.push({ 
+            $expr: { 
+              $eq: [{ $substr: [{ $toString: "$Reg_No" }, 7, 1] }, code] 
+            } 
+          });
         });
       }
       
       // Get branch overrides
       try {
-        const normalizedBranch = branch.toLowerCase();
+        const normalizedBranch = branchValue.toLowerCase();
         const overrideDocs = await db.collection("branch_overrides")
           .find({})
           .toArray();
@@ -621,55 +790,223 @@ export async function POST(req) {
       queryRegData.$or = orConditions;
     }
     
-    if (batch && batch !== "" && batch !== "All") {
-      const b = String(batch).trim();
+    if (batchValue) {
+      const b = String(batchValue).trim();
       const yy = b.length === 4 && b.startsWith("20") ? b.slice(2) : b.slice(-2);
-      const batchPattern = `^(?:${yy}|20${yy})`;
+      // Match both formats: YY (e.g., 22) and 20YY (e.g., 2022)
+      // Also handle Reg_No as both string and number
+      const batchPattern = `^(${yy}|20${yy})`;
       
-      if (queryCUTM1.Reg_No) {
-        // Combine with existing regex if any
-        const existingPattern = queryCUTM1.Reg_No.$regex;
-        queryCUTM1.Reg_No = { $regex: batchPattern };
+      console.log(`[Query] Batch pattern: ${batchPattern} (from ${b}, yy=${yy})`);
+      
+      // Create batch conditions that work with both string and number Reg_No
+      // Use $expr to convert Reg_No to string for regex matching
+      const batchConditions = [
+        // Try as string field
+        { Reg_No: { $regex: batchPattern, $options: "i" } },
+        // Try as number field (convert to string first)
+        { 
+          $expr: { 
+            $regexMatch: { 
+              input: { $toString: "$Reg_No" }, 
+              regex: batchPattern, 
+              options: "i" 
+            } 
+          } 
+        }
+      ];
+      
+      // For CUTM1, combine branch and batch
+      if (queryCUTM1.Branch) {
+        // Both branch and batch - use $and
+        queryCUTM1.$and = [
+          { Branch: queryCUTM1.Branch },
+          { $or: batchConditions }
+        ];
+        delete queryCUTM1.Branch;
       } else {
-        queryCUTM1.Reg_No = { $regex: batchPattern };
+        // Only batch
+        queryCUTM1.$or = batchConditions;
       }
       
+      // For RegistrationData, combine with existing $or conditions
       if (queryRegData.$or) {
-        // If we have $or conditions, add batch to each or combine
+        // Both branch and batch - wrap $or in $and with batch
         queryRegData.$and = [
           { $or: queryRegData.$or },
-          { Reg_No: { $regex: batchPattern } }
+          { $or: batchConditions }
         ];
         delete queryRegData.$or;
       } else {
-        queryRegData.Reg_No = { $regex: batchPattern };
+        // Only batch
+        queryRegData.$or = batchConditions;
       }
     }
+    
+    console.log(`[Query] CUTM1 query:`, JSON.stringify(queryCUTM1, null, 2));
+    console.log(`[Query] RegistrationData query:`, JSON.stringify(queryRegData, null, 2));
 
     // Get distinct students from CUTM1
-    const studentsCUTM1 = await db.collection("CUTM1")
-      .aggregate([
-        { $match: queryCUTM1 },
-        {
+    // Only query if we have at least one filter
+    let studentsCUTM1 = [];
+    if (Object.keys(queryCUTM1).length > 0) {
+      try {
+        // Build aggregation pipeline
+        const pipeline = [
+          // First, add a string version of Reg_No for regex matching
+          {
+            $addFields: {
+              Reg_No_Str: {
+                $cond: {
+                  if: { $eq: [{ $type: "$Reg_No" }, "string"] },
+                  then: "$Reg_No",
+                  else: { $toString: "$Reg_No" }
+                }
+              }
+            }
+          }
+        ];
+        
+        // Build match stage - handle both Reg_No and Reg_No_Str
+        const matchStage = { $match: {} };
+        
+        if (queryCUTM1.$and) {
+          // Handle $and conditions
+          matchStage.$match.$and = queryCUTM1.$and.map(cond => {
+            if (cond.$or) {
+              // Expand $or to include Reg_No_Str versions
+              const expandedOr = [];
+              cond.$or.forEach(orCond => {
+                if (orCond.Reg_No && orCond.Reg_No.$regex) {
+                  // Add both Reg_No and Reg_No_Str versions
+                  expandedOr.push({ Reg_No: orCond.Reg_No });
+                  expandedOr.push({ Reg_No_Str: orCond.Reg_No });
+                } else {
+                  expandedOr.push(orCond);
+                }
+              });
+              return { $or: expandedOr };
+            }
+            return cond;
+          });
+        } else if (queryCUTM1.$or) {
+          // Handle $or conditions
+          const expandedOr = [];
+          queryCUTM1.$or.forEach(orCond => {
+            if (orCond.Reg_No && orCond.Reg_No.$regex) {
+              expandedOr.push({ Reg_No: orCond.Reg_No });
+              expandedOr.push({ Reg_No_Str: orCond.Reg_No });
+            } else {
+              expandedOr.push(orCond);
+            }
+          });
+          matchStage.$match.$or = expandedOr;
+        } else {
+          // Simple conditions
+          matchStage.$match = queryCUTM1;
+        }
+        
+        pipeline.push(matchStage);
+        pipeline.push({
           $group: {
             _id: "$Reg_No",
             Name: { $first: "$Name" },
             Branch: { $first: "$Branch" },
             Reg_No: { $first: "$Reg_No" }
           }
-        },
-        { $project: { _id: 0, Reg_No: 1, Name: 1, Branch: 1 } }
-      ])
+        });
+        pipeline.push({ $project: { _id: 0, Reg_No: 1, Name: 1, Branch: 1 } });
+        
+        studentsCUTM1 = await db.collection("CUTM1")
+          .aggregate(pipeline)
       .toArray();
+        console.log(`[Query] CUTM1 found ${studentsCUTM1.length} students`);
+      } catch (err) {
+        console.error("Error querying CUTM1:", err);
+        console.error("Query was:", JSON.stringify(queryCUTM1, null, 2));
+        // Try simpler query as fallback
+        try {
+          studentsCUTM1 = await db.collection("CUTM1")
+            .find(queryCUTM1)
+            .limit(1000)
+            .toArray();
+          // Deduplicate by Reg_No
+          const uniqueMap = new Map();
+          studentsCUTM1.forEach(s => {
+            const reg = String(s.Reg_No).toUpperCase();
+            if (!uniqueMap.has(reg)) {
+              uniqueMap.set(reg, {
+                Reg_No: reg,
+                Name: s.Name || "",
+                Branch: s.Branch || ""
+              });
+            }
+          });
+          studentsCUTM1 = Array.from(uniqueMap.values());
+          console.log(`[Query] CUTM1 (fallback) found ${studentsCUTM1.length} students`);
+        } catch (fallbackErr) {
+          console.error("Error in fallback query CUTM1:", fallbackErr);
+          throw fallbackErr;
+        }
+      }
+    }
 
     // Get distinct students from RegistrationData
     // Only query if we have filters (branch or batch)
     let studentsRegData = [];
     if (Object.keys(queryRegData).length > 0) {
-      studentsRegData = await db.collection("RegistrationData")
-        .aggregate([
-          { $match: queryRegData },
+      try {
+        // Build aggregation pipeline similar to CUTM1
+        const pipeline = [
           {
+            $addFields: {
+              Reg_No_Str: {
+                $cond: {
+                  if: { $eq: [{ $type: "$Reg_No" }, "string"] },
+                  then: "$Reg_No",
+                  else: { $toString: "$Reg_No" }
+                }
+              }
+            }
+          }
+        ];
+        
+        // Build match stage
+        const matchStage = { $match: {} };
+        
+        if (queryRegData.$and) {
+          matchStage.$match.$and = queryRegData.$and.map(cond => {
+            if (cond.$or) {
+              const expandedOr = [];
+              cond.$or.forEach(orCond => {
+                if (orCond.Reg_No && orCond.Reg_No.$regex) {
+                  expandedOr.push({ Reg_No: orCond.Reg_No });
+                  expandedOr.push({ Reg_No_Str: orCond.Reg_No });
+                } else {
+                  expandedOr.push(orCond);
+                }
+              });
+              return { $or: expandedOr };
+            }
+            return cond;
+          });
+        } else if (queryRegData.$or) {
+          const expandedOr = [];
+          queryRegData.$or.forEach(orCond => {
+            if (orCond.Reg_No && orCond.Reg_No.$regex) {
+              expandedOr.push({ Reg_No: orCond.Reg_No });
+              expandedOr.push({ Reg_No_Str: orCond.Reg_No });
+            } else {
+              expandedOr.push(orCond);
+            }
+          });
+          matchStage.$match.$or = expandedOr;
+        } else {
+          matchStage.$match = queryRegData;
+        }
+        
+        pipeline.push(matchStage);
+        pipeline.push({
             $group: {
               _id: "$Reg_No",
               Name: { $first: "$Name" },
@@ -677,45 +1014,104 @@ export async function POST(req) {
               Department: { $first: "$Department" },
               Reg_No: { $first: "$Reg_No" }
             }
-          },
-          { $project: { _id: 0, Reg_No: 1, Name: 1, Branch: 1, Department: 1 } }
-        ])
+        });
+        pipeline.push({ $project: { _id: 0, Reg_No: 1, Name: 1, Branch: 1, Department: 1 } });
+        
+        studentsRegData = await db.collection("RegistrationData")
+          .aggregate(pipeline)
         .toArray();
+        console.log(`[Query] RegistrationData found ${studentsRegData.length} students`);
+      } catch (err) {
+        console.error("Error querying RegistrationData:", err);
+        console.error("Query was:", JSON.stringify(queryRegData, null, 2));
+        // Try simpler query as fallback
+        try {
+          studentsRegData = await db.collection("RegistrationData")
+            .find(queryRegData)
+            .limit(1000)
+            .toArray();
+          // Deduplicate
+          const uniqueMap = new Map();
+          studentsRegData.forEach(s => {
+            const reg = String(s.Reg_No).toUpperCase();
+            if (!uniqueMap.has(reg)) {
+              uniqueMap.set(reg, {
+                Reg_No: reg,
+                Name: s.Name || "",
+                Branch: s.Branch || s.Department || "",
+                Department: s.Department || ""
+              });
+            }
+          });
+          studentsRegData = Array.from(uniqueMap.values());
+          console.log(`[Query] RegistrationData (fallback) found ${studentsRegData.length} students`);
+        } catch (fallbackErr) {
+          console.error("Error in fallback query RegistrationData:", fallbackErr);
+          // Continue even if RegistrationData query fails
+        }
+      }
     }
-    // If no filters, skip RegistrationData query (user must provide branch or batch)
 
     // Combine students from both collections, avoiding duplicates
+    // Priority: CUTM1 data, but include all from RegistrationData as well
     const studentMap = new Map();
     
-    // Add students from CUTM1
+    // Add students from CUTM1 first
     studentsCUTM1.forEach(student => {
       const reg = String(student.Reg_No).toUpperCase();
+      if (reg) {
       studentMap.set(reg, {
         Reg_No: reg,
         Name: student.Name || "",
         Branch: student.Branch || getDepartmentFromRegNo(reg),
         source: 'CUTM1'
       });
+      }
     });
     
-    // Add students from RegistrationData (only if not already in CUTM1)
+    // Add students from RegistrationData (include all, even if in CUTM1, to ensure we check both)
     studentsRegData.forEach(student => {
       const reg = String(student.Reg_No).toUpperCase();
-      if (!studentMap.has(reg)) {
+      if (reg) {
         // Use Branch, Department, or extract from Reg_No
         const branch = student.Branch || student.Department || getDepartmentFromRegNo(reg);
+        // If already exists from CUTM1, keep CUTM1 data but mark as having RegistrationData too
+        if (studentMap.has(reg)) {
+          studentMap.get(reg).hasRegistrationData = true;
+        } else {
+          // New student from RegistrationData only
         studentMap.set(reg, {
           Reg_No: reg,
           Name: student.Name || "",
           Branch: branch,
-          source: 'RegistrationData'
+            source: 'RegistrationData',
+            hasRegistrationData: true
         });
+        }
       }
     });
 
     const students = Array.from(studentMap.values());
+    
+    console.log(`[Combine] Total unique students: ${students.length} (${students.filter(s => s.source === 'CUTM1').length} from CUTM1, ${students.filter(s => s.source === 'RegistrationData').length} from RegistrationData only, ${students.filter(s => s.hasRegistrationData).length} with RegistrationData)`);
 
     console.log(`Found ${studentsCUTM1.length} students from CUTM1, ${studentsRegData.length} from RegistrationData, ${students.length} unique students to check`);
+
+    if (students.length === 0) {
+      return NextResponse.json({
+        success: true,
+        allResults: [],
+        eligible: [],
+        stats: {
+          totalChecked: 0,
+          eligible: 0,
+          notEligible: 0,
+          added: 0,
+          updated: 0
+        },
+        message: "No students found matching the selected filters"
+      });
+    }
 
     const allResults = [];
     const eligible = [];
@@ -723,16 +1119,22 @@ export async function POST(req) {
 
     // Check each student
     for (const student of students) {
+      try {
       processed++;
       const reg = student.Reg_No;
+        
+        if (!reg) {
+          console.warn(`Skipping student with no registration number:`, student);
+          continue;
+        }
       
       // Get student branch
       let studentBranch = student.Branch || getDepartmentFromRegNo(reg);
       
-      // Calculate CGPA
+      // Calculate CGPA (ONLY from CUTM1)
       const cgpa = await calculateCGPA(db, reg);
 
-      // Check Basket 5 (Basket 4 is for major/minor, not required for honours)
+      // Check Basket 5 eligibility (uses both CUTM1 and RegistrationData for domain completion)
       const basket5Check = await checkBasket5(db, reg);
 
       // Get batch for details
@@ -740,7 +1142,11 @@ export async function POST(req) {
       const is2024OrLater = studentBatch && studentBatch >= 2024;
 
       // Determine eligibility
-      // Note: Basket 4 (58+20 credits) is for major/minor, not required for honours
+      // Requirements: 
+      // 1. CGPA >= 8.0 (from CUTM1 only)
+      // 2. Basket 5 requirements:
+      //    - Before 2024: 2 complete domains (check from both CUTM1 and RegistrationData)
+      //    - 2024 onwards: 66 credits from Basket 5 + 2 complete domains
       const cgpaEligible = cgpa >= 8.0;
       const basket5Eligible = basket5Check.isComplete;
       const isEligible = cgpaEligible && basket5Eligible;
@@ -763,11 +1169,20 @@ export async function POST(req) {
         }
       };
 
+      // Add credit details for 2024+ batches
+      if (is2024OrLater && basket5Check.basket5Credits !== undefined) {
+        studentData.Basket5Details = {
+          ...studentData.Basket5Details,
+          basket5Credits: basket5Check.basket5Credits,
+          creditsRequired: basket5Check.creditsRequired,
+          creditsComplete: basket5Check.creditsComplete
+        };
+      }
+
       // Add reasons for not being eligible
       if (!cgpaEligible) {
-        studentData.EligibilityReasons.push(`CGPA ${cgpa.toFixed(2)} is less than required 8.0`);
+        studentData.EligibilityReasons.push(`CGPA ${cgpa.toFixed(2)} is less than required 8.0 (calculated from CUTM1 only)`);
       }
-      // Note: Basket 4 is not required for honours (it's for major/minor)
       if (!basket5Eligible) {
         if (is2024OrLater) {
           const creditsInfo = basket5Check.basket5Credits !== undefined 
@@ -779,25 +1194,35 @@ export async function POST(req) {
           );
         } else {
           studentData.EligibilityReasons.push(
-            `Basket 5 incomplete: ${basket5Check.completedCount}/2 domains`
+            `Basket 5 incomplete: ${basket5Check.completedCount}/2 domains (checked from CUTM1 and RegistrationData)`
           );
         }
-      }
-
-      // Add credit details for 2024+ batches
-      if (is2024OrLater && basket5Check.basket5Credits !== undefined) {
-        studentData.Basket5Details = {
-          ...studentData.Basket5Details,
-          basket5Credits: basket5Check.basket5Credits,
-          creditsRequired: basket5Check.creditsRequired,
-          creditsComplete: basket5Check.creditsComplete
-        };
       }
 
       allResults.push(studentData);
       
       if (isEligible) {
         eligible.push(studentData);
+        }
+      } catch (studentError) {
+        console.error(`Error processing student ${student.Reg_No}:`, studentError);
+        // Add error entry to results
+        allResults.push({
+          RegistrationNo: student.Reg_No || "Unknown",
+          Registration_No: student.Reg_No || "Unknown",
+          Name: student.Name || "Unknown",
+          Branch: student.Branch || "Unknown",
+          Batch: getBatchFromReg(student.Reg_No) || "",
+          CGPA: 0,
+          HonoursStatus: "Error",
+          EligibilityStatus: "Error",
+          EligibilityReasons: [`Error checking eligibility: ${studentError.message}`],
+          HonoursDetails: {
+            honoursSubjectsCount: 0,
+            requiredCount: 2,
+            passedHonoursSubjects: []
+          }
+        });
       }
     }
 

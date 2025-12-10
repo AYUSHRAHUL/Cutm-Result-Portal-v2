@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
 const BRANCHES = [
@@ -12,13 +12,19 @@ const BRANCHES = [
   "AIML",
 ];
 
+const BATCHES = ["2022", "2023", "2024", "2025", "2026", "2027", "2028"];
+
 export default function BranchChangePage() {
   const [reg, setReg] = useState("");
   const [loading, setLoading] = useState(false);
   const [info, setInfo] = useState(null);
   const [target, setTarget] = useState("");
+  const [targetBatch, setTargetBatch] = useState("");
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
+  const [overrides, setOverrides] = useState([]);
+  const [loadingOverrides, setLoadingOverrides] = useState(false);
+  const [overridesError, setOverridesError] = useState("");
 
   async function lookup(e) {
     e.preventDefault();
@@ -31,26 +37,53 @@ export default function BranchChangePage() {
       if (!res.ok) throw new Error(data.error || "Lookup failed");
       setInfo(data);
       setTarget(data.override || data.detected || "");
+      setTargetBatch(data.overrideBatch || data.detectedBatch || "");
     } catch (e) {
       setErr(e.message);
     } finally { setLoading(false); }
   }
 
+  async function loadOverrides() {
+    try {
+      setLoadingOverrides(true);
+      setOverridesError("");
+      const res = await fetch("/api/branch-change?all=1");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load overrides");
+      setOverrides(data.overrides || []);
+    } catch (e) {
+      setOverridesError(e.message);
+    } finally {
+      setLoadingOverrides(false);
+    }
+  }
+
+  // Load recent overrides on mount
+  useEffect(() => {
+    loadOverrides();
+  }, []);
+
   async function applyChange(e) {
     e.preventDefault();
     setErr(""); setMsg("");
-    if (!reg || !target) { setErr("Select a new branch"); return; }
+    if (!reg || (!target && !targetBatch)) { setErr("Select a branch and/or batch"); return; }
     try {
       setLoading(true);
       const res = await fetch("/api/branch-change", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reg, newBranch: target })
+        body: JSON.stringify({ reg, newBranch: target || null, newBatch: targetBatch || null })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Update failed");
-      setMsg("Branch override saved successfully.");
-      setInfo(prev => ({ ...prev, override: target }));
+      setMsg("Override saved successfully.");
+      setInfo(prev => ({ 
+        ...prev, 
+        override: target || prev?.override || null,
+        overrideBatch: targetBatch || prev?.overrideBatch || null
+      }));
+      // Refresh list
+      loadOverrides();
     } catch (e) {
       setErr(e.message);
     } finally { setLoading(false); }
@@ -58,7 +91,7 @@ export default function BranchChangePage() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-3xl mx-auto bg-white rounded-xl shadow p-6 space-y-6">
+      <div className="max-w-5xl mx-auto bg-white rounded-xl shadow p-6 space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-[#0a4b78]">Branch Change</h1>
           <Link href="/dashboard/admin" className="text-sm text-blue-600 hover:underline">← Back</Link>
@@ -80,6 +113,57 @@ export default function BranchChangePage() {
           </button>
         </form>
 
+        {/* Recent Overrides */}
+        <div className="border-t pt-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-[#0a4b78]">Recent Overrides (Branch/Batch)</h2>
+            <button
+              onClick={loadOverrides}
+              disabled={loadingOverrides}
+              className="px-3 py-1.5 rounded-md bg-blue-500 text-white text-sm"
+            >
+              {loadingOverrides ? "Refreshing..." : "Refresh"}
+            </button>
+          </div>
+          {overridesError && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {overridesError}
+            </div>
+          )}
+          <div className="overflow-x-auto border rounded-lg">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-100 text-gray-700">
+                <tr>
+                  <th className="px-3 py-2 text-left">Reg No</th>
+                  <th className="px-3 py-2 text-left">Branch Override</th>
+                  <th className="px-3 py-2 text-left">Batch Override</th>
+                  <th className="px-3 py-2 text-left">Updated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(overrides || []).length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-3 py-3 text-center text-gray-500">
+                      {loadingOverrides ? "Loading..." : "No overrides found."}
+                    </td>
+                  </tr>
+                ) : (
+                  overrides.map((o) => (
+                    <tr key={`${o.reg}-${o.updatedAt || ""}`} className="border-t">
+                      <td className="px-3 py-2 font-semibold">{o.reg}</td>
+                      <td className="px-3 py-2">{o.branch || "—"}</td>
+                      <td className="px-3 py-2">{o.batch || "—"}</td>
+                      <td className="px-3 py-2 text-gray-600">
+                        {o.updatedAt ? new Date(o.updatedAt).toLocaleString() : "—"}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         {info && (
           <div className="space-y-4 border-t pt-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -91,19 +175,39 @@ export default function BranchChangePage() {
                 <div className="text-xs text-gray-500">Existing Override</div>
                 <div className="font-semibold">{info.override || "—"}</div>
               </div>
+              <div className="rounded-md bg-gray-50 p-3">
+                <div className="text-xs text-gray-500">Detected Batch</div>
+                <div className="font-semibold">{info.detectedBatch || "N/A"}</div>
+              </div>
+              <div className="rounded-md bg-gray-50 p-3">
+                <div className="text-xs text-gray-500">Existing Batch Override</div>
+                <div className="font-semibold">{info.overrideBatch || "—"}</div>
+              </div>
             </div>
 
             <form onSubmit={applyChange} className="space-y-3">
-              <label className="block text-sm font-medium">Set New Branch</label>
-              <select value={target} onChange={e=>setTarget(e.target.value)} className="w-full rounded-md border px-3 py-2">
-                <option value="">Select Branch</option>
-                {BRANCHES.map(b => <option key={b} value={b}>{b}</option>)}
-              </select>
-              <button disabled={loading || !target} className="rounded-md bg-green-600 text-white px-4 py-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium">Set New Branch</label>
+                  <select value={target} onChange={e=>setTarget(e.target.value)} className="w-full rounded-md border px-3 py-2">
+                    <option value="">Select Branch</option>
+                    {BRANCHES.map(b => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium">Set New Batch</label>
+                  <select value={targetBatch} onChange={e=>setTargetBatch(e.target.value)} className="w-full rounded-md border px-3 py-2">
+                    <option value="">Select Batch</option>
+                    {BATCHES.map(b => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <button disabled={loading || (!target && !targetBatch)} className="rounded-md bg-green-600 text-white px-4 py-2">
                 {loading ? "Saving..." : "Save Override"}
               </button>
               <p className="text-xs text-gray-600">
-                This creates an override for this registration. All panels and reports will reflect the new branch immediately.
+                This creates an override for this registration. All panels and reports will reflect the new branch and/or batch immediately.
               </p>
             </form>
           </div>

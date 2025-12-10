@@ -13,6 +13,9 @@ async function verifyToken(token) {
   }
 }
 
+// Normalize helpers (used for semester filter)
+const normalizeSemester = (value) => String(value || "").replace(/^Sem\s*/i, "").trim();
+
 export async function GET(req) {
   try {
     // Check authentication
@@ -26,11 +29,11 @@ export async function GET(req) {
       return NextResponse.json({ error: "Unauthorized - Invalid token" }, { status: 401 });
     }
 
-    // Check if user is admin
+    // Allow admin and teacher
     const userRole = payload.role?.toLowerCase();
-    if (userRole !== 'admin') {
+    if (!["admin", "teacher"].includes(userRole)) {
       return NextResponse.json({ 
-        error: "Access denied - Only admins can access analytics data" 
+        error: "Access denied - Only admins or teachers can access analytics data" 
       }, { status: 403 });
     }
 

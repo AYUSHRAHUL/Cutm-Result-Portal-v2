@@ -11,10 +11,74 @@ function getDepartmentFromRegNo(regNo) {
     '1': 'Civil Engineering',
     '2': 'Computer Science Engineering',
     '3': 'Electronics & Communication Engineering',
+    '4': 'Electronics & Communication Engineering',
     '5': 'Electrical & Electronics Engineering',
-    '6': 'Mechanical Engineering'
+    '6': 'Mechanical Engineering',
+    '7': 'AIML',
+    '8': 'Computer Science Engineering',
+    '9': 'Civil Engineering'
   };
   return deptMap[deptCode] || "Unknown";
+}
+
+// Normalize branch names to full names
+function normalizeBranchName(branch) {
+  if (!branch) return null;
+  const branchStr = String(branch).trim();
+  
+  // Branch name mapping
+  const branchMap = {
+    'CSE': 'Computer Science Engineering',
+    'ECE': 'Electronics & Communication Engineering',
+    'EEE': 'Electrical & Electronics Engineering',
+    'Civil': 'Civil Engineering',
+    'Mechanical': 'Mechanical Engineering',
+    'AIML': 'AIML',
+    'Computer Science': 'Computer Science Engineering',
+    'Computer Science Engineering': 'Computer Science Engineering',
+    'Electronics & Communication': 'Electronics & Communication Engineering',
+    'Electronics & Communication Engineering': 'Electronics & Communication Engineering',
+    'Electrical & Electronics': 'Electrical & Electronics Engineering',
+    'Electrical & Electronics Engineering': 'Electrical & Electronics Engineering',
+    'Civil Engineering': 'Civil Engineering',
+    'Mechanical Engineering': 'Mechanical Engineering'
+  };
+  
+  // Check exact match first
+  if (branchMap[branchStr]) {
+    return branchMap[branchStr];
+  }
+  
+  // Check case-insensitive match
+  const lowerBranch = branchStr.toLowerCase();
+  for (const [key, value] of Object.entries(branchMap)) {
+    if (key.toLowerCase() === lowerBranch) {
+      return value;
+    }
+  }
+  
+  // If contains keywords, map accordingly
+  if (lowerBranch.includes('computer') || lowerBranch.includes('cse')) {
+    return 'Computer Science Engineering';
+  }
+  if (lowerBranch.includes('electronics') && lowerBranch.includes('communication') || lowerBranch.includes('ece')) {
+    return 'Electronics & Communication Engineering';
+  }
+  if (lowerBranch.includes('electrical') && lowerBranch.includes('electronics') || lowerBranch.includes('eee')) {
+    return 'Electrical & Electronics Engineering';
+  }
+  if (lowerBranch.includes('civil')) {
+    return 'Civil Engineering';
+  }
+  if (lowerBranch.includes('mechanical')) {
+    return 'Mechanical Engineering';
+  }
+  if (lowerBranch.includes('aiml') || lowerBranch.includes('artificial')) {
+    return 'AIML';
+  }
+  
+  // Return as-is if no match
+  return branchStr;
 }
 
 export async function GET(req) {
@@ -38,16 +102,16 @@ export async function GET(req) {
     const db = client.db("cutm1");
 
     // Get distinct branches from CUTM1
-    const branchesCUTM1 = await db.collection("CUTM1")
+    const branchesCUTM1Raw = await db.collection("CUTM1")
       .distinct("Branch")
       .then(branches => branches.filter(Boolean));
 
     // Get distinct branches from RegistrationData (try multiple field names)
-    const branchesRegData1 = await db.collection("RegistrationData")
+    const branchesRegData1Raw = await db.collection("RegistrationData")
       .distinct("Branch")
       .then(branches => branches.filter(Boolean));
     
-    const branchesRegData2 = await db.collection("RegistrationData")
+    const branchesRegData2Raw = await db.collection("RegistrationData")
       .distinct("Department")
       .then(branches => branches.filter(Boolean));
 
@@ -68,13 +132,34 @@ export async function GET(req) {
       }
     });
 
-    // Combine and deduplicate branches
-    const branchSet = new Set([
-      ...branchesCUTM1,
-      ...branchesRegData1,
-      ...branchesRegData2,
-      ...Array.from(branchesFromRegNo)
-    ]);
+    // Normalize all branch names
+    const branchSet = new Set();
+    
+    // Normalize and add branches from all sources
+    [...branchesCUTM1Raw, ...branchesRegData1Raw, ...branchesRegData2Raw].forEach(branch => {
+      const normalized = normalizeBranchName(branch);
+      if (normalized) {
+        branchSet.add(normalized);
+      }
+    });
+    
+    // Add branches from registration numbers
+    branchesFromRegNo.forEach(branch => {
+      if (branch && branch !== "Unknown") {
+        branchSet.add(branch);
+      }
+    });
+    
+    // If no branches found, add default branches
+    if (branchSet.size === 0) {
+      branchSet.add('Civil Engineering');
+      branchSet.add('Computer Science Engineering');
+      branchSet.add('Electronics & Communication Engineering');
+      branchSet.add('Electrical & Electronics Engineering');
+      branchSet.add('Mechanical Engineering');
+      branchSet.add('AIML');
+    }
+    
     const branches = Array.from(branchSet).filter(Boolean).sort();
 
     // Get distinct batches from CUTM1 registration numbers
@@ -113,7 +198,14 @@ export async function GET(req) {
       }
     });
 
-    const batches = Array.from(batchSet).sort((a, b) => b.localeCompare(a)); // Sort descending (newest first)
+    let batches = Array.from(batchSet).sort((a, b) => b.localeCompare(a)); // Sort descending (newest first)
+    
+    // If no batches found, add default batches
+    if (batches.length === 0) {
+      batches = ["2025", "2024", "2023", "2022", "2021", "2020"];
+    }
+
+    console.log(`Filters API: Found ${branches.length} branches and ${batches.length} batches`);
 
     return NextResponse.json({
       success: true,

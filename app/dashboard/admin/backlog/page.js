@@ -117,6 +117,46 @@ export default function AdminBacklogPage() {
     URL.revokeObjectURL(url);
   }
 
+  // Export All Students Summary to Excel
+  function exportAllStudentsSummaryToExcel() {
+    if (!studentSummary || studentSummary.length === 0) {
+      alert("No data available to export.");
+      return;
+    }
+    
+    try {
+      const excelData = studentSummary.map((student, idx) => ({
+        "S.No": idx + 1,
+        "Name": student.Name || "",
+        "Registration No": student.Reg_No || "",
+        "Branch": student.Branch || "",
+        "Batch": student.Batch || "",
+        "Total Backlogs": student.TotalBacklogs || 0
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(excelData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "All Students Summary");
+
+      const colWidths = [
+        { wch: 8 },   // S.No
+        { wch: 30 },  // Name
+        { wch: 18 },  // Registration No
+        { wch: 35 },  // Branch
+        { wch: 12 },  // Batch
+        { wch: 18 }   // Total Backlogs
+      ];
+      ws['!cols'] = colWidths;
+
+      const dateStr = new Date().toISOString().split('T')[0];
+      const filename = `All_Students_Summary_${dateStr}.xlsx`;
+      XLSX.writeFile(wb, filename);
+    } catch (error) {
+      console.error("Excel export error:", error);
+      alert("Failed to export to Excel. Please try again.");
+    }
+  }
+
   // Export Branch-wise Summary to Excel
   function exportBranchWiseToExcel() {
     if (!branchWiseCounts || branchWiseCounts.length === 0) return;
@@ -258,6 +298,165 @@ export default function AdminBacklogPage() {
 
       const dateStrFile = new Date().toISOString().split('T')[0];
       const filename = `Branch_Wise_Backlog_Summary_${dateStrFile}.pdf`;
+      doc.save(filename);
+    } catch (error) {
+      console.error("PDF generation error:", error);
+      alert(`Failed to generate report: ${error.message || "Unknown error"}`);
+    }
+  }
+
+  // Export Detailed Subject Breakdown to Excel
+  function exportDetailedSubjectBreakdownToExcel() {
+    if (!detailedSubjectBreakdown || detailedSubjectBreakdown.length === 0) {
+      alert("No data available to export.");
+      return;
+    }
+    
+    try {
+      const excelData = detailedSubjectBreakdown.map((item, idx) => ({
+        "S.No": idx + 1,
+        "Batch": item.batch || "",
+        "Branch": item.branch || "",
+        "Subject Code": item.subjectCode || "",
+        "Subject Name": item.subjectName || "",
+        "Backlog Count": item.count || 0
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(excelData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Subject Breakdown");
+
+      const colWidths = [
+        { wch: 8 },   // S.No
+        { wch: 12 },  // Batch
+        { wch: 35 },  // Branch
+        { wch: 15 },  // Subject Code
+        { wch: 40 },  // Subject Name
+        { wch: 18 }   // Backlog Count
+      ];
+      ws['!cols'] = colWidths;
+
+      const dateStr = new Date().toISOString().split('T')[0];
+      const filename = `Detailed_Subject_Breakdown_${dateStr}.xlsx`;
+      XLSX.writeFile(wb, filename);
+    } catch (error) {
+      console.error("Excel export error:", error);
+      alert("Failed to export to Excel. Please try again.");
+    }
+  }
+
+  // Download Detailed Subject Breakdown Report (PDF)
+  function downloadDetailedSubjectBreakdownReport() {
+    if (!detailedSubjectBreakdown || detailedSubjectBreakdown.length === 0) {
+      alert("No data available to generate report.");
+      return;
+    }
+    
+    try {
+      if (typeof jsPDF === 'undefined') {
+        alert("PDF library not loaded. Please refresh the page.");
+        return;
+      }
+
+      const doc = new jsPDF();
+      
+      // Add title
+      doc.setFontSize(18);
+      doc.setTextColor(30, 41, 59);
+      doc.text("Detailed Subject Breakdown Report", 14, 20);
+      
+      // Add date and filters
+      doc.setFontSize(10);
+      doc.setTextColor(100, 100, 100);
+      const dateStr = new Date().toLocaleDateString('en-GB', { 
+        day: '2-digit', 
+        month: 'short', 
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      doc.text(`Generated on: ${dateStr}`, 14, 28);
+
+      doc.setFontSize(9);
+      doc.setTextColor(60, 60, 60);
+      const subjectText = `Subject: ${subjectNameDisplay || "N/A"} (${selectedSubject || subjectCode || "code"})`;
+      doc.text(subjectText.substring(0, 90), 14, 35);
+      const batchFilter = year && year !== "All" ? year : "All";
+      doc.text(`Branch: All | Batch: ${batchFilter} | Total Records: ${detailedSubjectBreakdown.length}`, 14, 41);
+
+      // Prepare table data
+      const tableData = detailedSubjectBreakdown.map((item, idx) => [
+        String(idx + 1),
+        String(item.batch || ""),
+        String(item.branch || "").substring(0, 25),
+        String(item.subjectCode || ""),
+        String(item.subjectName || "").substring(0, 30),
+        Number(item.count) || 0
+      ]);
+
+      // Use autoTable if available
+      if (typeof doc.autoTable !== 'undefined') {
+        doc.autoTable({
+          startY: 48,
+          head: [["S.No", "Batch", "Branch", "Subject Code", "Subject Name", "Backlog Count"]],
+          body: tableData,
+          theme: "striped",
+          headStyles: {
+            fillColor: [5, 163, 199],
+            textColor: [255, 255, 255],
+            fontStyle: "bold"
+          },
+          alternateRowStyles: {
+            fillColor: [245, 247, 250]
+          },
+          styles: {
+            fontSize: 7,
+            cellPadding: 2
+          },
+          columnStyles: {
+            0: { cellWidth: 15 },
+            1: { cellWidth: 25 },
+            2: { cellWidth: 40 },
+            3: { cellWidth: 30 },
+            4: { cellWidth: 50 },
+            5: { cellWidth: 30, halign: 'center' }
+          }
+        });
+      } else {
+        // Fallback: Create simple table
+        let yPos = 50;
+        doc.setFontSize(7);
+        doc.setTextColor(30, 41, 59);
+        
+        // Headers
+        doc.setFont(undefined, 'bold');
+        doc.text("S.No", 14, yPos);
+        doc.text("Batch", 22, yPos);
+        doc.text("Branch", 35, yPos);
+        doc.text("Subject Code", 70, yPos);
+        doc.text("Subject Name", 95, yPos);
+        doc.text("Count", 150, yPos);
+        
+        yPos += 6;
+        doc.setFont(undefined, 'normal');
+        
+        tableData.forEach((row) => {
+          if (yPos > 280) {
+            doc.addPage();
+            yPos = 20;
+          }
+          doc.text(String(row[0]), 14, yPos);
+          doc.text(String(row[1]), 22, yPos);
+          doc.text(String(row[2]), 35, yPos);
+          doc.text(String(row[3]), 70, yPos);
+          doc.text(String(row[4]), 95, yPos);
+          doc.text(String(row[5]), 150, yPos);
+          yPos += 6;
+        });
+      }
+
+      const dateStrFile = new Date().toISOString().split('T')[0];
+      const filename = `Detailed_Subject_Breakdown_${dateStrFile}.pdf`;
       doc.save(filename);
     } catch (error) {
       console.error("PDF generation error:", error);
@@ -926,6 +1125,49 @@ export default function AdminBacklogPage() {
         return b.count - a.count; // Then by count
       });
   }, [showBranchWiseSummary, showBatchBranchCombinations, filteredRows]);
+
+  // Calculate detailed breakdown: Batch + Branch + Subject backlog counts
+  // Show when: subject search AND (branch is "All" OR both branch and batch are "All")
+  const detailedSubjectBreakdown = useMemo(() => {
+    // Show breakdown when branch is "All" (regardless of batch selection)
+    if (!showBranchWiseSummary || !isSubjectSearch) return [];
+    
+    const breakdownMap = new Map();
+    
+    filteredRows.forEach(row => {
+      const branchName = row.Branch || getBranchFromRegNo(row.Reg_No || row.registration || "") || "Unknown";
+      const fullBranchName = branchName.length <= 5 && branchName !== "AIML" 
+        ? getFullBranchName(branchName) 
+        : branchName;
+      const rowBatch = row.Batch || deriveBatchFromReg(row.Reg_No || row.registration || "") || "Unknown";
+      const subjectCode = row.Subject_Code || row.subject_code || "Unknown";
+      const subjectName = row.Subject_Name || "";
+      
+      const key = `${rowBatch}|${fullBranchName}|${subjectCode}`;
+      const existing = breakdownMap.get(key) || {
+        batch: rowBatch,
+        branch: fullBranchName,
+        subjectCode: subjectCode,
+        subjectName: subjectName,
+        count: 0
+      };
+      existing.count += 1;
+      breakdownMap.set(key, existing);
+    });
+    
+    // Convert to array and sort
+    return Array.from(breakdownMap.values())
+      .sort((a, b) => {
+        // Sort by batch (descending), then branch, then count
+        if (a.batch !== b.batch) {
+          return b.batch.localeCompare(a.batch);
+        }
+        if (a.branch !== b.branch) {
+          return a.branch.localeCompare(b.branch);
+        }
+        return b.count - a.count;
+      });
+  }, [showBranchWiseSummary, isSubjectSearch, filteredRows]);
   const subjectNameDisplay = (() => {
     if (!isSubjectSearch) return "";
     const code = (selectedSubject || subjectCode || "").trim();
@@ -944,12 +1186,12 @@ export default function AdminBacklogPage() {
           }
         }
       `}</style>
-      <div 
-        className="min-h-screen pb-10"
-        style={{
-          background: "linear-gradient(to bottom, #F5F8FA 0%, #E8F4F8 50%, #D1E9F6 100%)",
-        }}
-      >
+    <div 
+      className="min-h-screen pb-10"
+      style={{
+        background: "linear-gradient(to bottom, #F5F8FA 0%, #E8F4F8 50%, #D1E9F6 100%)",
+      }}
+    >
       <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 pt-6 sm:pt-8 lg:pt-12">
         {/* Header */}
         <div className="mb-4 sm:mb-6 text-center">
@@ -1358,29 +1600,47 @@ export default function AdminBacklogPage() {
               }}
             >
               <h3 className="font-black text-sm sm:text-base lg:text-lg">All Students Summary ({studentSummary.length} students)</h3>
-              <button
-                onClick={() => {
-                  // Create table without Actions column
-                  const tableRows = studentSummary.map((student, idx) => `
-                    <tr>
-                      <td>${idx + 1}</td>
-                      <td>${student.Name || "-"}</td>
-                      <td>${student.Reg_No || "-"}</td>
-                      <td>${student.Branch || "-"}</td>
-                      <td>${student.Batch || "-"}</td>
-                      <td style="text-align: center;">${student.TotalBacklogs || 0}</td>
-                    </tr>
-                  `).join('');
-                  
-                  const printWindow = window.open('', '_blank');
-                  printWindow.document.write(`
-                    <html>
-                      <head>
-                        <title>All Students Summary</title>
-                        <style>
-                          @media print {
-                            @page { margin: 15mm; }
-                            body { font-family: Arial, sans-serif; }
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={exportAllStudentsSummaryToExcel}
+                  className="px-3 py-1.5 sm:py-2 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
+                >
+                  <span className="text-base">📥</span>
+                  <span className="hidden xs:inline">Export Excel</span>
+                  <span className="xs:hidden">Excel</span>
+                </button>
+                <button
+                  onClick={() => {
+                    // Create table without Actions column
+                    const tableRows = studentSummary.map((student, idx) => `
+                      <tr>
+                        <td>${idx + 1}</td>
+                        <td>${student.Name || "-"}</td>
+                        <td>${student.Reg_No || "-"}</td>
+                        <td>${student.Branch || "-"}</td>
+                        <td>${student.Batch || "-"}</td>
+                        <td style="text-align: center;">${student.TotalBacklogs || 0}</td>
+                      </tr>
+                    `).join('');
+                    
+                    const printWindow = window.open('', '_blank');
+                    printWindow.document.write(`
+                      <html>
+                        <head>
+                          <title>All Students Summary</title>
+                          <style>
+                            @media print {
+                              @page { margin: 15mm; }
+                              body { font-family: Arial, sans-serif; }
+                              table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                              th { background-color: #05A3C7; color: white; padding: 10px; text-align: left; font-weight: bold; }
+                              td { padding: 8px; border: 1px solid #ddd; }
+                              tr:nth-child(even) { background-color: #f5f5f5; }
+                              .header { text-align: center; margin-bottom: 20px; }
+                              .header h1 { color: #05A3C7; margin: 0; }
+                              .header p { color: #666; margin: 5px 0; }
+                            }
+                            body { font-family: Arial, sans-serif; padding: 20px; }
                             table { width: 100%; border-collapse: collapse; margin-top: 20px; }
                             th { background-color: #05A3C7; color: white; padding: 10px; text-align: left; font-weight: bold; }
                             td { padding: 8px; border: 1px solid #ddd; }
@@ -1388,53 +1648,45 @@ export default function AdminBacklogPage() {
                             .header { text-align: center; margin-bottom: 20px; }
                             .header h1 { color: #05A3C7; margin: 0; }
                             .header p { color: #666; margin: 5px 0; }
-                          }
-                          body { font-family: Arial, sans-serif; padding: 20px; }
-                          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                          th { background-color: #05A3C7; color: white; padding: 10px; text-align: left; font-weight: bold; }
-                          td { padding: 8px; border: 1px solid #ddd; }
-                          tr:nth-child(even) { background-color: #f5f5f5; }
-                          .header { text-align: center; margin-bottom: 20px; }
-                          .header h1 { color: #05A3C7; margin: 0; }
-                          .header p { color: #666; margin: 5px 0; }
-                        </style>
-                      </head>
-                      <body>
-                        <div class="header">
-                          <h1>All Students Summary</h1>
-                          <p>Total Students: ${studentSummary.length}</p>
-                          <p>Generated on: ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
-                          ${branch && branch !== "All" ? `<p>Branch: ${branch}</p>` : ''}
-                          ${year && year !== "All" ? `<p>Batch: ${year}</p>` : ''}
-                        </div>
-                        <table>
-                          <thead>
-                            <tr>
-                              <th>S.No</th>
-                              <th>Name</th>
-                              <th>Registration No</th>
-                              <th>Branch</th>
-                              <th>Batch</th>
-                              <th style="text-align: center;">Total Backlogs</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            ${tableRows}
-                          </tbody>
-                        </table>
-                      </body>
-                    </html>
-                  `);
-                  printWindow.document.close();
-                  setTimeout(() => {
-                    printWindow.print();
-                  }, 250);
-                }}
-                className="px-3 py-1.5 sm:py-2 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
-              >
-                <span className="text-base">🖨️</span>
-                <span className="hidden xs:inline">Print</span>
-              </button>
+                          </style>
+                        </head>
+                        <body>
+                          <div class="header">
+                            <h1>All Students Summary</h1>
+                            <p>Total Students: ${studentSummary.length}</p>
+                            <p>Generated on: ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                            ${branch && branch !== "All" ? `<p>Branch: ${branch}</p>` : ''}
+                            ${year && year !== "All" ? `<p>Batch: ${year}</p>` : ''}
+            </div>
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>S.No</th>
+                                <th>Name</th>
+                                <th>Registration No</th>
+                                <th>Branch</th>
+                                <th>Batch</th>
+                                <th style="text-align: center;">Total Backlogs</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              ${tableRows}
+                            </tbody>
+                          </table>
+                        </body>
+                      </html>
+                    `);
+                    printWindow.document.close();
+                    setTimeout(() => {
+                      printWindow.print();
+                    }, 250);
+                  }}
+                  className="px-3 py-1.5 sm:py-2 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
+                >
+                  <span className="text-base">🖨️</span>
+                  <span className="hidden xs:inline">Print</span>
+                </button>
+              </div>
             </div>
             <div className="overflow-x-auto" id="all-students-summary-table">
               <table className="min-w-full text-sm">
@@ -1627,6 +1879,83 @@ export default function AdminBacklogPage() {
                         ))}
                         <tr className="border-t-2 border-[#05A3C7]/30 bg-[#05A3C7]/5">
                           <td className="px-4 py-3 text-[#1A1F29] font-black text-base">Total</td>
+                          <td className="px-4 py-3 text-center">
+                            <span className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-[#04748F] text-white font-black text-base">
+                              {subjectResultCount}
+                            </span>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Detailed Subject Breakdown Table - Shows Batch + Branch + Subject breakdown */}
+              {showBranchWiseSummary && detailedSubjectBreakdown.length > 0 && (
+                <div className="rounded-xl border-2 border-[#05A3C7]/20 bg-white overflow-hidden">
+                  <div 
+                    className="text-white px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3"
+                    style={{
+                      background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
+                    }}
+                  >
+                    <h3 className="font-black text-base sm:text-lg">
+                      Detailed Breakdown: Batch, Branch & Subject
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={exportDetailedSubjectBreakdownToExcel}
+                        className="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
+                      >
+                        <span className="text-base">📥</span>
+                        <span className="hidden xs:inline">Export Excel</span>
+                        <span className="xs:hidden">Excel</span>
+                      </button>
+                      <button
+                        onClick={downloadDetailedSubjectBreakdownReport}
+                        className="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
+                      >
+                        <span className="text-base">📄</span>
+                        <span className="hidden xs:inline">Download PDF</span>
+                        <span className="xs:hidden">PDF</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr style={{ background: "rgba(5,163,199,0.1)" }}>
+                          <th className="px-4 py-3 text-left font-black text-xs uppercase">S.No</th>
+                          <th className="px-4 py-3 text-left font-black text-xs uppercase">Batch</th>
+                          <th className="px-4 py-3 text-left font-black text-xs uppercase">Branch</th>
+                          <th className="px-4 py-3 text-left font-black text-xs uppercase">Subject Code</th>
+                          <th className="px-4 py-3 text-left font-black text-xs uppercase">Subject Name</th>
+                          <th className="px-4 py-3 text-center font-black text-xs uppercase">Backlog Count</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detailedSubjectBreakdown.map((item, idx) => (
+                          <tr 
+                            key={idx} 
+                            className="border-t-2 border-[#05A3C7]/10 hover:bg-[#05A3C7]/5 transition-colors"
+                          >
+                            <td className="px-4 py-3 text-[#1A1F29] font-medium">{idx + 1}</td>
+                            <td className="px-4 py-3 text-[#1A1F29] font-bold">{item.batch || "-"}</td>
+                            <td className="px-4 py-3 text-[#1A1F29] font-medium">{item.branch || "-"}</td>
+                            <td className="px-4 py-3 font-bold" style={{ color: "#05A3C7" }}>
+                              {item.subjectCode || "-"}
+                            </td>
+                            <td className="px-4 py-3 text-[#1A1F29] font-medium">{item.subjectName || "-"}</td>
+                            <td className="px-4 py-3 text-center">
+                              <span className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-[#05A3C7] text-white font-black text-base">
+                                {item.count}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                        <tr className="border-t-2 border-[#05A3C7]/30 bg-[#05A3C7]/5">
+                          <td colSpan={5} className="px-4 py-3 text-[#1A1F29] font-black text-base">Total</td>
                           <td className="px-4 py-3 text-center">
                             <span className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-[#04748F] text-white font-black text-base">
                               {subjectResultCount}

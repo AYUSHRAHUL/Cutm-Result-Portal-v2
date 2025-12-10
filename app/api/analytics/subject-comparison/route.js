@@ -26,11 +26,11 @@ export async function GET(req) {
       return NextResponse.json({ error: "Unauthorized - Invalid token" }, { status: 401 });
     }
 
-    // Check if user is admin
+    // Allow admin and teacher
     const userRole = payload.role?.toLowerCase();
-    if (userRole !== 'admin') {
+    if (!["admin", "teacher"].includes(userRole)) {
       return NextResponse.json({ 
-        error: "Access denied - Only admins can access analytics data" 
+        error: "Access denied - Only admins or teachers can access analytics data" 
       }, { status: 403 });
     }
 
@@ -60,6 +60,8 @@ export async function GET(req) {
     
     // Fetch data with filters
     let cutm1Data = await db.collection("CUTM1").find({}).toArray();
+    const uniqueStudentsGlobal = new Set();
+    const studentFailedMap = new Map(); // reg -> boolean failed within selected subjects
     
     // Load branch overrides
     const allRegSet = Array.from(new Set(cutm1Data.map(r => r.Reg_No ? String(r.Reg_No) : null).filter(Boolean)));
@@ -139,12 +141,22 @@ export async function GET(req) {
     // Filter by subject codes (handle both Subject_Code and Subject Code field names)
     cutm1Data = cutm1Data.filter(record => {
       const subjectCode = String(record.Subject_Code || record["Subject Code"] || "").trim().toUpperCase();
-      return subjectCodes.some(code => subjectCode === code || subjectCode.includes(code) || code.includes(subjectCode));
+      const matches = subjectCodes.some(code => subjectCode === code || subjectCode.includes(code) || code.includes(subjectCode));
+      if (matches && record.Reg_No) {
+        const reg = String(record.Reg_No).toUpperCase();
+        uniqueStudentsGlobal.add(reg);
+        const grade = String(record.Grade || "").trim().toUpperCase();
+        const failedGrades = ['F', 'S', 'M', 'I', 'R'];
+        if (failedGrades.includes(grade)) {
+          studentFailedMap.set(reg, true);
+        }
+      }
+      return matches;
     });
     
     console.log(`Filtered to ${cutm1Data.length} records matching subject codes: ${subjectCodes.join(', ')}`);
     
-    // Calculate subject statistics
+    // Calculate subject statistics with unique students per subject
     const subjectStats = {};
     const gradePoints = { 'O': 10, 'E': 9, 'A': 8, 'B': 7, 'C': 6, 'D': 5, 'F': 0, 'S': 0, 'I': 0, 'M': 0, 'R': 0 };
     const failedGrades = ['F', 'S', 'M', 'I', 'R'];
@@ -152,26 +164,22 @@ export async function GET(req) {
     cutm1Data.forEach(record => {
       // Handle both Subject_Code and Subject Code field names
       const subjectCode = record.Subject_Code || record["Subject Code"];
-      if (subjectCode && record.Grade) {
-        const subject = String(subjectCode).trim().toUpperCase();
-        const grade = String(record.Grade).trim().toUpperCase();
-        const points = gradePoints[grade] || 0;
-        
-        if (!subjectStats[subject]) {
-          subjectStats[subject] = { total: 0, sum: 0, passed: 0, failed: 0, grades: {} };
-        }
-        
-        subjectStats[subject].total += 1;
-        subjectStats[subject].sum += points;
-        
-        if (failedGrades.includes(grade)) {
-          subjectStats[subject].failed += 1;
-        } else {
-          subjectStats[subject].passed += 1;
-        }
-        
-        subjectStats[subject].grades[grade] = (subjectStats[subject].grades[grade] || 0) + 1;
+      if (!subjectCode || !record.Grade) return;
+      
+      const subject = String(subjectCode).trim().toUpperCase();
+      const grade = String(record.Grade).trim().toUpperCase();
+      const regNo = String(record.Reg_No || "").toUpperCase();
+      if (!regNo) return;
+      
+      if (!subjectStats[subject]) {
+        subjectStats[subject] = { studentGrades: new Map(), grades: {} };
       }
+      
+      // Track per-student grade (latest wins)
+      subjectStats[subject].studentGrades.set(regNo, grade);
+      
+      // Track grade distribution (per record)
+      subjectStats[subject].grades[grade] = (subjectStats[subject].grades[grade] || 0) + 1;
     });
     
     // Format results for requested subjects
@@ -200,10 +208,25 @@ export async function GET(req) {
       }
       
       const stats = subjectStats[matchedSubject];
-      const totalStudents = stats.total;
-      const passed = stats.passed;
-      const failed = stats.failed;
-      const average = totalStudents > 0 ? parseFloat((stats.sum / totalStudents).toFixed(2)) : 0;
+      const studentGrades = stats.studentGrades;
+      
+      // Compute totals based on unique students
+      let totalStudents = studentGrades.size;
+      let passed = 0;
+      let failed = 0;
+      let sumPoints = 0;
+      
+      studentGrades.forEach((grade) => {
+        const points = gradePoints[grade] || 0;
+        sumPoints += points;
+        if (failedGrades.includes(grade)) {
+          failed += 1;
+        } else {
+          passed += 1;
+        }
+      });
+      
+      const average = totalStudents > 0 ? parseFloat((sumPoints / totalStudents).toFixed(2)) : 0;
       const passRate = totalStudents > 0 ? parseFloat(((passed / totalStudents) * 100).toFixed(1)) : 0;
       const failRate = totalStudents > 0 ? parseFloat(((failed / totalStudents) * 100).toFixed(1)) : 0;
       
@@ -219,9 +242,19 @@ export async function GET(req) {
       };
     });
     
+    // Students who passed ALL selected subjects (unique)
+    let passedAllStudents = 0;
+    uniqueStudentsGlobal.forEach(reg => {
+      if (!studentFailedMap.get(reg)) {
+        passedAllStudents += 1;
+      }
+    });
+
     return NextResponse.json({
       success: true,
-      data: results
+      data: results,
+      uniqueStudents: uniqueStudentsGlobal.size,
+      passedAllStudents
     });
     
   } catch (error) {

@@ -21,6 +21,7 @@ export async function GET(req) {
 
     const { searchParams } = new URL(req.url);
     const branch = searchParams.get("branch") || "";
+    const batch = searchParams.get("batch") || "";
     const domain = searchParams.get("domain") || "";
     const search = searchParams.get("search") || "";
     const limit = parseInt(searchParams.get("limit") || "1000");
@@ -29,19 +30,57 @@ export async function GET(req) {
     const db = client.db("cutm1");
 
     let query = {};
-    if (branch) query.Branch = branch;
-    if (domain) query.Domain = domain;
-    if (search) {
+    
+    // Branch filter
+    if (branch && branch !== "" && branch !== "All") {
+      query.Branch = branch;
+    }
+    
+    // Domain filter
+    if (domain && domain !== "" && domain !== "All") {
+      query.Domain = domain;
+    }
+    
+    // Batch filter - extract from registration number
+    if (batch && batch !== "" && batch !== "All") {
+      const batchStr = String(batch).trim();
+      const yy = batchStr.length === 4 && batchStr.startsWith("20") ? batchStr.slice(2) : batchStr.slice(-2);
+      const batchPattern = `^${yy}`;
       query.$or = [
-        { RegistrationNo: { $regex: search, $options: "i" } },
-        { Registration_No: { $regex: search, $options: "i" } },
-        { Name: { $regex: search, $options: "i" } }
+        { RegistrationNo: { $regex: batchPattern } },
+        { Registration_No: { $regex: batchPattern } }
       ];
+    }
+    
+    // Search filter
+    if (search && search.trim()) {
+      const searchRegex = { $regex: search.trim(), $options: "i" };
+      if (query.$or) {
+        // If batch filter exists, combine with search
+        query.$and = [
+          { $or: query.$or },
+          {
+            $or: [
+              { RegistrationNo: searchRegex },
+              { Registration_No: searchRegex },
+              { Name: searchRegex }
+            ]
+          }
+        ];
+        delete query.$or;
+      } else {
+        query.$or = [
+          { RegistrationNo: searchRegex },
+          { Registration_No: searchRegex },
+          { Name: searchRegex }
+        ];
+      }
     }
 
     const items = await db.collection("honours_students")
       .find(query)
       .limit(limit)
+      .sort({ createdAt: -1 })
       .toArray();
 
     return NextResponse.json({ items });

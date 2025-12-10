@@ -46,6 +46,8 @@ export default function AnalyticsDashboard() {
   const [subjectComparisonSemester, setSubjectComparisonSemester] = useState("all");
   const [subjectComparisonData, setSubjectComparisonData] = useState([]);
   const [loadingSubjectComparison, setLoadingSubjectComparison] = useState(false);
+  const [subjectComparisonUniqueStudents, setSubjectComparisonUniqueStudents] = useState(null);
+  const [subjectComparisonPassedAll, setSubjectComparisonPassedAll] = useState(null);
   const [overviewBatchFilter, setOverviewBatchFilter] = useState("all"); // Separate filter for Department Distribution only
   const [filteredDepartmentStats, setFilteredDepartmentStats] = useState(null); // Separate state for filtered department stats
   const [loadingDepartmentStats, setLoadingDepartmentStats] = useState(false);
@@ -203,8 +205,8 @@ export default function AnalyticsDashboard() {
             setFilteredDepartmentStats(analyticsData.departmentStats || null);
           }
         }
-        } catch (err) {
-          // Fallback to original on error
+      } catch (err) {
+        // Fallback to original on error
         setFilteredDepartmentStats(analyticsData.departmentStats || null);
       } finally {
         setLoadingDepartmentStats(false);
@@ -294,12 +296,8 @@ export default function AnalyticsDashboard() {
                 }));
                 
                 setFilteredPassingStatsByCombination(combinationResults);
-                // Also set overall metrics for summary cards
-                const overallMetrics = allDataResult.data?.performanceMetrics;
-                if (overallMetrics) {
-                setFilteredPassingStats(overallMetrics);
-                } else {
-                  // Calculate overall from combinations
+
+                // Calculate overall strictly from the combination results (respects filters)
                   const total = combinationResults.reduce((sum, c) => sum + (c.data.totalRecords || 0), 0);
                   const passed = combinationResults.reduce((sum, c) => sum + (c.data.passedRecords || 0), 0);
                   setFilteredPassingStats({
@@ -308,7 +306,7 @@ export default function AnalyticsDashboard() {
                     failedRecords: total - passed,
                     passRate: total > 0 ? (passed / total) * 100 : 0
                   });
-                }
+
                 setFilteredPassingStatsByBatch(null);
                 setFilteredPassingStatsByBranch(null);
                 setLoadingPassingStats(false);
@@ -328,7 +326,7 @@ export default function AnalyticsDashboard() {
           const combinationPromises = [];
           
           // Helper function to create a safe fetch promise
-          const createFetchPromise = async (params, label, batch, branch) => {
+          const createFetchPromise = async (params, label, batch, branch, semesterParam = null) => {
             // Check if already aborted
             if (abortController.signal.aborted) {
               return {
@@ -392,7 +390,42 @@ export default function AnalyticsDashboard() {
                 };
               }
               
-              const metrics = result.data?.performanceMetrics;
+              // Default to overall metrics
+              let metrics = result.data?.performanceMetrics;
+
+              // If semester-specific request and server returned per-semester breakdown, use that slice
+              if (semesterParam) {
+                const semValue = String(semesterParam).replace(/^Sem\s*/i, "").trim();
+                const semBreakdown = Array.isArray(result.data?.performanceMetricsBySemester)
+                  ? result.data.performanceMetricsBySemester.find((s) => {
+                      const sv = String(s.semester || s.sem || s.Sem || "").replace(/^Sem\s*/i, "").trim();
+                      return sv === semValue;
+                    })
+                  : null;
+                if (semBreakdown) {
+                  const total = semBreakdown.total ?? semBreakdown.totalRecords ?? 0;
+                  const passed = semBreakdown.passed ?? semBreakdown.passedRecords ?? 0;
+                  const failed = semBreakdown.failed ?? semBreakdown.failedRecords ?? (total - passed);
+                  const passRateVal =
+                    semBreakdown.passRate ??
+                    (total > 0 ? (passed / total) * 100 : 0);
+                  metrics = {
+                    totalRecords: total,
+                    passedRecords: passed,
+                    failedRecords: failed,
+                    passRate: passRateVal,
+                  };
+                } else {
+                  // No semester slice found -> treat as no data
+                  metrics = {
+                    totalRecords: 0,
+                    passedRecords: 0,
+                    failedRecords: 0,
+                    passRate: 0,
+                  };
+                }
+              }
+
               if (!metrics) {
                 return {
                   label,
@@ -407,6 +440,7 @@ export default function AnalyticsDashboard() {
                 label,
                 batch,
                 branch,
+                semester: semesterParam,
                 data: metrics,
                 error: null
               };
@@ -445,7 +479,7 @@ export default function AnalyticsDashboard() {
                   params.append("semester", sem);
                   
                   combinationPromises.push(
-                    createFetchPromise(params, `${batch} ${branch} Sem ${sem}`, batch, branch)
+                    createFetchPromise(params, `${batch} ${branch} Sem ${sem}`, batch, branch, sem)
                   );
                 });
               });
@@ -472,7 +506,7 @@ export default function AnalyticsDashboard() {
                 params.append("semester", sem);
                 
                 combinationPromises.push(
-                  createFetchPromise(params, `${batch} Sem ${sem}`, batch, null)
+                  createFetchPromise(params, `${batch} Sem ${sem}`, batch, null, sem)
                 );
               });
             });
@@ -485,7 +519,7 @@ export default function AnalyticsDashboard() {
                 params.append("semester", sem);
                 
                 combinationPromises.push(
-                  createFetchPromise(params, `${branch} Sem ${sem}`, null, branch)
+                  createFetchPromise(params, `${branch} Sem ${sem}`, null, branch, sem)
                 );
               });
             });
@@ -539,6 +573,7 @@ export default function AnalyticsDashboard() {
                 const overallParams = new URLSearchParams();
                 batches.forEach(b => overallParams.append("batch", b));
                 branches.forEach(b => overallParams.append("branch", b));
+                semesters.forEach(s => overallParams.append("semester", s));
                 
                 try {
                   const overallResponse = await fetch(`/api/analytics?${overallParams.toString()}`, {
@@ -564,6 +599,15 @@ export default function AnalyticsDashboard() {
               // Only update state if not aborted
               if (!abortController.signal.aborted) {
                 setFilteredPassingStatsByCombination(successfulResults);
+                // Compute summary strictly from successful results (respect filters)
+                const total = successfulResults.reduce((sum, r) => sum + (r?.data?.totalRecords || 0), 0);
+                const passed = successfulResults.reduce((sum, r) => sum + (r?.data?.passedRecords || 0), 0);
+                setFilteredPassingStats({
+                  totalRecords: total,
+                  passedRecords: passed,
+                  failedRecords: total - passed,
+                  passRate: total > 0 ? (passed / total) * 100 : 0
+                });
                 setFilteredPassingStatsByBatch(null);
                 setFilteredPassingStatsByBranch(null);
               }
@@ -827,12 +871,31 @@ export default function AnalyticsDashboard() {
           });
           
           setSubjectComparisonData(comparisonData);
+          
+          // Auto-remove subjects with no data from selection & dropdown
+          const noDataSubjects = comparisonData.filter(s => !s.hasData).map(s => s.subject);
+          if (noDataSubjects.length > 0) {
+            setSelectedSubjects(prev => prev.filter(code => !noDataSubjects.includes(code)));
+            setBasketSubjects(prev => prev.filter(sub => !noDataSubjects.includes(sub.code)));
+            setSelectedSubjectToAdd("");
+          }
+          
+          setSubjectComparisonUniqueStudents(
+            typeof result.uniqueStudents === "number" ? result.uniqueStudents : null
+          );
+          setSubjectComparisonPassedAll(
+            typeof result.passedAllStudents === "number" ? result.passedAllStudents : null
+          );
         } else {
           setSubjectComparisonData([]);
+          setSubjectComparisonUniqueStudents(null);
+          setSubjectComparisonPassedAll(null);
         }
       } catch (err) {
         if (err.name !== 'AbortError') {
           setSubjectComparisonData([]);
+          setSubjectComparisonUniqueStudents(null);
+          setSubjectComparisonPassedAll(null);
         }
       } finally {
         setLoadingSubjectComparison(false);
@@ -1067,9 +1130,13 @@ export default function AnalyticsDashboard() {
   const currentData = filteredData || analyticsData;
 
   // ======================== Passing Analysis ========================
+  const passingFiltersActive = passingAnalysisBatch.length > 0 || passingAnalysisBranch.length > 0 || passingAnalysisSemester.length > 0;
+
   const getPassingAnalysis = () => {
-    // Use filtered passing stats if available, otherwise fall back to original
-    const metrics = filteredPassingStats !== null ? filteredPassingStats : currentData?.performanceMetrics;
+    // Use filtered passing stats if available; if filters active but no filtered stats, treat as zero
+    const metrics = filteredPassingStats !== null
+      ? filteredPassingStats
+      : (passingFiltersActive ? { totalRecords: 0, passedRecords: 0, failedRecords: 0, passRate: 0 } : currentData?.performanceMetrics);
     
     if (!metrics) {
       return { total: 0, passed: 0, fail: 0, passRate: 0 };
@@ -1179,13 +1246,27 @@ export default function AnalyticsDashboard() {
   };
 
   // Bar chart data - show separate bars for each selected filter value
+  const filterValidItems = (items) => {
+    if (!items || !Array.isArray(items)) return [];
+    return items.filter((item) => {
+      const total =
+        item?.total ??
+        item?.Total ??
+        item?.data?.totalRecords ??
+        item?.totalRecords ??
+        0;
+      return total > 0;
+    });
+  };
+
   let passFailData = [];
   
   // If only batch filters selected, show breakdown by branch (branch-wise analysis for batch)
   if (passingAnalysisBatch.length > 0 && passingAnalysisBranch.length === 0) {
     // Show breakdown by branch for selected batch
-    if (filteredPassingStatsByBranch && filteredPassingStatsByBranch.length > 0) {
-      passFailData = filteredPassingStatsByBranch
+    const valid = filterValidItems(filteredPassingStatsByBranch);
+    if (valid.length > 0) {
+      passFailData = valid
         .map(item => {
           const branchUpper = item.branch ? item.branch.toUpperCase() : null;
           return {
@@ -1204,8 +1285,9 @@ export default function AnalyticsDashboard() {
   // If only branch filters selected, show breakdown by batch
   else if (passingAnalysisBranch.length > 0 && passingAnalysisBatch.length === 0) {
     // Show breakdown by batch for selected branch
-    if (filteredPassingStatsByBatch && filteredPassingStatsByBatch.length > 0) {
-      passFailData = filteredPassingStatsByBatch
+    const valid = filterValidItems(filteredPassingStatsByBatch);
+    if (valid.length > 0) {
+      passFailData = valid
         .map(item => ({
           name: `Batch ${item.batch || "Unknown"}`,
           Passed: item.passed || 0,
@@ -1226,7 +1308,8 @@ export default function AnalyticsDashboard() {
     // Use combination data if available
     if (filteredPassingStatsByCombination && Array.isArray(filteredPassingStatsByCombination) && filteredPassingStatsByCombination.length > 0) {
       const validCombinations = filteredPassingStatsByCombination.filter(combo => {
-        const isValid = combo && combo.data && !combo.error && combo.data.totalRecords !== undefined;
+        const total = combo?.data?.totalRecords ?? 0;
+        const isValid = combo && combo.data && !combo.error && total > 0;
         return isValid;
       });
       
@@ -1686,6 +1769,16 @@ export default function AnalyticsDashboard() {
                   <p className="text-blue-200/70 text-sm">Fetching data and calculating statistics</p>
                 </div>
               </div>
+            ) : !passingFiltersActive ? (
+              <div className="text-center py-10 text-white/70 border border-white/10 rounded-2xl bg-white/5">
+                <p className="text-lg font-semibold">Select at least one Batch / Branch / Semester to view Passing Analysis.</p>
+                <p className="text-sm text-white/60 mt-2">No data is shown until you apply filters.</p>
+              </div>
+            ) : (passFailData.length === 0 && passingStats.total === 0) ? (
+              <div className="text-center py-10 text-amber-100 border border-amber-400/30 rounded-2xl bg-amber-500/10">
+                <p className="text-lg font-semibold">No data found for the selected filters.</p>
+                <p className="text-sm text-amber-100/80 mt-2">Try another batch/branch/semester that has records.</p>
+              </div>
             ) : (
               <>
                 {/* Enhanced Summary Cards */}
@@ -1749,11 +1842,11 @@ export default function AnalyticsDashboard() {
                       Pass Rate Analysis
                     </h4>
                     <div className="flex items-center gap-4">
-                      <div className="flex items-center gap-4 text-sm text-white/70">
-                        <div className="flex items-center gap-2">
-                          <div className="w-3 h-3 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500"></div>
+                    <div className="flex items-center gap-4 text-sm text-white/70">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500"></div>
                           <span>Percentage of Students</span>
-                        </div>
+                      </div>
                       </div>
                       {/* Export Buttons */}
                       {passFailData && passFailData.length > 0 && (
@@ -1778,8 +1871,8 @@ export default function AnalyticsDashboard() {
                           </button>
                         </div>
                       )}
+                      </div>
                     </div>
-                  </div>
                   
                   {(() => {
                     if (!passFailData || passFailData.length === 0) {
@@ -2152,8 +2245,8 @@ export default function AnalyticsDashboard() {
                   </h3>
                 </div>
                 
-                {/* Enhanced Summary Cards for Comparison */}
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+                {/* Enhanced Summary Cards for Comparison (trimmed to required metrics) */}
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-4 mb-6">
                   <div className="bg-white/5 rounded-xl p-4 border border-white/10 text-center hover:bg-white/10 transition-all">
                     <div className="flex items-center justify-center mb-2">
                       <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2168,30 +2261,6 @@ export default function AnalyticsDashboard() {
                       </p>
                     )}
                   </div>
-                  <div className="bg-emerald-500/10 rounded-xl p-4 border border-emerald-500/20 text-center hover:bg-emerald-500/15 transition-all">
-                    <div className="flex items-center justify-center mb-2">
-                      <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
-                    <p className="text-emerald-200 text-xs mb-1">Avg Pass Rate</p>
-                    <p className="text-2xl font-bold text-emerald-400">
-                      {(() => {
-                        const subjectsWithData = subjectComparisonData.filter(s => s.hasData);
-                        return subjectsWithData.length > 0
-                          ? (
-                              subjectsWithData.reduce((sum, s) => sum + (s.passRate || 0), 0) /
-                              subjectsWithData.length
-                            ).toFixed(1)
-                          : 0;
-                      })()}%
-                    </p>
-                    {subjectComparisonData.filter(s => s.hasData).length < selectedSubjects.length && (
-                      <p className="text-xs text-emerald-300/70 mt-1">
-                        (of subjects with data)
-                      </p>
-                    )}
-                  </div>
                   <div className="bg-blue-500/10 rounded-xl p-4 border border-blue-500/20 text-center hover:bg-blue-500/15 transition-all">
                     <div className="flex items-center justify-center mb-2">
                       <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2200,38 +2269,18 @@ export default function AnalyticsDashboard() {
                     </div>
                     <p className="text-blue-200 text-xs mb-1">Total Students</p>
                     <p className="text-2xl font-bold text-blue-400">
-                      {subjectComparisonData.reduce((sum, s) => sum + (s.totalStudents || 0), 0).toLocaleString()}
+                      {(subjectComparisonUniqueStudents ?? subjectComparisonData.reduce((sum, s) => sum + (s.totalStudents || 0), 0)).toLocaleString()}
                     </p>
                   </div>
-                  <div className="bg-yellow-500/10 rounded-xl p-4 border border-yellow-500/20 text-center hover:bg-yellow-500/15 transition-all">
+                  <div className="bg-emerald-500/10 rounded-xl p-4 border border-emerald-500/20 text-center hover:bg-emerald-500/15 transition-all">
                     <div className="flex items-center justify-center mb-2">
-                      <svg className="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                      <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
                     </div>
-                    <p className="text-yellow-200 text-xs mb-1">Avg Grade</p>
-                    <p className="text-2xl font-bold text-yellow-400">
-                      {(() => {
-                        const subjectsWithData = subjectComparisonData.filter(s => s.hasData && s.average > 0);
-                        return subjectsWithData.length > 0
-                          ? (
-                              subjectsWithData.reduce((sum, s) => sum + (s.average || 0), 0) /
-                              subjectsWithData.length
-                            ).toFixed(2)
-                          : "N/A";
-                      })()}
-                    </p>
-                    <p className="text-xs text-yellow-300/70 mt-1">(out of 10)</p>
-                  </div>
-                  <div className="bg-purple-500/10 rounded-xl p-4 border border-purple-500/20 text-center hover:bg-purple-500/15 transition-all">
-                    <div className="flex items-center justify-center mb-2">
-                      <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                      </svg>
-                    </div>
-                    <p className="text-purple-200 text-xs mb-1">Total Passed</p>
-                    <p className="text-2xl font-bold text-purple-400">
-                      {subjectComparisonData.reduce((sum, s) => sum + (s.passed || 0), 0).toLocaleString()}
+                    <p className="text-emerald-200 text-xs mb-1">Passed Students (All Subjects)</p>
+                    <p className="text-2xl font-bold text-emerald-400">
+                      {(subjectComparisonPassedAll ?? 0).toLocaleString()}
                     </p>
                   </div>
                 </div>
@@ -2356,24 +2405,24 @@ export default function AnalyticsDashboard() {
                                   stops.forEach(stop => {
                                     const stopColor = stop.getAttribute('stop-color') || stop.getAttribute('stopColor');
                                     const stopOpacity = stop.getAttribute('stop-opacity') || stop.getAttribute('stopOpacity') || '1';
-                                    // Force green gradient colors for bars
+                                    // Force blue gradient colors for bars
                                     const offset = stop.getAttribute('offset');
                                     if (originalId === 'subjectPassGradient' || originalId?.includes('Pass')) {
                                       if (offset === '0%' || offset === '0') {
-                                        stop.setAttribute('stop-color', '#22c55e');
+                                        stop.setAttribute('stop-color', '#60a5fa');
                                         stop.setAttribute('stop-opacity', '1');
                                       } else {
-                                        stop.setAttribute('stop-color', '#16a34a');
-                                        stop.setAttribute('stop-opacity', '0.9');
+                                        stop.setAttribute('stop-color', '#2563eb');
+                                        stop.setAttribute('stop-opacity', '0.95');
                                       }
                                     } else if (!stopColor) {
-                                      // Default green gradient if missing
+                                      // Default blue gradient if missing
                                       if (offset === '0%' || offset === '0') {
-                                        stop.setAttribute('stop-color', '#22c55e');
+                                        stop.setAttribute('stop-color', '#60a5fa');
                                         stop.setAttribute('stop-opacity', '1');
                                       } else {
-                                        stop.setAttribute('stop-color', '#16a34a');
-                                        stop.setAttribute('stop-opacity', '0.9');
+                                        stop.setAttribute('stop-color', '#2563eb');
+                                        stop.setAttribute('stop-opacity', '0.95');
                                       }
                                     } else {
                                       // Preserve existing color but ensure opacity
@@ -2392,12 +2441,12 @@ export default function AnalyticsDashboard() {
                                 gradient.setAttribute('y2', '1');
                                 const stop1 = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
                                 stop1.setAttribute('offset', '0%');
-                                stop1.setAttribute('stop-color', '#22c55e');
+                                stop1.setAttribute('stop-color', '#60a5fa');
                                 stop1.setAttribute('stop-opacity', '1');
                                 const stop2 = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
                                 stop2.setAttribute('offset', '100%');
-                                stop2.setAttribute('stop-color', '#16a34a');
-                                stop2.setAttribute('stop-opacity', '0.9');
+                                stop2.setAttribute('stop-color', '#2563eb');
+                                stop2.setAttribute('stop-opacity', '0.95');
                                 gradient.appendChild(stop1);
                                 gradient.appendChild(stop2);
                                 newDefs.appendChild(gradient);
@@ -2435,7 +2484,7 @@ export default function AnalyticsDashboard() {
                                 
                                 // If it looks like a bar (rectangular shape), apply gradient
                                 if (isBar || (width > 0 && height > 0 && width < height * 10) || pathData.includes('M') && pathData.includes('L')) {
-                                  // Force green gradient
+                                  // Force blue gradient
                                   bar.setAttribute('fill', 'url(#subjectPassGradient)');
                                   bar.removeAttribute('stroke'); // Remove any stroke that might interfere
                                 }
@@ -2604,6 +2653,66 @@ export default function AnalyticsDashboard() {
                           
                           console.log('Chart image captured:', chartImage ? 'Yes' : 'No', chartImage ? `(${chartImage.length} chars)` : '');
                           
+                          // Helper: convert SVG to PNG with white bg and blue bars
+                          const convertSvgToPng = async (svgNode) => {
+                            if (!svgNode) return '';
+                            const clone = svgNode.cloneNode(true);
+                            const bbox = svgNode.getBoundingClientRect();
+                            const width = Math.max(bbox.width || 900, 900);
+                            const height = Math.max(bbox.height || 450, 450);
+                            clone.setAttribute('width', width.toString());
+                            clone.setAttribute('height', height.toString());
+                            clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+                            clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+
+                            // White background
+                            const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                            bg.setAttribute('x', '0');
+                            bg.setAttribute('y', '0');
+                            bg.setAttribute('width', '100%');
+                            bg.setAttribute('height', '100%');
+                            bg.setAttribute('fill', '#ffffff');
+                            clone.insertBefore(bg, clone.firstChild);
+
+                            // Force bars blue
+                            clone.querySelectorAll('.recharts-bar path, .recharts-bar rect, .recharts-bar-rectangle path, .recharts-bar-rectangle rect, path, rect').forEach(el => {
+                              const cls = el.getAttribute('class') || '';
+                              const fill = el.getAttribute('fill') || '';
+                              if (cls.includes('recharts-bar') || cls.includes('recharts-bar-rectangle') || fill.includes('subjectPassGradient') || fill.includes('gradient')) {
+                                el.setAttribute('fill', '#3b82f6');
+                                el.removeAttribute('stroke');
+                              }
+                            });
+
+                            // Dark text for print
+                            clone.querySelectorAll('text').forEach(t => {
+                              t.setAttribute('fill', '#111827');
+                              const style = t.getAttribute('style') || '';
+                              if (!style.includes('fill:')) {
+                                t.setAttribute('style', `${style};fill:#111827;`);
+                              }
+                            });
+
+                            const serialized = new XMLSerializer().serializeToString(clone);
+                            const svg64 = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(serialized);
+
+                            return new Promise((resolve) => {
+                              const img = new Image();
+                              img.onload = () => {
+                                const canvas = document.createElement('canvas');
+                                canvas.width = width * 2;
+                                canvas.height = height * 2;
+                                const ctx = canvas.getContext('2d');
+                                ctx.fillStyle = '#ffffff';
+                                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                                resolve(canvas.toDataURL('image/png', 1.0));
+                              };
+                              img.onerror = () => resolve('');
+                              img.src = svg64;
+                            });
+                          };
+                          
                           // Also try to get SVG directly as fallback
                           let svgHtml = '';
                           try {
@@ -2624,112 +2733,31 @@ export default function AnalyticsDashboard() {
                                   el.setAttribute('fill', 'url(#subjectPassGradient)');
                                 }
                               });
+                              // Force blue fills for bars in SVG fallback
+                              clonedSvgForPrint.querySelectorAll('.recharts-bar path, .recharts-bar rect, .recharts-bar-rectangle path, .recharts-bar-rectangle rect, path, rect').forEach(el => {
+                                const cls = el.getAttribute('class') || '';
+                                const fill = el.getAttribute('fill') || '';
+                                if (cls.includes('recharts-bar') || cls.includes('recharts-bar-rectangle') || fill.includes('subjectPassGradient') || fill.includes('gradient')) {
+                                  el.setAttribute('fill', '#3b82f6');
+                                  el.removeAttribute('stroke');
+                                }
+                              });
+
                               svgHtml = clonedSvgForPrint.outerHTML;
                               console.log('SVG HTML captured:', svgHtml.length, 'chars');
-                            }
-                          } catch (e) {
+
+                              // If no chartImage yet, derive from SVG to keep colors
+                              if (!chartImage) {
+                                chartImage = await convertSvgToPng(svgElement);
+                                console.log('SVG converted to PNG length:', chartImage?.length || 0);
+                              }
+                              }
+                            } catch (e) {
                             console.warn('Could not capture SVG HTML:', e);
                           }
                           
-                          const printWindow = window.open('', '_blank');
-                          
-                          // Build the HTML content
-                          const firstDiv = printContent.querySelector('div:first-child')?.outerHTML || '';
-                          const lastDiv = printContent.querySelector('div:last-child')?.outerHTML || '';
-                          
-                          // Check if lastDiv already contains the Detailed Subject Comparison table
-                          const lastDivHasTable = lastDiv && lastDiv.includes('Detailed Subject Comparison');
-                          
-                          // Get Detailed Subject Comparison table from the visible table only if not already in lastDiv
-                          let detailedTableHtml = '';
-                          if (!lastDivHasTable) {
-                            try {
-                              // Find the table by looking for "Detailed Subject Comparison" heading
-                              const allHeadings = Array.from(document.querySelectorAll('h4'));
-                              const detailedHeading = allHeadings.find(h => h.textContent?.includes('Detailed Subject Comparison'));
-                              
-                              if (detailedHeading) {
-                                // Find the table container (parent or sibling)
-                                let tableContainer = detailedHeading.closest('.bg-white\\/5') || 
-                                                     detailedHeading.parentElement?.nextElementSibling ||
-                                                     detailedHeading.closest('div')?.querySelector('.overflow-x-auto');
-                                
-                                if (!tableContainer) {
-                                  // Try to find by traversing up and down
-                                  let current = detailedHeading.parentElement;
-                                  while (current && !tableContainer) {
-                                    tableContainer = current.querySelector('table');
-                                    if (!tableContainer) current = current.parentElement;
-                                  }
-                                }
-                                
-                                const table = tableContainer?.querySelector('table') || tableContainer;
-                                
-                                if (table && table.tagName === 'TABLE') {
-                                  // Clone the table and update styles for print
-                                  const clonedTable = table.cloneNode(true);
-                                  
-                                  // Remove any inline styles that might interfere
-                                  clonedTable.removeAttribute('class');
-                                  clonedTable.style.width = '100%';
-                                  clonedTable.style.borderCollapse = 'collapse';
-                                  clonedTable.style.marginTop = '20px';
-                                  clonedTable.style.marginBottom = '30px';
-                                  clonedTable.style.fontSize = '12px';
-                                  
-                                  // Update header styles
-                                  clonedTable.querySelectorAll('th').forEach(th => {
-                                    th.style.backgroundColor = '#05A3C7';
-                                    th.style.color = 'white';
-                                    th.style.padding = '10px';
-                                    th.style.border = '1px solid #ddd';
-                                    th.style.textAlign = 'center';
-                                    th.style.fontWeight = 'bold';
-                                    th.style.fontSize = '12px';
-                                    // Remove any classes
-                                    th.removeAttribute('class');
-                                  });
-                                  
-                                  // Update cell styles
-                                  clonedTable.querySelectorAll('td').forEach(td => {
-                                    td.style.padding = '10px';
-                                    td.style.border = '1px solid #ddd';
-                                    td.style.textAlign = 'center';
-                                    td.style.color = '#000';
-                                    td.style.fontSize = '12px';
-                                    // Remove any classes
-                                    td.removeAttribute('class');
-                                  });
-                                  
-                                  // Update row styles - alternate row colors
-                                  clonedTable.querySelectorAll('tbody tr').forEach((tr, idx) => {
-                                    tr.removeAttribute('class');
-                                    if (idx % 2 === 0) {
-                                      tr.style.backgroundColor = '#f9f9f9';
-                                    } else {
-                                      tr.style.backgroundColor = '#ffffff';
-                                    }
-                                  });
-                                  
-                                  detailedTableHtml = `
-                                    <div style="margin-top: 40px; page-break-inside: avoid;">
-                                      <h2 style="color: #05A3C7; margin-bottom: 15px; font-size: 20px; font-weight: bold;">Detailed Subject Comparison</h2>
-                                      ${clonedTable.outerHTML}
-                      </div>
-                                  `;
-                                  console.log('Detailed table captured for print');
-                                } else {
-                                  console.warn('Table not found in container');
-                                }
-                              } else {
-                                console.warn('Detailed Subject Comparison heading not found');
-                              }
-                            } catch (e) {
-                              console.warn('Could not capture detailed table:', e);
-                            }
-                          } else {
-                            console.log('Detailed table already in lastDiv, skipping duplicate');
-                          }
+                          // Build content for PDF download (not print)
+                          const printInner = printContent.innerHTML || '';
                           
                           // Determine chart content - prefer image, fallback to SVG
                           let chartContent = '';
@@ -2737,7 +2765,7 @@ export default function AnalyticsDashboard() {
                             chartContent = `
                               <div class="chart-container">
                                 <h2>Pass Rate Comparison Chart</h2>
-                                <img src="${chartImage}" alt="Pass Rate Comparison Chart" class="chart-image" style="-webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact;" onload="console.log('Image loaded');" onerror="console.error('Image failed to load'); this.style.display='none'; this.nextElementSibling.style.display='block';" />
+                                <img src="${chartImage}" alt="Pass Rate Comparison Chart" class="chart-image" style="width:100%;max-width:900px;height:auto;border:1px solid #ddd;border-radius:8px;background:white;" />
                                 ${svgHtml ? `<div style="display: none;" class="chart-svg-fallback">${svgHtml}</div>` : ''}
                     </div>
                             `;
@@ -2750,151 +2778,74 @@ export default function AnalyticsDashboard() {
                   </div>
                               </div>
                             `;
-                          } else {
-                            chartContent = `
-                              <div class="chart-container">
-                                <h2>Pass Rate Comparison Chart</h2>
-                                <p style="color: #666; text-align: center; padding: 40px; border: 1px dashed #ddd;">
-                                  Chart could not be captured. Please ensure the chart is visible on screen before printing.
-                                </p>
-                              </div>
-                            `;
                           }
                           
-                          printWindow.document.write(`
-                            <!DOCTYPE html>
-                            <html>
-                              <head>
-                                <meta charset="UTF-8">
-                                <title>Subject Comparison Report</title>
+                          // Create offscreen container for html2canvas capture
+                          const container = document.createElement('div');
+                          container.style.position = 'absolute';
+                          container.style.left = '-9999px';
+                          container.style.top = '0';
+                          container.style.width = '1200px';
+                          container.style.background = '#ffffff';
+                          container.style.color = '#111827';
+                          container.innerHTML = `
+                            <div style="padding:24px;font-family:Arial,sans-serif;">
                                 <style>
-                                  * { box-sizing: border-box; }
-                                  body { 
-                                    font-family: Arial, sans-serif; 
-                                    padding: 20px; 
-                                    background: white;
-                                    color: black;
-                                    margin: 0;
-                                  }
-                                  h1 { color: #1a1f29; margin-bottom: 10px; font-size: 24px; }
-                                  h2 { color: #05A3C7; margin-top: 30px; margin-bottom: 15px; font-size: 20px; }
-                                  .info { margin-bottom: 20px; color: #666; }
-                                  .chart-image {
-                                    width: 100%;
-                                    max-width: 900px;
-                                    height: auto;
-                                    margin: 20px auto;
-                                    border: 1px solid #ddd;
-                                    border-radius: 8px;
-                                    display: block;
-                                    background: white;
-                                  }
-                                  .chart-container {
-                                    margin: 30px 0;
-                                    page-break-inside: avoid;
-                                    text-align: center;
-                                  }
-                                  .chart-svg-wrapper {
-                                    overflow: visible;
-                                  }
-                                  .chart-svg-wrapper svg {
-                                    width: 100%;
-                                    height: auto;
-                                    max-width: 900px;
-                                  }
-                                  table { 
-                                    width: 100%; 
-                                    border-collapse: collapse; 
-                                    margin-top: 20px;
-                                    margin-bottom: 30px;
-                                    font-size: 12px;
-                                  }
-                                  th, td { 
-                                    border: 1px solid #ddd; 
-                                    padding: 10px; 
-                                    text-align: left; 
-                                  }
-                                  th { 
-                                    background-color: #05A3C7; 
-                                    color: white; 
-                                    font-weight: bold;
-                                    text-align: center;
-                                  }
-                                  td { text-align: center; }
-                                  tr:nth-child(even) { background-color: #f9f9f9; }
-                                  .summary { 
-                                    display: grid; 
-                                    grid-template-columns: repeat(5, 1fr); 
-                                    gap: 15px; 
-                                    margin-bottom: 30px;
-                                  }
-                                  .summary-card { 
-                                    border: 1px solid #ddd; 
-                                    padding: 15px; 
-                                    border-radius: 8px; 
-                                    text-align: center;
-                                    background: #f9f9f9;
-                                  }
-                                  .summary-card h3 { 
-                                    margin: 0 0 10px 0; 
-                                    font-size: 14px; 
-                                    color: #666; 
-                                  }
-                                  .summary-card p { 
-                                    margin: 0; 
-                                    font-size: 24px; 
-                                    font-weight: bold; 
-                                    color: #05A3C7; 
-                                  }
-                                  @media print {
-                                    body { padding: 10px; }
-                                    .no-print { display: none; }
-                                    .chart-container { page-break-inside: avoid; }
-                                    table { page-break-inside: auto; }
-                                    tr { page-break-inside: avoid; page-break-after: auto; }
-                                    /* Ensure colors print */
-                                    * { 
-                                      -webkit-print-color-adjust: exact !important;
-                                      print-color-adjust: exact !important;
-                                      color-adjust: exact !important;
-                                    }
-                                    img { 
-                                      -webkit-print-color-adjust: exact !important;
-                                      print-color-adjust: exact !important;
-                                      color-adjust: exact !important;
-                                    }
-                                    svg {
-                                      -webkit-print-color-adjust: exact !important;
-                                      print-color-adjust: exact !important;
-                                      color-adjust: exact !important;
-                                    }
-                                  }
+                                .chart-container { margin: 30px 0; text-align: center; }
+                                table { width: 100%; border-collapse: collapse; margin-top: 20px; margin-bottom: 30px; font-size: 12px; }
+                                th, td { border: 1px solid #ddd; padding: 10px; text-align: center; }
+                                th { background: #05A3C7; color: #fff; font-weight: bold; }
+                                tr:nth-child(even) { background: #f9f9f9; }
+                                .summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin-bottom: 30px; }
+                                .summary-card { border: 1px solid #ddd; padding: 15px; border-radius: 8px; text-align: center; background: #f9f9f9; }
+                                .summary-card h3 { margin: 0 0 10px 0; font-size: 14px; color: #666; }
+                                .summary-card p { margin: 0; font-size: 24px; font-weight: bold; color: #05A3C7; }
                                 </style>
-                              </head>
-                              <body>
-                                ${firstDiv}
+                              ${printInner}
                                 ${chartContent}
-                                ${lastDiv}
-                                ${detailedTableHtml}
-                              </body>
-                            </html>
-                          `);
-                          printWindow.document.close();
-                          
-                          // Wait for content to load before printing
-                          printWindow.onload = () => {
-                            console.log('Print window loaded');
-                            setTimeout(() => {
-                              printWindow.print();
-                            }, 1000);
-                          };
-                          
-                          // Fallback if onload doesn't fire
-                          setTimeout(() => {
-                            if (printWindow.document.readyState === 'complete') {
-                              printWindow.print();
+                            </div>
+                          `;
+                          document.body.appendChild(container);
+
+                          try {
+                            const { jsPDF } = await import('jspdf');
+                            const html2canvasLib = (await import('html2canvas')).default;
+
+                            const captureTarget = container;
+                            const canvas = await html2canvasLib(captureTarget, {
+                              scale: 2,
+                              useCORS: true,
+                              backgroundColor: '#ffffff'
+                            });
+                            const imgData = canvas.toDataURL('image/png', 1.0);
+
+                            const pdf = new jsPDF('p', 'pt', 'a4');
+                            const pageWidth = pdf.internal.pageSize.getWidth();
+                            const pageHeight = pdf.internal.pageSize.getHeight();
+
+                            const imgWidth = pageWidth - 40;
+                            const imgHeight = canvas.height * (imgWidth / canvas.width);
+
+                            let heightLeft = imgHeight;
+                            let position = 20;
+
+                            pdf.addImage(imgData, 'PNG', 20, position, imgWidth, imgHeight);
+                            heightLeft -= pageHeight - 40;
+
+                            while (heightLeft > 0) {
+                              pdf.addPage();
+                              position = 20 - (imgHeight - heightLeft);
+                              pdf.addImage(imgData, 'PNG', 20, position, imgWidth, imgHeight);
+                              heightLeft -= pageHeight - 40;
                             }
-                          }, 1500);
+
+                            pdf.save('Subject-Comparison-Report.pdf');
+                          } catch (pdfErr) {
+                            console.error('PDF generation failed', pdfErr);
+                            alert('Failed to generate PDF report. Please try again.');
+                          } finally {
+                            document.body.removeChild(container);
+                          }
                         }}
                         className="px-4 py-2 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-300 rounded-lg text-sm font-semibold transition-all flex items-center gap-2"
                       >
@@ -2930,26 +2881,12 @@ export default function AnalyticsDashboard() {
                         <p>{selectedSubjects.length}</p>
                       </div>
                       <div className="summary-card">
-                        <h3>Avg Pass Rate</h3>
-                        <p>{(() => {
-                          const subjectsWithData = subjectComparisonData.filter(s => s.hasData);
-                          return subjectsWithData.length > 0
-                            ? (subjectsWithData.reduce((sum, s) => sum + (s.passRate || 0), 0) / subjectsWithData.length).toFixed(1)
-                            : 0;
-                        })()}%</p>
-                      </div>
-                      <div className="summary-card">
                         <h3>Total Students</h3>
-                        <p>{subjectComparisonData.reduce((sum, s) => sum + (s.totalStudents || 0), 0).toLocaleString()}</p>
+                        <p>{(subjectComparisonUniqueStudents ?? subjectComparisonData.reduce((sum, s) => sum + (s.totalStudents || 0), 0)).toLocaleString()}</p>
                       </div>
                       <div className="summary-card">
-                        <h3>Avg Grade</h3>
-                        <p>{(() => {
-                          const subjectsWithData = subjectComparisonData.filter(s => s.hasData && s.average > 0);
-                          return subjectsWithData.length > 0
-                            ? (subjectsWithData.reduce((sum, s) => sum + (s.average || 0), 0) / subjectsWithData.length).toFixed(2)
-                            : "N/A";
-                        })()}</p>
+                        <h3>Passed Students (All Subjects)</h3>
+                        <p>{(subjectComparisonPassedAll ?? 0).toLocaleString()}</p>
                       </div>
                       <div className="summary-card">
                         <h3>Total Passed</h3>

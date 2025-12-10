@@ -221,16 +221,18 @@ export default function AdminDashboard() {
       
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-6">
             <ModuleCard 
-              title="Data Upload Center" 
+              title="Result Data Upload " 
               icon="☁️" 
               onClick={() => go("/dashboard/admin/upload")}
+              features={["CSV/XLSX Support", "Batch Processing", "Data Validation"]}
             >
-              Upload and manage student data via CSV/XLSX with validation and batch processing.
+              Upload student results data via CSV/XLSX with validation and batch processing.
             </ModuleCard>
             <ModuleCard 
               title="Data Management" 
               icon="👁️" 
               onClick={() => go("/dashboard/admin/records")}
+              features={["View & Edit Records", "Advanced Filtering", "Bulk Operations"]}
             >
               View, edit, and manage all student records with filtering and bulk operations.
             </ModuleCard>
@@ -238,6 +240,7 @@ export default function AdminDashboard() {
               title="Backlog Management" 
               icon="🕓" 
               onClick={() => go("/dashboard/admin/backlog")}
+              features={["Track Backlogs", "Export Reports", "Branch-wise Analysis"]}
             >
               Monitor and manage student backlogs with tracking and reporting.
             </ModuleCard>
@@ -245,6 +248,7 @@ export default function AdminDashboard() {
               title="Branch/Batch Portal" 
               icon="🗂️" 
               onClick={() => go("/dashboard/admin/batch")}
+              features={["Branch Analytics", "Batch Insights", "Data Visualization"]}
             >
               Track and analyze branch and batch datasets with insights.
             </ModuleCard>
@@ -252,6 +256,7 @@ export default function AdminDashboard() {
               title="CBCS Management" 
               icon="📚" 
               onClick={() => go("/dashboard/admin/data")}
+              features={["Subject Management", "Basket Mapping", "CBCS Tracking"]}
             >
               Manage CBCS subjects, baskets and mappings for academic records.
             </ModuleCard>
@@ -259,6 +264,7 @@ export default function AdminDashboard() {
               title="Results Portal" 
               icon="📝" 
               onClick={() => go("/dashboard/admin/results")}
+              features={["Search Results", "Update Entries", "Export Data"]}
             >
               Search, update and export result entries with auditability.
             </ModuleCard>
@@ -266,13 +272,15 @@ export default function AdminDashboard() {
               title="Analytics Dashboard" 
               icon="📊" 
               onClick={() => go("/dashboard/admin/analytics")}
+              features={["Data Visualization", "Chart.js Integration", "Real-time Insights"]}
             >
               Comprehensive data visualization and insights with Chart.js integration.
             </ModuleCard>
           <ModuleCard 
-            title="Branch Change" 
+            title="Branch & Batch Change" 
             icon="🔁" 
             onClick={() => go("/dashboard/admin/branch-change")}
+            features={["Override Branch", "Batch Updates", "Apply to All Panels"]}
           >
             Override a student's branch by Reg_No; applies across all panels.
           </ModuleCard>
@@ -280,6 +288,7 @@ export default function AdminDashboard() {
             title="Honours Degree" 
             icon="🎓" 
             onClick={() => go("/dashboard/admin/honours")}
+            features={["Domain Subjects", "Student List", "Honours Management"]}
           >
             Manage honours degree domain subjects and honours student list.
           </ModuleCard>
@@ -287,6 +296,7 @@ export default function AdminDashboard() {
             title="User Management" 
             icon="👥" 
             onClick={() => go("/dashboard/admin/users")}
+            features={["User Blocking", "Role Management", "Access Control"]}
           >
             Block, edit, and manage registered users with role-based access control.
           </ModuleCard>
@@ -361,7 +371,7 @@ function StatCard({ icon, label, value, trend, trendUp }) {
   );
 }
 
-function ModuleCard({ title, icon, children, onClick }) {
+function ModuleCard({ title, icon, children, onClick, features = [] }) {
   return (
     <button 
       onClick={onClick} 
@@ -394,23 +404,19 @@ function ModuleCard({ title, icon, children, onClick }) {
         {children}
       </p>
       
-      <ul 
-        className="text-[10px] sm:text-xs space-y-1.5 sm:space-y-2 mb-3 sm:mb-4 lg:mb-5 rounded-lg p-2 sm:p-3"
-        style={{ background: "rgba(5,163,199,0.05)" }}
-      >
-        <li className="flex items-center gap-2 text-[#1A1F29]">
-          <span className="text-green-500 group-hover:scale-125 transition-transform text-sm">✓</span> 
-          <span className="group-hover:text-[#05A3C7] transition-colors font-medium">Secure & Reliable</span>
-        </li>
-        <li className="flex items-center gap-2 text-[#1A1F29]">
-          <span className="text-green-500 group-hover:scale-125 transition-transform text-sm">✓</span> 
-          <span className="group-hover:text-[#05A3C7] transition-colors font-medium">Fast Processing</span>
-        </li>
-        <li className="flex items-center gap-2 text-[#1A1F29]">
-          <span className="text-green-500 group-hover:scale-125 transition-transform text-sm">✓</span> 
-          <span className="group-hover:text-[#05A3C7] transition-colors font-medium">Real-time Updates</span>
-        </li>
-      </ul>
+      {features.length > 0 && (
+        <ul 
+          className="text-[10px] sm:text-xs space-y-1.5 sm:space-y-2 mb-3 sm:mb-4 lg:mb-5 rounded-lg p-2 sm:p-3"
+          style={{ background: "rgba(5,163,199,0.05)" }}
+        >
+          {features.map((feature, index) => (
+            <li key={index} className="flex items-center gap-2 text-[#1A1F29]">
+              <span className="text-green-500 group-hover:scale-125 transition-transform text-sm">✓</span> 
+              <span className="group-hover:text-[#05A3C7] transition-colors font-medium">{feature}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       
       <div className="flex justify-center">
         <span 

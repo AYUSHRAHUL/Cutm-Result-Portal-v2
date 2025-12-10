@@ -2,11 +2,13 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
+import * as XLSX from "xlsx";
 
 export default function HonoursStudentsPage() {
   // Core state
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadingFilters, setLoadingFilters] = useState(false);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -15,8 +17,17 @@ export default function HonoursStudentsPage() {
   const [search, setSearch] = useState("");
   const [branch, setBranch] = useState("");
   const [batch, setBatch] = useState("");
-  const [availableBranches, setAvailableBranches] = useState([]);
-  const [availableBatches, setAvailableBatches] = useState([]);
+  const [availableBranches, setAvailableBranches] = useState([
+    "Civil Engineering",
+    "Computer Science Engineering",
+    "Electronics & Communication Engineering",
+    "Electrical & Electronics Engineering",
+    "Mechanical Engineering",
+    "AIML"
+  ]);
+  const [availableBatches, setAvailableBatches] = useState([
+    "2025", "2024", "2023", "2022", "2021", "2020"
+  ]);
   const [filterStatus, setFilterStatus] = useState("all"); // "all", "eligible", "notEligible"
 
   // Results
@@ -48,12 +59,13 @@ export default function HonoursStudentsPage() {
     setError("");
     try {
       setLoading(true);
-      const qs = new URLSearchParams({ 
-        branch, 
-        search, 
-        limit: "0" 
-      }).toString();
-      const res = await fetch(`/api/honours/students?${qs}`);
+      const params = new URLSearchParams();
+      if (branch && branch !== "" && branch !== "All") params.set("branch", branch);
+      if (batch && batch !== "" && batch !== "All") params.set("batch", batch);
+      if (search && search.trim()) params.set("search", search.trim());
+      params.set("limit", "0");
+      
+      const res = await fetch(`/api/honours/students?${params.toString()}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load");
       setStudents(data.items || []);
@@ -62,19 +74,81 @@ export default function HonoursStudentsPage() {
     } finally { 
       setLoading(false); 
     }
-  }, [branch, search]);
+  }, [branch, batch, search]);
 
   // Fetch filter options
   const fetchFilters = useCallback(async () => {
     try {
+      setLoadingFilters(true);
       const res = await fetch("/api/honours/students/filters");
       const data = await res.json();
+      
+      console.log("Filters API response:", data); // Debug log
+      
       if (res.ok && data.success) {
-        setAvailableBranches(data.branches || []);
-        setAvailableBatches(data.batches || []);
+        const branches = data.branches || [];
+        const batches = data.batches || [];
+        
+        // Set branches - use data if available, otherwise use fallback
+        if (branches.length > 0) {
+          setAvailableBranches(branches);
+          console.log("Loaded branches:", branches.length);
+        } else {
+          // Fallback branches
+          const fallbackBranches = [
+            "Civil Engineering",
+            "Computer Science Engineering",
+            "Electronics & Communication Engineering",
+            "Electrical & Electronics Engineering",
+            "Mechanical Engineering",
+            "AIML"
+          ];
+          setAvailableBranches(fallbackBranches);
+          console.log("Using fallback branches");
+        }
+        
+        // Set batches - use data if available, otherwise use fallback
+        if (batches.length > 0) {
+          setAvailableBatches(batches);
+          console.log("Loaded batches:", batches.length);
+        } else {
+          // Fallback batches (2020-2025)
+          const fallbackBatches = ["2025", "2024", "2023", "2022", "2021", "2020"];
+          setAvailableBatches(fallbackBatches);
+          console.log("Using fallback batches");
+        }
+      } else {
+        // If API fails, use fallback options
+        const fallbackBranches = [
+          "Civil Engineering",
+          "Computer Science Engineering",
+          "Electronics & Communication Engineering",
+          "Electrical & Electronics Engineering",
+          "Mechanical Engineering",
+          "AIML"
+        ];
+        const fallbackBatches = ["2025", "2024", "2023", "2022", "2021", "2020"];
+        setAvailableBranches(fallbackBranches);
+        setAvailableBatches(fallbackBatches);
+        console.error("Filters API error:", data.error);
       }
     } catch (err) {
       console.error("Error fetching filters:", err);
+      // Use fallback options on error
+      const fallbackBranches = [
+        "Civil Engineering",
+        "Computer Science Engineering",
+        "Electronics & Communication Engineering",
+        "Electrical & Electronics Engineering",
+        "Mechanical Engineering",
+        "AIML"
+      ];
+      const fallbackBatches = ["2025", "2024", "2023", "2022", "2021", "2020"];
+      setAvailableBranches(fallbackBranches);
+      setAvailableBatches(fallbackBatches);
+      console.error("Using fallback filters due to error");
+    } finally {
+      setLoadingFilters(false);
     }
   }, []);
 
@@ -85,7 +159,11 @@ export default function HonoursStudentsPage() {
     setCheckResults(null);
     setCurrentPage(1);
     
-    if (!branch && !batch) {
+    // Validate inputs - at least one filter required
+    const branchValue = branch && branch !== "" && branch !== "All" ? branch.trim() : "";
+    const batchValue = batch && batch !== "" && batch !== "All" ? batch.trim() : "";
+    
+    if (!branchValue && !batchValue) {
       setError("Please select at least Branch or Batch to check eligibility");
       return;
     }
@@ -95,21 +173,40 @@ export default function HonoursStudentsPage() {
       const res = await fetch("/api/honours/students/check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ branch, batch })
+        body: JSON.stringify({ 
+          branch: branchValue || null, 
+          batch: batchValue || null 
+        })
       });
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: "Unknown error occurred" }));
+        throw new Error(errorData.error || `HTTP ${res.status}: Check failed`);
+      }
+      
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Check failed");
+      
+      if (!data || !data.stats) {
+        throw new Error("Invalid response from server");
+      }
       
       setCheckResults(data);
-      setSuccess(
-        `✅ Checked ${data.stats?.totalChecked || 0} students: ` +
-        `${data.stats?.eligible || 0} eligible, ` +
-        `${data.stats?.notEligible || 0} not eligible`
-      );
       
+      if (data.stats.totalChecked === 0) {
+        setSuccess(`No students found matching the selected filters (Branch: ${branchValue || "All"}, Batch: ${batchValue || "All"})`);
+      } else {
+        setSuccess(
+          `✅ Checked ${data.stats.totalChecked} students: ` +
+          `${data.stats.eligible} eligible, ` +
+          `${data.stats.notEligible} not eligible`
+        );
+      }
+      
+      // Refresh saved students list
       fetchStudents();
     } catch (err) {
-      setError(err.message);
+      console.error("Eligibility check error:", err);
+      setError(err.message || "Failed to check eligibility. Please try again.");
     } finally {
       setChecking(false);
     }
@@ -117,15 +214,20 @@ export default function HonoursStudentsPage() {
 
   // Initial load
   useEffect(() => { 
-    fetchStudents(); 
     fetchFilters();
-  }, [fetchStudents, fetchFilters]);
+  }, []); // Only run once on mount
+  
+  useEffect(() => {
+    fetchStudents();
+  }, [fetchStudents]); // Run when fetchStudents changes (branch/search changes)
 
   // Filtered and paginated results
   const filteredResults = useMemo(() => {
-    if (!checkResults?.allResults) return [];
+    if (!checkResults?.allResults || !Array.isArray(checkResults.allResults)) return [];
     
     return checkResults.allResults.filter(student => {
+      if (!student) return false;
+      
       // Filter by status
       if (filterStatus === "eligible" && student.EligibilityStatus !== "Eligible") return false;
       if (filterStatus === "notEligible" && student.EligibilityStatus !== "Not Eligible") return false;
@@ -133,10 +235,10 @@ export default function HonoursStudentsPage() {
       // Filter by search
       if (search && search.trim()) {
         const searchTerm = search.toLowerCase().trim();
-        const regNo = (student.RegistrationNo || student.Registration_No || "").toLowerCase();
-        const name = (student.Name || "").toLowerCase();
-        const branchName = (student.Branch || "").toLowerCase();
-        const batchName = (student.Batch || "").toLowerCase();
+        const regNo = String(student.RegistrationNo || student.Registration_No || "").toLowerCase();
+        const name = String(student.Name || "").toLowerCase();
+        const branchName = String(student.Branch || "").toLowerCase();
+        const batchName = String(student.Batch || "").toLowerCase();
         
         if (!regNo.includes(searchTerm) && 
             !name.includes(searchTerm) && 
@@ -160,19 +262,22 @@ export default function HonoursStudentsPage() {
 
   // Stats
   const stats = useMemo(() => {
-    const eligible = filteredResults.filter(s => s.EligibilityStatus === "Eligible").length;
-    const notEligible = filteredResults.filter(s => s.EligibilityStatus === "Not Eligible").length;
+    if (!Array.isArray(filteredResults)) {
+      return { total: 0, eligible: 0, notEligible: 0 };
+    }
+    const eligible = filteredResults.filter(s => s && s.EligibilityStatus === "Eligible").length;
+    const notEligible = filteredResults.filter(s => s && s.EligibilityStatus === "Not Eligible").length;
     return { total: filteredResults.length, eligible, notEligible };
   }, [filteredResults]);
 
-  // Selection handlers
-  const toggleSelect = useCallback((id, checked) => {
+  // Selection handlers - use registration numbers as IDs
+  const toggleSelect = useCallback((regNo, checked) => {
     setSelectedIds(prev => {
       const newSet = new Set(prev);
       if (checked) {
-        newSet.add(id);
+        newSet.add(regNo);
       } else {
-        newSet.delete(id);
+        newSet.delete(regNo);
       }
       return newSet;
     });
@@ -181,18 +286,112 @@ export default function HonoursStudentsPage() {
   const toggleSelectAll = useCallback((checked) => {
     setSelectAll(checked);
     if (checked) {
-      setSelectedIds(new Set(paginatedResults.map((_, idx) => idx)));
+      const validIds = paginatedResults
+        .filter(s => s && (s.RegistrationNo || s.Registration_No))
+        .map(s => s.RegistrationNo || s.Registration_No || "")
+        .filter(Boolean);
+      setSelectedIds(new Set(validIds));
     } else {
       setSelectedIds(new Set());
     }
   }, [paginatedResults]);
 
-  // Remove handlers
-  const removeOne = useCallback(async (id) => {
+  // Add eligible students to honours list
+  const addToHonours = useCallback(async (student) => {
+    setError("");
+    try {
+      const res = await fetch("/api/honours/students", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          RegistrationNo: student.RegistrationNo || student.Registration_No,
+          Name: student.Name,
+          Branch: student.Branch,
+          Domain: student.HonoursDetails?.passedHonoursSubjects?.[0]?.code?.substring(0, 3) || "General"
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to add student");
+      fetchStudents();
+      setSuccess(`Student ${student.Name || student.RegistrationNo} added to honours list!`);
+    } catch (err) {
+      setError(err.message);
+    }
+  }, [fetchStudents]);
+
+  const addSelectedToHonours = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    const selectedStudents = paginatedResults.filter(s => 
+      selectedIds.has(s.RegistrationNo || s.Registration_No)
+    );
+    const eligibleStudents = selectedStudents.filter(s => s.EligibilityStatus === "Eligible");
+    
+    if (eligibleStudents.length === 0) {
+      setError("Please select eligible students only");
+      return;
+    }
+    
+    if (!confirm(`Add ${eligibleStudents.length} eligible student(s) to honours list?`)) return;
+    
+    setError("");
+    try {
+      const promises = eligibleStudents.map(async (student) => {
+        const res = await fetch("/api/honours/students", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            RegistrationNo: student.RegistrationNo || student.Registration_No,
+            Name: student.Name,
+            Branch: student.Branch,
+            Domain: student.HonoursDetails?.passedHonoursSubjects?.[0]?.code?.substring(0, 3) || "General"
+          })
+        });
+        const data = await res.json();
+        return { res, data, student };
+      });
+      
+      const results = await Promise.all(promises);
+      const errors = [];
+      const successes = [];
+      
+      results.forEach(({ res, data, student }) => {
+        if (!res.ok) {
+          errors.push(student.Name || student.RegistrationNo || "Unknown");
+        } else {
+          successes.push(student.Name || student.RegistrationNo || "Unknown");
+        }
+      });
+      
+      if (errors.length > 0) {
+        setError(`Failed to add: ${errors.join(", ")}`);
+      }
+      if (successes.length > 0) {
+        setSuccess(`${successes.length} student(s) added to honours list!`);
+      }
+      fetchStudents();
+      setSelectedIds(new Set());
+      setSelectAll(false);
+    } catch (err) {
+      setError(err.message);
+    }
+  }, [selectedIds, paginatedResults, fetchStudents]);
+
+  // Remove handlers - find student by registration number in saved list
+  const removeOne = useCallback(async (regNo) => {
     if (!confirm("Remove this student from honours list?")) return;
     setError("");
     try {
-      const res = await fetch(`/api/honours/students/${id}`, { method: "DELETE" });
+      // Find the student in saved list to get MongoDB ID
+      const student = students.find(s => 
+        (s.RegistrationNo || s.Registration_No) === regNo
+      );
+      
+      if (!student || !student._id) {
+        setError("Student not found in honours list");
+        return;
+      }
+      
+      const res = await fetch(`/api/honours/students/${student._id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Delete failed");
       fetchStudents();
@@ -200,25 +399,35 @@ export default function HonoursStudentsPage() {
     } catch (err) {
       setError(err.message);
     }
-  }, [fetchStudents]);
+  }, [students, fetchStudents]);
 
   const removeSelected = useCallback(async () => {
     if (selectedIds.size === 0) return;
     if (!confirm(`Remove ${selectedIds.size} student(s) from honours list?`)) return;
     setError("");
     try {
-      const promises = Array.from(selectedIds).map(id => 
-        fetch(`/api/honours/students/${id}`, { method: "DELETE" })
+      // Find students in saved list to get MongoDB IDs
+      const studentsToRemove = students.filter(s => 
+        selectedIds.has(s.RegistrationNo || s.Registration_No)
+      );
+      
+      if (studentsToRemove.length === 0) {
+        setError("Selected students not found in honours list");
+        return;
+      }
+      
+      const promises = studentsToRemove.map(student => 
+        fetch(`/api/honours/students/${student._id}`, { method: "DELETE" })
       );
       await Promise.all(promises);
       fetchStudents();
       setSelectedIds(new Set());
       setSelectAll(false);
-      setSuccess(`${selectedIds.size} student(s) removed successfully!`);
+      setSuccess(`${studentsToRemove.length} student(s) removed successfully!`);
     } catch (err) {
       setError(err.message);
     }
-  }, [selectedIds, fetchStudents]);
+  }, [selectedIds, students, fetchStudents]);
 
   // Export to CSV
   const exportToCSV = useCallback(() => {
@@ -227,7 +436,7 @@ export default function HonoursStudentsPage() {
       return;
     }
 
-    const headers = ["Reg No", "Name", "Branch", "Batch", "CGPA", "Basket 5 Status", "Eligibility Status", "Reasons"];
+    const headers = ["Reg No", "Name", "Branch", "Batch", "CGPA", "Basket 5 Status", "Basket 5 Details", "Eligibility Status", "Reasons"];
     const rows = filteredResults.map(student => [
       student.RegistrationNo || student.Registration_No || "",
       student.Name || "",
@@ -235,6 +444,9 @@ export default function HonoursStudentsPage() {
       student.Batch || "",
       student.CGPA?.toFixed(2) || "N/A",
       student.Basket5Status || "Not Checked",
+      student.Basket5Details 
+        ? `${student.Basket5Details.completedCount || 0}/2 domains${student.Basket5Details.basket5Credits !== undefined ? ` | ${student.Basket5Details.basket5Credits}/66 credits` : ''}`
+        : "0/2 domains",
       student.EligibilityStatus || "Pending",
       (student.EligibilityReasons || []).join("; ")
     ]);
@@ -248,12 +460,61 @@ export default function HonoursStudentsPage() {
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
-    link.setAttribute("download", `honours_students_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute("download", `honours_eligibility_check_${new Date().toISOString().split('T')[0]}.csv`);
     link.style.visibility = "hidden";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     setSuccess("Data exported successfully!");
+  }, [filteredResults]);
+
+  // Export to Excel
+  const exportToExcel = useCallback(() => {
+    if (!filteredResults.length) {
+      setError("No data to export");
+      return;
+    }
+
+    try {
+      const excelData = filteredResults.map(student => ({
+        "Reg No": student.RegistrationNo || student.Registration_No || "",
+        "Name": student.Name || "",
+        "Branch": student.Branch || "",
+        "Batch": student.Batch || "",
+        "CGPA": student.CGPA?.toFixed(2) || "N/A",
+        "Basket 5 Status": student.Basket5Status || "Not Checked",
+        "Basket 5 Details": student.Basket5Details 
+          ? `${student.Basket5Details.completedCount || 0}/${student.Basket5Details.totalDomains || 0} domains${student.Basket5Details.basket5Credits !== undefined ? ` | ${student.Basket5Details.basket5Credits}/66 credits` : ''}`
+          : "",
+        "Eligibility Status": student.EligibilityStatus || "Pending",
+        "Reasons": (student.EligibilityReasons || []).join("; ") || "All criteria met"
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(excelData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Eligibility Check");
+
+      const colWidths = [
+        { wch: 15 },  // Reg No
+        { wch: 25 },  // Name
+        { wch: 30 },  // Branch
+        { wch: 12 },  // Batch
+        { wch: 10 },  // CGPA
+        { wch: 18 },  // Basket 5 Status
+        { wch: 35 },  // Basket 5 Details
+        { wch: 18 },  // Eligibility Status
+        { wch: 50 }   // Reasons
+      ];
+      ws['!cols'] = colWidths;
+
+      const dateStr = new Date().toISOString().split('T')[0];
+      const filename = `honours_eligibility_check_${dateStr}.xlsx`;
+      XLSX.writeFile(wb, filename);
+      setSuccess("Data exported to Excel successfully!");
+    } catch (error) {
+      console.error("Excel export error:", error);
+      setError("Failed to export to Excel. Please try again.");
+    }
   }, [filteredResults]);
 
   return (
@@ -346,11 +607,16 @@ export default function HonoursStudentsPage() {
                   className="w-full px-3 py-2.5 border-2 rounded-lg focus:ring-4 focus:ring-[#05A3C7]/20 outline-none text-sm transition-all"
                   style={{ borderColor: "rgba(5,163,199,0.3)" }}
                   aria-label="Select branch"
+                  disabled={loadingFilters}
                 >
                   <option value="">All Branches</option>
-                  {availableBranches.map(b => (
+                  {availableBranches.length > 0 ? (
+                    availableBranches.map(b => (
                     <option key={b} value={b}>{b}</option>
-                  ))}
+                    ))
+                  ) : (
+                    <option disabled>Loading branches...</option>
+                  )}
                 </select>
               </div>
               <div>
@@ -363,11 +629,16 @@ export default function HonoursStudentsPage() {
                   className="w-full px-3 py-2.5 border-2 rounded-lg focus:ring-4 focus:ring-[#05A3C7]/20 outline-none text-sm transition-all"
                   style={{ borderColor: "rgba(5,163,199,0.3)" }}
                   aria-label="Select batch"
+                  disabled={loadingFilters}
                 >
                   <option value="">All Batches</option>
-                  {availableBatches.map(b => (
+                  {availableBatches.length > 0 ? (
+                    availableBatches.map(b => (
                     <option key={b} value={b}>{b}</option>
-                  ))}
+                    ))
+                  ) : (
+                    <option disabled>Loading batches...</option>
+                  )}
                 </select>
               </div>
               <div>
@@ -409,7 +680,7 @@ export default function HonoursStudentsPage() {
             <div className="flex gap-2 flex-wrap">
               <button
                 onClick={checkEligibility}
-                disabled={checking || (!branch && !batch)}
+                disabled={checking || ((!branch || branch === "" || branch === "All") && (!batch || batch === "" || batch === "All"))}
                 className="px-6 py-2.5 rounded-lg text-white text-sm font-bold transition-all hover:shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 style={{ background: "linear-gradient(135deg, #22c55e, #16a34a)" }}
                 aria-label="Check eligibility"
@@ -426,6 +697,7 @@ export default function HonoursStudentsPage() {
                 )}
               </button>
               {checkResults && filteredResults.length > 0 && (
+                <>
                 <button
                   onClick={exportToCSV}
                   className="px-6 py-2.5 rounded-lg text-white text-sm font-bold transition-all hover:shadow-lg active:scale-95 flex items-center gap-2"
@@ -434,10 +706,78 @@ export default function HonoursStudentsPage() {
                 >
                   📥 Export CSV
                 </button>
+                  <button
+                    onClick={exportToExcel}
+                    className="px-6 py-2.5 rounded-lg text-white text-sm font-bold transition-all hover:shadow-lg active:scale-95 flex items-center gap-2"
+                    style={{ background: "linear-gradient(135deg, #22c55e, #16a34a)" }}
+                    aria-label="Export to Excel"
+                  >
+                    📊 Export Excel
+                  </button>
+                </>
               )}
             </div>
           </div>
         </div>
+
+        {/* Saved Honours Students List */}
+        {students.length > 0 && (
+          <div className="mb-6">
+            <div 
+              className="rounded-xl border-2 overflow-hidden shadow-sm mb-4"
+              style={{ borderColor: "rgba(5,163,199,0.2)", background: "white" }}
+            >
+              <div 
+                className="px-4 py-3 text-white"
+                style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+              >
+                <h3 className="font-bold text-lg flex items-center gap-2">
+                  <span>📚</span>
+                  Saved Honours Students ({students.length})
+                </h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr style={{ background: "rgba(5,163,199,0.1)" }}>
+                      <th className="px-4 py-2 text-left font-semibold">Reg No</th>
+                      <th className="px-4 py-2 text-left font-semibold">Name</th>
+                      <th className="px-4 py-2 text-left font-semibold">Branch</th>
+                      <th className="px-4 py-2 text-left font-semibold">Domain</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {students.length === 0 ? (
+                      <tr>
+                        <td colSpan="4" className="px-4 py-8 text-center text-[#5A6C7D]">
+                          No saved honours students found
+                        </td>
+                      </tr>
+                    ) : (
+                      students.map((student, idx) => {
+                        const regNo = student.RegistrationNo || student.Registration_No || "";
+                        return (
+                          <tr 
+                            key={student._id || idx}
+                            className="border-b"
+                            style={{ borderColor: "rgba(5,163,199,0.1)" }}
+                          >
+                            <td className="px-4 py-2 font-bold" style={{ color: "#05A3C7" }}>
+                              {regNo}
+                            </td>
+                            <td className="px-4 py-2">{student.Name || "N/A"}</td>
+                            <td className="px-4 py-2">{student.Branch || "N/A"}</td>
+                            <td className="px-4 py-2">{student.Domain || "N/A"}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Eligibility Criteria */}
         <div 
@@ -449,8 +789,8 @@ export default function HonoursStudentsPage() {
             Eligibility Criteria
           </h3>
           <ul className="text-sm text-[#5A6C7D] space-y-2 list-disc list-inside ml-2">
-            <li><strong>CGPA:</strong> Must be {">="} 8.0</li>
-            <li><strong>Basket 5 (Before 2024):</strong> 2 complete domains (all subjects from those domains)</li>
+            <li><strong>CGPA:</strong> Must be {">="} 8.0 (calculated from CUTM1 only)</li>
+            <li><strong>Basket 5 (Before 2024):</strong> 2 complete domains (all subjects from those domains) - checked from both CUTM1 and RegistrationData</li>
             <li><strong>Basket 5 (2024 onwards):</strong> 66 credits from Basket 5 + 2 complete domains</li>
           </ul>
         </div>
@@ -534,6 +874,7 @@ export default function HonoursStudentsPage() {
               </div>
             </div>
 
+
             {/* Results Table */}
             <div 
               className="rounded-xl border-2 overflow-hidden shadow-sm"
@@ -584,14 +925,20 @@ export default function HonoursStudentsPage() {
                     ) : (
                       paginatedResults.map((student, idx) => {
                         const isEligible = student.EligibilityStatus === "Eligible";
+                        const regNo = student.RegistrationNo || student.Registration_No || "";
+                        const isSelected = selectedIds.has(regNo);
+                        const isInHonoursList = students.some(s => 
+                          (s.RegistrationNo || s.Registration_No) === regNo
+                        );
+                        
                         return (
                           <tr 
-                            key={`${student.RegistrationNo || student.Registration_No || idx}-${idx}`}
+                            key={`${regNo}-${idx}`}
                             className={`border-b transition-colors ${isEligible ? 'bg-green-50/50 hover:bg-green-50' : 'bg-red-50/50 hover:bg-red-50'}`}
                             style={{ borderColor: "rgba(5,163,199,0.1)" }}
                           >
                             <td className="px-4 py-3 font-bold" style={{ color: "#05A3C7" }}>
-                              {student.RegistrationNo || student.Registration_No || "N/A"}
+                              {regNo || "N/A"}
                             </td>
                             <td className="px-4 py-3">{student.Name || "N/A"}</td>
                             <td className="px-4 py-3">{student.Branch || "N/A"}</td>
@@ -618,7 +965,7 @@ export default function HonoursStudentsPage() {
                                 </span>
                                 {student.Basket5Details && (
                                   <div className="text-xs text-[#5A6C7D]">
-                                    {student.Basket5Details.completedCount}/2 domains
+                                    {student.Basket5Details.completedCount || 0}/2 domains
                                     {student.Basket5Details.basket5Credits !== undefined && (
                                       <span> | {student.Basket5Details.basket5Credits}/66 credits</span>
                                     )}
@@ -735,6 +1082,23 @@ export default function HonoursStudentsPage() {
           </div>
         )}
       </div>
+
+      {/* Loading Overlay */}
+      {(loading || checking) && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+          <div 
+            className="rounded-xl sm:rounded-2xl p-4 sm:p-6 flex items-center gap-3 shadow-2xl max-w-sm w-full"
+            style={{
+              background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
+            }}
+          >
+            <div className="w-5 h-5 sm:w-6 sm:h-6 border-3 border-white/30 border-t-white rounded-full animate-spin flex-shrink-0"></div>
+            <span className="text-white font-bold text-sm sm:text-base">
+              {checking ? "Checking eligibility..." : "Loading..."}
+            </span>
+          </div>
+        </div>
+      )}
 
       <style jsx>{`
         @keyframes slide-in {

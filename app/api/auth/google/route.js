@@ -4,7 +4,7 @@ export async function GET(req) {
   try {
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || req.nextUrl.origin;
-    const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${baseUrl}/api/auth/google/callback`;
+    const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${baseUrl}/api/auth/callback/google`;
 
     if (!clientId) {
       console.error("Google OAuth: GOOGLE_CLIENT_ID not set in environment variables");
