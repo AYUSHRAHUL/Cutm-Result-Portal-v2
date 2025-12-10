@@ -17,7 +17,7 @@ export async function GET() {
     clientSecretLength: clientSecret?.length || 0,
     redirectUri: redirectUri || "NOT SET (will use default)",
     baseUrl: baseUrl || "NOT SET (will use request origin)",
-    computedRedirectUri: redirectUri || "http://localhost:3000/api/auth/google/callback",
+    computedRedirectUri: redirectUri || "https://cutm-result-portal-v2.vercel.app/api/auth/callback/google",
   };
 
   return NextResponse.json({
