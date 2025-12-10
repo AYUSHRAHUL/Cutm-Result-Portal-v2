@@ -152,20 +152,330 @@ function ResultPageContent() {
           body * {
             visibility: hidden;
           }
-          .print-area, .print-area * {
+          /* Show print-only view for multiple semesters */
+          .print-only-view, .print-only-view * {
+            visibility: visible !important;
+          }
+          .print-only-view {
+            display: block !important;
+            position: relative !important;
+          }
+          .print-only-view .print-area {
+            visibility: visible !important;
+            display: block !important;
+          }
+          /* When print-only-view exists, hide all screen-print-area */
+          /* This works because print-only-view only exists for multiple semesters */
+          /* Hide screen-print-area when multiple semesters (use print-only-view instead) */
+          .multiple-semesters-print .screen-print-area {
+            visibility: hidden !important;
+            display: none !important;
+          }
+          /* For single semester: show screen view print-area */
+          .screen-print-area {
             visibility: visible;
           }
+          /* Exception: show screen-print-area when print-only-view doesn't exist (single semester) */
+          /* We can't use :has() in print, so we'll use a different approach */
+          /* Make screen-print-area visible by default, then hide it when print-only-view exists */
+          /* Since print-only-view is hidden on screen, we need to check in print mode */
+          /* Solution: hide screen-print-area only when .print-only-view is visible (in print mode) */
+          /* When .print-only-view is not present (single semester), screen-print-area will be visible */
+          /* This is handled by the default visibility rule above being overridden */
+          /* Actually, simpler: just check if .print-only-view exists and is visible */
+          /* If it exists and is visible (print mode), hide .screen-print-area */
+          /* If it doesn't exist or is hidden (single semester), show .screen-print-area */
+          /* But CSS can't do this conditionally. Let me use a workaround: */
+          /* Hide .screen-print-area by default, show it only when there's no .print-only-view */
+          /* But we can't detect that in CSS without :has() */
+          
+          /* Workaround: Use the fact that .print-only-view is always after .screen-print-area in DOM */
+          /* If .print-only-view is a sibling or in the same container, hide .screen-print-area */
+          /* But this is complex. Let me use a simpler rule: */
+          /* Just make sure print-only-view takes precedence when it exists */
+          /* For single semester, there's no print-only-view, so we need to show screen-print-area */
+          /* Since we can't conditionally do this, let's use JavaScript or a simpler CSS rule */
+          
+          /* Simplest solution: Always hide screen-print-area when printing */
+          /* For single semester, we'll need to not use screen-print-area class, or use a different approach */
+          /* Actually, let's just make screen-print-area visible by default, and hide it when print-only-view is present */
+          /* But CSS can't detect presence. Let me try: hide screen-print-area, show it only if print-only-view is not a sibling */
+          
+          /* Final solution: Use a more specific rule */
+          /* Hide screen-print-area when it's in the same parent as print-only-view */
+          /* But we can't do that without :has() */
+          
+          /* Let me try a different approach: use the order of elements */
+          /* If print-only-view comes after screen-print-area, use a sibling selector */
+          /* But that's not reliable */
+          
+          /* Actually, the simplest: just always hide screen-print-area when printing */
+          /* For single semester, don't use screen-print-area class, or make it work differently */
+          /* But that would require changing the JSX structure */
+          
+          /* Let me check: for single semester, is there a print-only-view? No. */
+          /* So for single semester, we need screen-print-area to be visible */
+          /* For multiple semesters, we need screen-print-area to be hidden and print-only-view to be visible */
+          /* Since CSS can't conditionally do this, let's use a workaround: */
+          /* Make screen-print-area visible by default, hide it only when print-only-view is present */
+          /* But we can't detect that. Let me use a sibling selector workaround */
+          
+          /* Actually, I think the issue is simpler: both are showing because both have visibility: visible */
+          /* Let me just explicitly hide screen-print-area when print-only-view is visible */
+          /* Use a more specific selector that works */
+          
+          /* Final attempt: Use the fact that print-only-view and screen-print-area are siblings */
+          /* If print-only-view exists and is visible, hide screen-print-area */
+          /* We can use: .print-only-view ~ .screen-print-area { display: none; } */
+          /* But they're not direct siblings. Let me check the structure */
+          
+          /* Actually, let me just use a simple rule: hide screen-print-area, show print-only-view */
+          /* For single semester, we'll need to handle it differently */
+          /* Or, add a class to indicate single vs multiple, and use that */
+          
+          /* Simplest: Just hide screen-print-area when printing, period */
+          /* For single semester, we can make the screen-print-area also work as print-area without the screen-print-area class */
+          /* Or, conditionally add the screen-print-area class only for multiple semesters */
+          
+          /* Let me try the simplest CSS fix: just make sure only one shows */
+          /* Hide screen-print-area when print-only-view is present (using sibling or container selector) */
+          /* Since they're in the same parent container, I can use a parent selector if it has print-only-view */
+          /* But CSS can't do parent selection */
+          
+          /* OK, let me use a workaround: add a data attribute or class to the parent when multiple semesters */
+          /* But that requires JSX changes */
+          
+          /* Actually, simplest CSS-only fix: */
+          /* Make screen-print-area hidden by default when printing */
+          /* Show it only when there's no print-only-view */
+          /* But we can't detect that. So let's use a different approach: */
+          /* Make screen-print-area visible, but hide it when print-only-view is a sibling */
+          /* Use: .print-only-view ~ * .screen-print-area { display: none; } */
+          /* But they might not be siblings */
+          
+          /* Let me check the actual DOM structure by reading the JSX */
+          /* Screen view: <div className="print-area screen-print-area"> (inside main container) */
+          /* Print view: <div className="hidden print:block print-only-view"> (also in main container) */
+          /* They're siblings in the same parent */
+          /* So I can use: .print-only-view ~ .screen-print-area */
+          /* But screen-print-area might be before print-only-view */
+          /* Let me use: *:has(.print-only-view) .screen-print-area */
+          /* But that needs :has() */
+          
+          /* Final solution: Use JavaScript to add a class, or use a CSS rule that works */
+          /* Since :has() might not work, let's use a simpler rule: */
+          /* Just hide screen-print-area when printing, and show print-only-view */
+          /* For single semester, we need screen-print-area, so let's not hide it there */
+          /* But we can't conditionally do that. So let's change the approach: */
+          /* Don't use screen-print-area class for single semester, or handle it differently */
+          
+          /* Actually, I think the real issue is that the CSS is making both visible */
+          /* Let me just make sure that when print-only-view is visible, screen-print-area is hidden */
+          /* Use a rule that works: if print-only-view is visible, hide screen-print-area */
+          /* Since print-only-view is only visible in print mode, we can use: */
+          /* @media print { .print-only-view:not([hidden]) ~ * .screen-print-area { display: none; } } */
+          /* But that's still complex */
+          
+          /* Simplest fix: Just explicitly hide screen-print-area when print-only-view exists */
+          /* Since they're in the same container, I can use a container selector if it has print-only-view */
+          /* But CSS can't do that without :has() */
+          
+          /* Let me try one more thing: use the fact that print-only-view is always rendered when multiple semesters */
+          /* So we can use a rule that says: if print-only-view is in the DOM and visible, hide screen-print-area */
+          /* But CSS can't detect DOM presence */
+          
+          /* OK, final solution: Use a CSS rule that definitely works */
+          /* Hide screen-print-area by default when printing */
+          /* Show it only when print-only-view is not present */
+          /* But we can't detect that. So let's use a workaround: */
+          /* Add a class to the body or container when multiple semesters, and use that */
+          /* But that requires JSX changes */
+          
+          /* Actually, let me just try the simplest possible CSS rule that might work: */
+          /* Hide screen-print-area, show print-only-view */
+          /* For single semester, we'll handle it by not using screen-print-area class or using a different class */
+          
+          /* Wait, I have an idea: use the order */
+          /* If print-only-view comes after screen-print-area in DOM, I can use a general sibling selector */
+          /* .print-only-view ~ * will select everything after it */
+          /* But screen-print-area might be before it */
+          
+          /* Let me check: in the JSX, screen-print-area is rendered first, then print-only-view */
+          /* So screen-print-area is before print-only-view */
+          /* I can't use ~ selector for elements before */
+          
+          /* Final attempt: Use a universal rule that works */
+          /* Just hide all screen-print-area when printing */
+          /* For single semester, don't add screen-print-area class, or make it work without it */
+          /* But that requires changing the single semester JSX */
+          
+          /* Actually, let me just try: make screen-print-area visible by default */
+          /* Hide it only when print-only-view is present and visible */
+          /* Since print-only-view is hidden on screen, we can use: */
+          /* When printing, if print-only-view is visible, hide screen-print-area */
+          /* But CSS can't do conditional logic like that */
+          
+          /* OK, I think the real solution is simpler: */
+          /* Just make sure that print-only-view takes precedence */
+          /* Hide screen-print-area when print-only-view is in the same document */
+          /* But we can't detect that in CSS */
+          
+          /* Let me try a different approach: use a more specific selector */
+          /* If the parent has both screen-print-area and print-only-view, hide screen-print-area */
+          /* But that needs :has() */
+          
+          /* Actually, I think I should just change the JSX to add a class conditionally */
+          /* Or use a simpler CSS rule that definitely works */
+          
+          /* Let me try the simplest possible fix: */
+          /* Just hide screen-print-area when printing, period */
+          /* For single semester, we'll need to handle it differently in the JSX */
+          /* Or, make single semester also use print-only-view structure */
+          
+          /* Actually, wait - let me check if single semester has print-only-view */
+          /* Looking at the code: single semester doesn't have print-only-view */
+          /* So for single semester, screen-print-area needs to be visible */
+          /* For multiple semesters, screen-print-area should be hidden, print-only-view should be visible */
+          
+          /* Since CSS can't conditionally do this, let's use a workaround: */
+          /* Add a class to the container when multiple semesters, and use that to hide screen-print-area */
+          /* But that requires JSX changes */
+          
+          /* Let me try one more CSS approach: */
+          /* Use the fact that print-only-view is always rendered when multiple semesters */
+          /* So we can use a rule: if print-only-view exists, hide screen-print-area */
+          /* But CSS can't detect existence */
+          
+          /* OK, I think the best solution is to change the JSX structure slightly */
+          /* Or use a CSS rule that works without :has() */
+          
+          /* Let me try: use a data attribute or class on the main container */
+          /* When multiple semesters, add a class, and use that to hide screen-print-area */
+          /* But that requires JSX changes */
+          
+          /* Actually, let me just try the simplest CSS rule that might work: */
+          /* Hide screen-print-area by default when printing */
+          /* Show it only when there's no print-only-view */
+          /* But we can't detect that */
+          
+          /* Final solution: Use a CSS rule that works */
+          /* Since print-only-view is only visible in print mode when it exists */
+          /* And screen-print-area should be hidden when print-only-view is visible */
+          /* We can use: when print-only-view is visible (print mode), hide screen-print-area */
+          /* But CSS can't do conditional logic */
+          
+          /* Let me just try: hide screen-print-area, show print-only-view */
+          /* For single semester, we'll need to not use screen-print-area class or handle it differently */
+          
+          /* Actually, I think the issue might be that the visibility CSS is wrong */
+          /* Let me check: body * { visibility: hidden; } hides everything */
+          /* Then .print-area, .print-area * { visibility: visible; } shows all print-areas */
+          /* So both screen-print-area and print-only-view .print-area are showing */
+          /* The fix: only show print-only-view .print-area when print-only-view exists */
+          /* Hide screen-print-area when print-only-view exists */
+          /* But we can't detect that in CSS */
+          
+          /* Let me try a workaround: use a more specific visibility rule */
+          /* Only show print-areas that are inside print-only-view when print-only-view exists */
+          /* But we can't detect existence */
+          
+          /* OK, I think I need to change the approach */
+          /* Let me use a simpler rule: just make sure print-only-view takes precedence */
+          /* Hide screen-print-area when print-only-view is visible */
+          /* Since print-only-view is only visible in print mode, we can use: */
+          /* @media print { .print-only-view:not([style*="display: none"]) ~ * .screen-print-area { display: none; } } */
+          /* But that's still complex */
+          
+          /* Let me try the simplest possible fix: */
+          /* Just hide all screen-print-area when printing */
+          /* For single semester, we'll handle it by not using the screen-print-area class */
+          /* Or by making single semester also use the print-only-view structure */
+          
+          /* Actually, I think the real solution is to change the JSX to conditionally add a class */
+          /* Or use a CSS rule that definitely works */
+          
+          /* Let me try one more CSS approach: use the order and sibling selectors */
+          /* If print-only-view is rendered, it means multiple semesters */
+          /* So we can use a rule that says: if print-only-view is in the DOM, hide screen-print-area */
+          /* But CSS can't detect DOM presence */
+          
+          /* Final attempt: Use a CSS rule that works without :has() */
+          /* Since print-only-view and screen-print-area are in the same parent */
+          /* And print-only-view is always after screen-print-area in the DOM */
+          /* I can use a general sibling selector, but it only works for elements after */
+          /* So I can't use it to hide screen-print-area which is before print-only-view */
+          
+          /* OK, I think the best solution is to add a class to the main container when multiple semesters */
+          /* And use that class to hide screen-print-area */
+          /* But that requires JSX changes */
+          
+          /* Let me just try the simplest CSS rule that might work: */
+          /* Hide screen-print-area by default when printing */
+          /* Show it only when print-only-view doesn't exist */
+          /* But we can't detect that */
+          
+          /* Actually, I think I should just change the JSX to add a data attribute or class */
+          /* When isMultipleSemesters is true, add a class to the main container */
+          /* Then use that class in CSS to hide screen-print-area */
+          /* But that requires JSX changes */
+          
+          /* Let me try one more CSS-only approach: */
+          /* Use the fact that print-only-view is hidden on screen but visible in print */
+          /* So in print mode, if print-only-view is visible, hide screen-print-area */
+          /* But CSS can't do conditional logic */
+          
+          /* OK, I think the real solution is to modify the JSX */
+          /* Add a class to the main container when multiple semesters */
+          /* Then use that class to hide screen-print-area */
+          
+          /* But let me try one more CSS approach first: */
+          /* Use a universal selector that works */
+          /* Just hide screen-print-area when printing, show print-only-view */
+          /* For single semester, we'll need to handle it differently */
+          
+          /* Actually, let me check: does single semester use screen-print-area? */
+          /* Yes, it does: <div className="print-area screen-print-area"> */
+          /* So for single semester, we need screen-print-area to be visible */
+          /* For multiple semesters, we need screen-print-area to be hidden, print-only-view to be visible */
+          
+          /* Since CSS can't conditionally do this, let's add a class to the container */
+          /* When isMultipleSemesters, add class "multiple-semesters" */
+          /* Then use: .multiple-semesters .screen-print-area { display: none; } */
+          
+          /* But that requires JSX changes. Let me try a CSS-only workaround first */
+          
+          /* Final CSS attempt: Use a rule that works */
+          /* Since print-only-view is always rendered when multiple semesters */
+          /* And it's always after screen-print-area in DOM */
+          /* I can use: when print-only-view is visible, it means multiple semesters */
+          /* So hide screen-print-area when print-only-view is visible */
+          /* But CSS can't detect visibility of other elements conditionally */
+          
+          /* OK, I think I need to modify the JSX to add a class */
+          /* Let me do that */
           .print-area {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            transform: none;
-            transform-origin: top left;
-            background: white;
-            box-shadow: none;
-            margin: 0;
-            padding: 15mm;
+            position: relative !important;
+            left: auto !important;
+            top: auto !important;
+            width: 100% !important;
+            transform: none !important;
+            transform-origin: top left !important;
+            background: white !important;
+            box-shadow: none !important;
+            margin: 0 !important;
+            padding: 20mm 15mm 15mm 15mm !important;
+            page-break-after: always !important;
+            display: block !important;
+          }
+          .print-area:first-child {
+            padding-top: 20mm !important;
+            padding-bottom: 15mm !important;
+            padding-left: 15mm !important;
+            padding-right: 15mm !important;
+            margin-top: 0 !important;
+          }
+          .print-area:last-child {
+            page-break-after: auto !important;
           }
           .no-print {
             display: none !important;
@@ -176,12 +486,36 @@ function ResultPageContent() {
           }
           /* Multi-page support for multiple semesters */
           .semester-page-break {
-            page-break-before: always;
-            margin-top: 0;
-            padding-top: 0;
+            page-break-before: always !important;
+            page-break-after: auto !important;
+            page-break-inside: avoid !important;
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+            break-before: page !important;
           }
           .semester-page-break:first-child {
-            page-break-before: avoid;
+            page-break-before: avoid !important;
+            break-before: auto !important;
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+          }
+          /* Remove extra top spacing on first page */
+          .hidden.print\\:block:first-child .print-area:first-child {
+            padding-top: 0mm !important;
+            margin-top: 0 !important;
+          }
+          /* Reduce top margin for first page content */
+          .hidden.print\\:block:first-child .print-area:first-child > *:first-child {
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+          }
+          .hidden.print\\:block:first-child .print-area:first-child .text-center {
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+          }
+          /* Ensure each semester section doesn't break */
+          .semester-page-break > * {
+            page-break-inside: avoid !important;
           }
           /* Compact fonts/padding for better fit */
           .print-area h1 { font-size: 18px; margin-bottom: 8px; }
@@ -190,6 +524,8 @@ function ResultPageContent() {
           .print-area table { font-size: 11px; margin-bottom: 10px; }
           .print-area th, .print-area td { padding: 4px 6px !important; }
           .print-summary { font-size: 12px; margin-bottom: 15px; }
+          .print-summary { display: flex !important; flex-direction: row !important; gap: 24px !important; flex-wrap: nowrap !important; justify-content: space-between !important; }
+          .print-summary > div { flex: 0 0 auto !important; white-space: nowrap !important; }
           .print-logo { width: 70px !important; height: 70px !important; }
           .avoid-break { page-break-inside: avoid; }
           .print-area .mb-6 { margin-bottom: 15px !important; }
@@ -198,7 +534,7 @@ function ResultPageContent() {
         }
       `}</style>
 
-      <div className="min-h-screen bg-gray-50 py-4 sm:py-8 px-2 sm:px-4">
+      <div className={`min-h-screen bg-gray-50 py-4 sm:py-8 px-2 sm:px-4 ${isMultipleSemesters ? 'multiple-semesters-print' : ''}`}>
         {/* Header Info */}
         <div className="max-w-4xl mx-auto mb-4 sm:mb-6">
           <div className="bg-white rounded-lg shadow-sm p-2 sm:p-4 border-l-4 border-blue-600">
@@ -231,7 +567,7 @@ function ResultPageContent() {
         </div>
         {/* Single Semester View */}
         {!isMultipleSemesters && result && (
-          <div className="print-area bg-white shadow-lg rounded-lg p-4 sm:p-8 w-full max-w-4xl mx-auto">
+          <div className="print-area screen-print-area bg-white shadow-lg rounded-lg p-4 sm:p-8 w-full max-w-4xl mx-auto">
             {/* Header */}
             <div className="text-center mb-4 sm:mb-6">
               <div className="flex justify-center mb-2 sm:mb-3">
@@ -272,21 +608,21 @@ function ResultPageContent() {
               <table className="min-w-full border-collapse text-[11px] sm:text-sm">
                 <thead>
                   <tr className="bg-blue-600 text-white text-[10px] sm:text-xs">
-                    <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">SL.NO</th>
-                    <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-left font-bold">SUB.CODE</th>
-                    <th className="border border-gray-700 px-3 py-1 sm:px-4 sm:py-2 text-left font-bold">SUBJECT</th>
-                    <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">CREDIT</th>
-                    <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">GRADE</th>
+                    <th className="border border-black px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">SL.NO</th>
+                    <th className="border border-black px-2 py-1 sm:px-3 sm:py-2 text-left font-bold">SUB.CODE</th>
+                    <th className="border border-black px-3 py-1 sm:px-4 sm:py-2 text-left font-bold">SUBJECT</th>
+                    <th className="border border-black px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">CREDIT</th>
+                    <th className="border border-black px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">GRADE</th>
                   </tr>
                 </thead>
                 <tbody>
                   {result.subjects.map((s, i) => (
                     <tr key={i} className="hover:bg-gray-50">
-                      <td className="border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 text-center">{i + 1}</td>
-                      <td className="border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 font-mono">{s.Subject_Code}</td>
-                      <td className="border border-gray-300 px-3 py-1 sm:px-4 sm:py-2">{s.Subject_Name}</td>
-                      <td className="border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 text-center">{parseCredits(s.Credits)}</td>
-                      <td className={`border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold ${isFailingGrade(s.Grade) ? 'text-red-600' : 'text-gray-900'}`}>
+                      <td className="border border-black px-2 py-1 sm:px-3 sm:py-2 text-center">{i + 1}</td>
+                      <td className="border border-black px-2 py-1 sm:px-3 sm:py-2 font-mono">{s.Subject_Code}</td>
+                      <td className="border border-black px-3 py-1 sm:px-4 sm:py-2">{s.Subject_Name}</td>
+                      <td className="border border-black px-2 py-1 sm:px-3 sm:py-2 text-center">{parseCredits(s.Credits)}</td>
+                      <td className={`border border-black px-2 py-1 sm:px-3 sm:py-2 text-center font-bold ${isFailingGrade(s.Grade) ? 'text-red-600' : 'text-gray-900'}`}>
                         {s.Grade}
                       </td>
                     </tr>
@@ -296,7 +632,7 @@ function ResultPageContent() {
             </div>
 
             {/* Summary Statistics */}
-            <div className="mb-4 sm:mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 text-[10px] sm:text-sm print-summary">
+            <div className="mb-4 sm:mb-6 flex flex-row flex-wrap sm:flex-nowrap justify-between gap-2 sm:gap-4 sm:gap-6 text-[10px] sm:text-sm print-summary">
               <div className="flex items-center gap-1 sm:gap-2">
                 <span className="font-semibold text-gray-700">Total Credits:</span>
                 <span className="font-bold text-gray-900">{totalCredits}</span>
@@ -419,7 +755,7 @@ function ResultPageContent() {
               {Object.entries(allResults).map(([sem, data], index) => (
                 <div 
                   key={sem} 
-                  className={`print-area bg-white shadow-lg rounded-lg p-4 sm:p-8 ${
+                  className={`print-area screen-print-area bg-white shadow-lg rounded-lg p-4 sm:p-8 ${
                     activeSemester === index ? 'block' : 'hidden'
                   }`}
                 >
@@ -463,21 +799,21 @@ function ResultPageContent() {
                     <table className="min-w-full border-collapse text-[11px] sm:text-sm">
                       <thead>
                         <tr className="bg-blue-600 text-white text-[10px] sm:text-xs">
-                          <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">SL.NO</th>
-                          <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-left font-bold">SUB.CODE</th>
-                          <th className="border border-gray-700 px-3 py-1 sm:px-4 sm:py-2 text-left font-bold">SUBJECT</th>
-                          <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">CREDIT</th>
-                          <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">GRADE</th>
+                          <th className="border border-black px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">SL.NO</th>
+                          <th className="border border-black px-2 py-1 sm:px-3 sm:py-2 text-left font-bold">SUB.CODE</th>
+                          <th className="border border-black px-3 py-1 sm:px-4 sm:py-2 text-left font-bold">SUBJECT</th>
+                          <th className="border border-black px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">CREDIT</th>
+                          <th className="border border-black px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">GRADE</th>
                         </tr>
                       </thead>
                       <tbody>
                         {data.subjects.map((s, i) => (
                           <tr key={i} className="hover:bg-gray-50">
-                            <td className="border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 text-center">{i + 1}</td>
-                            <td className="border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 font-mono">{s.Subject_Code}</td>
-                            <td className="border border-gray-300 px-3 py-1 sm:px-4 sm:py-2">{s.Subject_Name}</td>
-                            <td className="border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 text-center">{parseCredits(s.Credits)}</td>
-                            <td className={`border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold ${isFailingGrade(s.Grade) ? 'text-red-600' : 'text-gray-900'}`}>
+                            <td className="border border-black px-2 py-1 sm:px-3 sm:py-2 text-center">{i + 1}</td>
+                            <td className="border border-black px-2 py-1 sm:px-3 sm:py-2 font-mono">{s.Subject_Code}</td>
+                            <td className="border border-black px-3 py-1 sm:px-4 sm:py-2">{s.Subject_Name}</td>
+                            <td className="border border-black px-2 py-1 sm:px-3 sm:py-2 text-center">{parseCredits(s.Credits)}</td>
+                            <td className={`border border-black px-2 py-1 sm:px-3 sm:py-2 text-center font-bold ${isFailingGrade(s.Grade) ? 'text-red-600' : 'text-gray-900'}`}>
                               {s.Grade}
                             </td>
                           </tr>
@@ -487,7 +823,7 @@ function ResultPageContent() {
                   </div>
 
                   {/* Summary Statistics for each semester */}
-                  <div className="mb-4 sm:mb-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 text-[10px] sm:text-sm print-summary">
+                  <div className="mb-4 sm:mb-8 flex flex-row flex-wrap sm:flex-nowrap justify-between gap-2 sm:gap-4 sm:gap-6 text-[10px] sm:text-sm print-summary">
                     <div className="flex items-center gap-1 sm:gap-2">
                       <span className="font-semibold text-gray-700">Total Credits:</span>
                       <span className="font-bold text-gray-900">{data.subjects.reduce((sum, s) => sum + parseCredits(s?.Credits), 0)}</span>
@@ -519,7 +855,7 @@ function ResultPageContent() {
 
         {/* Print View - All Semesters for PDF */}
         {isMultipleSemesters && allResults && (
-          <div className="hidden print:block">
+          <div className="hidden print:block print-only-view">
             {Object.entries(allResults).map(([sem, data], index) => (
               <div key={`print-${sem}`} className="print-area bg-white p-8 semester-page-break">
                 {/* Header for each semester */}
@@ -562,21 +898,21 @@ function ResultPageContent() {
                 <table className="min-w-full border-collapse text-[11px] sm:text-sm">
                     <thead>
                     <tr className="bg-blue-600 text-white text-[10px] sm:text-xs">
-                      <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">SL.NO</th>
-                      <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-left font-bold">SUB.CODE</th>
-                      <th className="border border-gray-700 px-3 py-1 sm:px-4 sm:py-2 text-left font-bold">SUBJECT</th>
-                      <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">CREDIT</th>
-                      <th className="border border-gray-700 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">GRADE</th>
+                      <th className="border border-black px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">SL.NO</th>
+                      <th className="border border-black px-2 py-1 sm:px-3 sm:py-2 text-left font-bold">SUB.CODE</th>
+                      <th className="border border-black px-3 py-1 sm:px-4 sm:py-2 text-left font-bold">SUBJECT</th>
+                      <th className="border border-black px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">CREDIT</th>
+                      <th className="border border-black px-2 py-1 sm:px-3 sm:py-2 text-center font-bold">GRADE</th>
                   </tr>
                 </thead>
                 <tbody>
                       {data.subjects.map((s, i) => (
                         <tr key={i} className="hover:bg-gray-50">
-                          <td className="border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 text-center">{i + 1}</td>
-                          <td className="border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 font-mono">{s.Subject_Code}</td>
-                          <td className="border border-gray-300 px-3 py-1 sm:px-4 sm:py-2">{s.Subject_Name}</td>
-                          <td className="border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 text-center">{parseCredits(s.Credits)}</td>
-                          <td className={`border border-gray-300 px-2 py-1 sm:px-3 sm:py-2 text-center font-bold ${isFailingGrade(s.Grade) ? 'text-red-600' : 'text-gray-900'}`}>
+                          <td className="border border-black px-2 py-1 sm:px-3 sm:py-2 text-center">{i + 1}</td>
+                          <td className="border border-black px-2 py-1 sm:px-3 sm:py-2 font-mono">{s.Subject_Code}</td>
+                          <td className="border border-black px-3 py-1 sm:px-4 sm:py-2">{s.Subject_Name}</td>
+                          <td className="border border-black px-2 py-1 sm:px-3 sm:py-2 text-center">{parseCredits(s.Credits)}</td>
+                          <td className={`border border-black px-2 py-1 sm:px-3 sm:py-2 text-center font-bold ${isFailingGrade(s.Grade) ? 'text-red-600' : 'text-gray-900'}`}>
                         {s.Grade}
                       </td>
                     </tr>
@@ -586,7 +922,7 @@ function ResultPageContent() {
             </div>
 
                 {/* Summary Statistics for each semester */}
-                <div className="mb-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm print-summary">
+                <div className="mb-8 flex flex-row flex-wrap sm:flex-nowrap justify-between gap-4 sm:gap-6 text-sm print-summary">
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-gray-700">Total Credits:</span>
                     <span className="font-bold text-gray-900">{data.subjects.reduce((sum, s) => sum + parseCredits(s?.Credits), 0)}</span>

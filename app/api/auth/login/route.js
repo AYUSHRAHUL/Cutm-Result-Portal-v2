@@ -20,6 +20,11 @@ export async function POST(req) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
+    // Check if user is blocked
+    if (user.isBlocked === true) {
+      return NextResponse.json({ error: "Your account has been blocked. Please contact administrator." }, { status: 403 });
+    }
+
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });

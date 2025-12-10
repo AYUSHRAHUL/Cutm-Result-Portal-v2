@@ -156,32 +156,63 @@ function ResultPageContent() {
             visibility: visible;
           }
           .print-area {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            transform: none;
-            transform-origin: top left;
-            background: white;
-            box-shadow: none;
-            margin: 0;
-            padding: 15mm;
+            position: relative !important;
+            left: auto !important;
+            top: auto !important;
+            width: 100% !important;
+            transform: none !important;
+            transform-origin: top left !important;
+            background: white !important;
+            box-shadow: none !important;
+            margin: 0 !important;
+            padding: 20mm 15mm 15mm 15mm !important;
+            page-break-after: always !important;
+            display: block !important;
+          }
+          .print-area:first-child {
+            padding-top: 20mm !important;
+          }
+          .print-area:last-child {
+            page-break-after: auto !important;
+          }
+          .print-area, .print-area *,
+          .hidden.print\\:block, .hidden.print\\:block * {
+            visibility: visible !important;
+          }
+          .hidden.print\\:block {
+            display: block !important;
+            position: relative !important;
           }
           .no-print {
             display: none !important;
           }
           @page {
             size: A4;
-            margin: 10mm;
+            margin: 0mm 10mm 10mm 10mm !important;
           }
           /* Multi-page support for multiple semesters */
           .semester-page-break {
-            page-break-before: always;
-            margin-top: 0;
-            padding-top: 0;
+            page-break-before: always !important;
+            page-break-after: auto !important;
+            page-break-inside: avoid !important;
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+            break-before: page !important;
           }
           .semester-page-break:first-child {
-            page-break-before: avoid;
+            page-break-before: avoid !important;
+            break-before: auto !important;
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+          }
+          /* Remove extra top spacing on all pages */
+          .print-area > *:first-child {
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+          }
+          .print-area .text-center:first-child {
+            margin-top: 0 !important;
+            padding-top: 5mm !important;
           }
           /* Compact fonts/padding for better fit */
           .print-area h1 { font-size: 18px; margin-bottom: 8px; }
@@ -189,8 +220,9 @@ function ResultPageContent() {
           .print-area h3 { font-size: 16px; margin-bottom: 8px; }
           .print-area table { font-size: 11px; margin-bottom: 10px; }
           .print-area th, .print-area td { padding: 4px 6px !important; }
-          .print-summary { font-size: 11px; margin-bottom: 10px; display: flex !important; flex-wrap: wrap !important; gap: 12px !important; }
-          .print-summary > div { flex: 1 1 auto !important; min-width: fit-content !important; }
+          .print-summary { font-size: 12px; margin-bottom: 15px; }
+          .print-summary { display: flex !important; flex-direction: row !important; gap: 24px !important; flex-wrap: nowrap !important; justify-content: space-between !important; }
+          .print-summary > div { flex: 0 0 auto !important; white-space: nowrap !important; }
           .print-logo { width: 70px !important; height: 70px !important; }
           .avoid-break { page-break-inside: avoid; }
           .print-area .mb-6 { margin-bottom: 15px !important; }
@@ -274,21 +306,21 @@ function ResultPageContent() {
               <table className="min-w-full border-collapse text-sm">
                 <thead>
                   <tr className="bg-blue-600 text-white">
-                    <th className="border border-gray-700 px-3 py-2 text-center font-bold">SL.NO</th>
-                    <th className="border border-gray-700 px-3 py-2 text-left font-bold">SUB.CODE</th>
-                    <th className="border border-gray-700 px-4 py-2 text-left font-bold">SUBJECT</th>
-                    <th className="border border-gray-700 px-3 py-2 text-center font-bold">CREDIT</th>
-                    <th className="border border-gray-700 px-3 py-2 text-center font-bold">GRADE</th>
+                    <th className="border border-black px-3 py-2 text-center font-bold">SL.NO</th>
+                    <th className="border border-black px-3 py-2 text-left font-bold">SUB.CODE</th>
+                    <th className="border border-black px-4 py-2 text-left font-bold">SUBJECT</th>
+                    <th className="border border-black px-3 py-2 text-center font-bold">CREDIT</th>
+                    <th className="border border-black px-3 py-2 text-center font-bold">GRADE</th>
                   </tr>
                 </thead>
                 <tbody>
                   {result.subjects.map((s, i) => (
                     <tr key={i} className="hover:bg-gray-50">
-                      <td className="border border-gray-300 px-3 py-2 text-center">{i + 1}</td>
-                      <td className="border border-gray-300 px-3 py-2 font-mono">{s.Subject_Code}</td>
-                      <td className="border border-gray-300 px-4 py-2">{s.Subject_Name}</td>
-                      <td className="border border-gray-300 px-3 py-2 text-center">{parseCredits(s.Credits)}</td>
-                      <td className={`border border-gray-300 px-3 py-2 text-center font-bold ${isFailingGrade(s.Grade) ? 'text-red-600' : 'text-gray-900'}`}>
+                      <td className="border border-black px-3 py-2 text-center">{i + 1}</td>
+                      <td className="border border-black px-3 py-2 font-mono">{s.Subject_Code}</td>
+                      <td className="border border-black px-4 py-2">{s.Subject_Name}</td>
+                      <td className="border border-black px-3 py-2 text-center">{parseCredits(s.Credits)}</td>
+                      <td className={`border border-black px-3 py-2 text-center font-bold ${isFailingGrade(s.Grade) ? 'text-red-600' : 'text-gray-900'}`}>
                         {s.Grade}
                       </td>
                     </tr>
@@ -298,7 +330,7 @@ function ResultPageContent() {
             </div>
 
             {/* Summary Statistics */}
-            <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm print-summary">
+            <div className="mb-6 flex flex-row flex-wrap sm:flex-nowrap justify-between gap-2 sm:gap-4 sm:gap-6 text-sm print-summary">
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-gray-700">Total Credits:</span>
                 <span className="font-bold text-gray-900">{totalCredits}</span>
@@ -489,7 +521,7 @@ function ResultPageContent() {
                   </div>
 
                   {/* Summary Statistics for each semester */}
-                  <div className="mb-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm print-summary">
+                  <div className="mb-8 flex flex-row flex-wrap sm:flex-nowrap justify-between gap-4 sm:gap-6 text-sm print-summary">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-gray-700">Total Credits:</span>
                       <span className="font-bold text-gray-900">{data.subjects.reduce((sum, s) => sum + parseCredits(s?.Credits), 0)}</span>
@@ -588,7 +620,7 @@ function ResultPageContent() {
                 </div>
 
                 {/* Summary Statistics for each semester */}
-                <div className="mb-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm print-summary">
+                <div className="mb-8 flex flex-row flex-wrap sm:flex-nowrap justify-between gap-4 sm:gap-6 text-sm print-summary">
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-gray-700">Total Credits:</span>
                     <span className="font-bold text-gray-900">{data.subjects.reduce((sum, s) => sum + parseCredits(s?.Credits), 0)}</span>

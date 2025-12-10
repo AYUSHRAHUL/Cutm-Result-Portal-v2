@@ -1,12 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Image from "next/image";
+import { useSearchParams } from "next/navigation";
 
-export default function LoginPage() {
+function LoginForm() {
   const [form, setForm] = useState({ email: "", password: "" });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    // Check for error message from URL params (e.g., from Google OAuth callback)
+    const error = searchParams?.get("error");
+    if (error) {
+      setMessage(decodeURIComponent(error));
+    }
+  }, [searchParams]);
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -224,6 +234,9 @@ export default function LoginPage() {
             {/* Google Button */}
             <button
               type="button"
+              onClick={() => {
+                window.location.href = "/api/auth/google";
+              }}
               className="w-full flex items-center justify-center gap-2 border-2 border-gray-200 rounded-lg py-2.5 font-bold text-[#2E4057] hover:border-[#05A3C7] hover:bg-[#05A3C7]/10 transition text-sm"
             >
               <svg className="w-4 h-4 sm:w-5 sm:h-5" viewBox="0 0 24 24">
@@ -253,5 +266,20 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="h-screen w-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#05A3C7] mx-auto"></div>
+          <p className="mt-4 text-[#5A6C7D]">Loading...</p>
+        </div>
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
   );
 }

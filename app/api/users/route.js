@@ -92,19 +92,43 @@ export async function PUT(req) {
       return NextResponse.json({ error: "Cannot modify your own role or block status" }, { status: 400 });
     }
 
-    // Update user
-    const result = await db.collection("users").findOneAndUpdate(
-      { _id: userObjectId },
-      { $set: updates },
-      { returnDocument: "after" }
-    );
-
-    if (!result.value) {
+    // Check if user exists first
+    const existingUser = await db.collection("users").findOne({ _id: userObjectId });
+    if (!existingUser) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    // Remove password from response
-    const { password, ...updatedUser } = result.value;
+    // Update user
+    const updateResult = await db.collection("users").updateOne(
+      { _id: userObjectId },
+      { $set: { ...updates, updatedAt: new Date() } }
+    );
+
+    if (updateResult.matchedCount === 0) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    if (updateResult.modifiedCount === 0 && updateResult.matchedCount > 0) {
+      // User found but no changes made (might be same values)
+      const updatedUser = await db.collection("users").findOne(
+        { _id: userObjectId },
+        { projection: { password: 0 } }
+      );
+      return NextResponse.json({ 
+        message: "User updated successfully", 
+        user: updatedUser 
+      }, { status: 200 });
+    }
+
+    // Fetch updated user
+    const updatedUser = await db.collection("users").findOne(
+      { _id: userObjectId },
+      { projection: { password: 0 } }
+    );
+
+    if (!updatedUser) {
+      return NextResponse.json({ error: "Failed to fetch updated user" }, { status: 500 });
+    }
 
     return NextResponse.json({ 
       message: "User updated successfully", 

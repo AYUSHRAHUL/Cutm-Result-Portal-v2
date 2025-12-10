@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import { jwtVerify } from "jose";
 import { ObjectId } from "mongodb";
+import { generateOTP, storeOTP, verifyOTP, removeOTP } from "@/lib/otpStore";
+import { sendOTPEmail } from "@/lib/email";
 
 // JWT verification helper
 async function verifyToken(token) {
@@ -210,6 +212,79 @@ export async function DELETE(req) {
     console.error('Registration data delete error:', error);
     return NextResponse.json({ 
       error: `Failed to delete registration data: ${error.message}` 
+    }, { status: 500 });
+  }
+}
+
+// POST - OTP request / verification for destructive actions
+export async function POST(req) {
+  try {
+    // Check authentication
+    const token = req.cookies.get("token")?.value;
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized - Please login first" }, { status: 401 });
+    }
+
+    const payload = await verifyToken(token);
+    if (!payload?.email) {
+      return NextResponse.json({ error: "Unauthorized - Invalid token" }, { status: 401 });
+    }
+
+    // Only admins can request/verify OTP for deletion
+    const userRole = payload.role?.toLowerCase();
+    if (userRole !== 'admin') {
+      return NextResponse.json({ 
+        error: "Access denied - Only admins can request OTP" 
+      }, { status: 403 });
+    }
+
+    const body = await req.json();
+    const { action, email, otp } = body || {};
+    const adminEmail = (payload.email || "").toLowerCase().trim();
+
+    if (action === 'request-otp') {
+      // Always send to logged-in admin email; ignore provided email to prevent misuse
+      if (!adminEmail) {
+        return NextResponse.json({ error: "Admin email not found" }, { status: 400 });
+      }
+      const code = generateOTP();
+      storeOTP(adminEmail, code, { type: 'clear-registration-data', requestedBy: payload.email });
+      await sendOTPEmail(adminEmail, code, 'registration');
+      return NextResponse.json({ success: true, message: "OTP sent to admin email" });
+    }
+
+    if (action === 'verify-otp') {
+      if (!otp) {
+        return NextResponse.json({ error: "OTP is required" }, { status: 400 });
+      }
+      const result = verifyOTP(adminEmail, otp.trim());
+      if (!result.success) {
+        return NextResponse.json({ error: result.error }, { status: 400 });
+      }
+      const meta = result.data;
+      if (meta.type !== 'clear-registration-data') {
+        return NextResponse.json({ error: "OTP type mismatch" }, { status: 400 });
+      }
+
+      const client = await clientPromise;
+      const db = client.db("cutm1");
+      const collection = db.collection("RegistrationData");
+      const deleteResult = await collection.deleteMany({ Type: 'Registration' });
+
+      removeOTP(adminEmail);
+
+      return NextResponse.json({
+        success: true,
+        message: `Successfully deleted ${deleteResult.deletedCount} registration records`,
+        deletedCount: deleteResult.deletedCount
+      });
+    }
+
+    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+  } catch (error) {
+    console.error('Registration data OTP error:', error);
+    return NextResponse.json({ 
+      error: `Failed to process request: ${error.message}` 
     }, { status: 500 });
   }
 }

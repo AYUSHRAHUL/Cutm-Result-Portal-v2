@@ -25,6 +25,20 @@ export async function GET(req) {
     const user = await db.collection("users").findOne({ email: payload.email }, { projection: { password: 0 } });
     if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
+    // Check if user is blocked
+    if (user.isBlocked === true) {
+      // Clear the token cookie
+      const response = NextResponse.json({ error: "Your account has been blocked. Please contact administrator." }, { status: 403 });
+      response.cookies.set("token", "", {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        path: "/",
+        maxAge: 0,
+      });
+      return response;
+    }
+
     return NextResponse.json({ success: true, user });
   } catch (err) {
     return NextResponse.json({ error: "Server error" }, { status: 500 });

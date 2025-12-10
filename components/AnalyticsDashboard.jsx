@@ -20,6 +20,9 @@ import {
   Cell,
   LabelList,
 } from "recharts";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
 
 export default function AnalyticsDashboard() {
   const [analyticsData, setAnalyticsData] = useState(null);
@@ -55,7 +58,7 @@ export default function AnalyticsDashboard() {
   // Passing Analysis specific filters and state
   const [passingAnalysisBatch, setPassingAnalysisBatch] = useState([]); // Array for checkboxes
   const [passingAnalysisBranch, setPassingAnalysisBranch] = useState([]); // Array for checkboxes
-  const [passingAnalysisSemester, setPassingAnalysisSemester] = useState([]); // Array for checkboxes
+  const [passingAnalysisSemester, setPassingAnalysisSemester] = useState([]); // Array for checkboxes (multi-select)
   const [filteredPassingStats, setFilteredPassingStats] = useState(null);
   const [filteredPassingStatsByBatch, setFilteredPassingStatsByBatch] = useState(null);
   const [filteredPassingStatsByBranch, setFilteredPassingStatsByBranch] = useState(null);
@@ -70,12 +73,6 @@ export default function AnalyticsDashboard() {
   const fetchBasketSubjects = useCallback(async () => {
     try {
       setLoadingBasketSubjects(true);
-      console.log("Fetching subjects from CUTM1 database with filters...", {
-        batch: subjectComparisonBatch,
-        branch: subjectComparisonBranch,
-        semester: subjectComparisonSemester
-      });
-      
       // Build query parameters
       const params = new URLSearchParams();
       if (subjectComparisonBatch && subjectComparisonBatch !== "all") {
@@ -89,7 +86,6 @@ export default function AnalyticsDashboard() {
       }
       
       const url = `/api/analytics/subjects${params.toString() ? `?${params.toString()}` : ""}`;
-      console.log("Fetching from:", url);
       
       const response = await fetch(url, {
         method: "GET",
@@ -97,54 +93,42 @@ export default function AnalyticsDashboard() {
       });
       
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Failed to fetch subjects:", response.status, response.statusText, errorText);
         setBasketSubjects([]);
         return;
       }
 
       const result = await response.json();
-      console.log("Subjects API response:", result);
 
       // Verify source is CUTM1, not CBCS
       if (result.source && result.source !== "CUTM1") {
-        console.error("ERROR: Subjects are NOT from CUTM1! Source:", result.source);
         setBasketSubjects([]);
         return;
       }
 
       if (!result.success) {
-        console.error("API returned success: false", result);
         setBasketSubjects([]);
         return;
       }
 
       const subjects = result.subjects || [];
-      console.log(`✓ Found ${subjects.length} subjects from CUTM1 database (NOT from CBCS)`);
-      
-      if (result.count !== undefined) {
-        console.log(`✓ Verified: ${result.count} subjects loaded from CUTM1 collection`);
-      }
 
       if (subjects.length === 0) {
-        console.warn("⚠️ No subjects found in CUTM1 database. Make sure grade records are uploaded to CUTM1 collection (NOT CBCS).");
         setBasketSubjects([]);
         return;
       }
 
-      // Format subjects
+      // Format subjects and filter out any with zero students (safety check)
       const formattedSubjects = subjects
-        .filter(sub => sub.code && sub.code.trim() !== "")
+        .filter(sub => sub.code && sub.code.trim() !== "" && (sub.totalStudents || 0) > 0)
         .map(sub => ({
           code: sub.code.trim().toUpperCase(),
-          name: sub.name || sub.code || ""
+          name: sub.name || sub.code || "",
+          totalStudents: sub.totalStudents || 0
         }))
         .sort((a, b) => a.code.localeCompare(b.code));
       
-      console.log(`✓ Processed ${formattedSubjects.length} unique subjects from CUTM1 (NOT from CBCS)`);
       setBasketSubjects(formattedSubjects);
     } catch (err) {
-      console.error("❌ Error fetching subjects from CUTM1 (NOT CBCS):", err);
       setBasketSubjects([]);
     } finally {
       setLoadingBasketSubjects(false);
@@ -171,11 +155,9 @@ export default function AnalyticsDashboard() {
         throw new Error("Invalid response format from API");
       }
       
-      console.log("Analytics data loaded:", result.data);
       setAnalyticsData(result.data);
       return result.data; // Return data for promise handling
     } catch (err) {
-      console.error("Error fetching analytics:", err);
       setError(err.message || "An error occurred while fetching analytics data");
       throw err;
     } finally {
@@ -221,9 +203,8 @@ export default function AnalyticsDashboard() {
             setFilteredDepartmentStats(analyticsData.departmentStats || null);
           }
         }
-      } catch (err) {
-        console.error("Error fetching filtered department stats:", err);
-        // Fallback to original on error
+        } catch (err) {
+          // Fallback to original on error
         setFilteredDepartmentStats(analyticsData.departmentStats || null);
       } finally {
         setLoadingDepartmentStats(false);
@@ -254,11 +235,16 @@ export default function AnalyticsDashboard() {
         }
         
         // Check if multiple filter types are selected
+        const semesters = passingAnalysisSemester
+          .filter(s => s !== "all")
+          .map(s => s.replace(/^Sem\s*/i, "").trim())
+          .filter(s => s);
+        
         const hasMultipleFilterTypes = 
           (passingAnalysisBatch.length > 0 && passingAnalysisBranch.length > 0) ||
-          (passingAnalysisBatch.length > 0 && passingAnalysisSemester.length > 0) ||
-          (passingAnalysisBranch.length > 0 && passingAnalysisSemester.length > 0) ||
-          (passingAnalysisBatch.length > 0 && passingAnalysisBranch.length > 0 && passingAnalysisSemester.length > 0);
+          (passingAnalysisBatch.length > 0 && semesters.length > 0) ||
+          (passingAnalysisBranch.length > 0 && semesters.length > 0) ||
+          (passingAnalysisBatch.length > 0 && passingAnalysisBranch.length > 0 && semesters.length > 0);
         
         if (hasMultipleFilterTypes) {
           // SUPER OPTIMIZATION: Make ONE API call and calculate all combinations on frontend
@@ -267,12 +253,6 @@ export default function AnalyticsDashboard() {
           // Generate all combinations
           const batches = passingAnalysisBatch.filter(b => b !== "all");
           const branches = passingAnalysisBranch.filter(b => b !== "all");
-          const semesters = passingAnalysisSemester
-            .filter(s => s !== "all")
-            .map(s => s.replace(/^Sem\s*/i, "").trim())
-            .filter(s => s);
-          
-          console.log("Fetching all data once for combinations:", { batches, branches, semesters });
           
           // Make ONE API call with all filters
           const allFiltersParams = new URLSearchParams();
@@ -291,8 +271,6 @@ export default function AnalyticsDashboard() {
             if (abortController.signal.aborted) return;
             
             const allDataResult = await allDataResponse.json();
-            const fetchTime = Date.now() - startTime;
-            console.log(`Single API call completed in ${fetchTime}ms`);
             
             if (abortController.signal.aborted) return;
             
@@ -301,8 +279,6 @@ export default function AnalyticsDashboard() {
               if (allDataResult.data.performanceMetricsByCombination && 
                   Array.isArray(allDataResult.data.performanceMetricsByCombination) &&
                   allDataResult.data.performanceMetricsByCombination.length > 0) {
-                console.log("✅ Using API-provided combination breakdown");
-                console.log("📊 Raw combinations from API:", allDataResult.data.performanceMetricsByCombination);
                 const combinationResults = allDataResult.data.performanceMetricsByCombination.map(combo => ({
                   label: `${combo.batch || ''} ${combo.branch || ''}${combo.semester ? ` Sem ${combo.semester}` : ''}`.trim(),
                   batch: combo.batch,
@@ -316,8 +292,6 @@ export default function AnalyticsDashboard() {
                   },
                   error: null
                 }));
-                console.log("📊 Processed combinations:", combinationResults);
-                console.log("📊 Total combinations:", combinationResults.length);
                 
                 setFilteredPassingStatsByCombination(combinationResults);
                 // Also set overall metrics for summary cards
@@ -343,16 +317,14 @@ export default function AnalyticsDashboard() {
               
               // If API didn't return combinations, we need to make individual calls
               // Don't use overall metrics - they're not accurate for individual combinations
-              console.log("⚠️ API didn't return combination breakdown, will make individual calls");
             }
           } catch (err) {
             if (err.name !== 'AbortError' && !abortController.signal.aborted) {
-              console.error("Error fetching all filtered data:", err);
+              // Error fetching all filtered data
             }
           }
           
           // Fallback: If single call approach doesn't work, use individual calls (but optimized)
-          console.warn("Falling back to individual API calls (slower)");
           const combinationPromises = [];
           
           // Helper function to create a safe fetch promise
@@ -370,7 +342,6 @@ export default function AnalyticsDashboard() {
             
             try {
               const url = `/api/analytics?${params.toString()}`;
-              console.log(`Fetching: ${url}`);
               const response = await fetch(url, {
                 method: "GET",
                 credentials: "include",
@@ -389,7 +360,6 @@ export default function AnalyticsDashboard() {
               }
               
               if (!response.ok) {
-                console.error(`API error for ${label}:`, response.status, response.statusText);
                 return {
                   label,
                   batch,
@@ -412,10 +382,7 @@ export default function AnalyticsDashboard() {
                 };
               }
               
-              console.log(`API response for ${label}:`, result);
-              
               if (!result.success) {
-                console.error(`API returned success=false for ${label}:`, result);
                 return {
                   label,
                   batch,
@@ -427,7 +394,6 @@ export default function AnalyticsDashboard() {
               
               const metrics = result.data?.performanceMetrics;
               if (!metrics) {
-                console.warn(`No performanceMetrics for ${label}`);
                 return {
                   label,
                   batch,
@@ -455,7 +421,6 @@ export default function AnalyticsDashboard() {
                   error: "Request aborted"
                 };
               }
-              console.error(`Error fetching ${label}:`, err);
               return {
                 label,
                 batch,
@@ -467,6 +432,8 @@ export default function AnalyticsDashboard() {
           };
           
           // Generate combinations based on selected filters
+          // Note: This code path is now optimized to use single API call above
+          // Keeping this for fallback scenarios
           if (batches.length > 0 && branches.length > 0 && semesters.length > 0) {
             // All three: Batch + Branch + Semester
             batches.forEach(batch => {
@@ -529,10 +496,8 @@ export default function AnalyticsDashboard() {
           const MAX_CONCURRENT = 10; // Process 10 requests at a time
           try {
             if (combinationPromises.length === 0) {
-              console.warn("No combination promises created!");
               setFilteredPassingStatsByCombination([]);
             } else {
-              console.log(`Fetching ${combinationPromises.length} combinations (batched for performance)...`);
               
               // Process promises in batches to avoid overwhelming the server
               const combinationResults = [];
@@ -561,16 +526,13 @@ export default function AnalyticsDashboard() {
                   }
                   // Log rejected promises but don't throw
                   if (result.reason && result.reason.name !== 'AbortError') {
-                    console.warn("Promise rejected:", result.reason);
+                    // Promise rejected
                   }
                   return false;
                 })
                 .map(result => result.value)
                 .filter(result => result && !result.error); // Filter out error results
               
-              console.log("Combination results (all):", combinationResults);
-              console.log("Combination results (successful):", successfulResults);
-              console.log("Successful count:", successfulResults.length, "out of", combinationPromises.length);
               
               // Also fetch overall stats for fallback (only if not aborted)
               if (!abortController.signal.aborted) {
@@ -588,14 +550,13 @@ export default function AnalyticsDashboard() {
                   if (!abortController.signal.aborted && overallResponse.ok) {
                     const overallResult = await overallResponse.json();
                     if (overallResult.success && overallResult.data?.performanceMetrics) {
-                      console.log("Overall filtered stats:", overallResult.data.performanceMetrics);
                       setFilteredPassingStats(overallResult.data.performanceMetrics);
                     }
                   }
                 } catch (overallErr) {
                   // Only log non-abort errors
                   if (overallErr.name !== 'AbortError' && !abortController.signal.aborted) {
-                    console.error("Error fetching overall stats:", overallErr);
+                    // Error fetching overall stats
                   }
                 }
               }
@@ -610,7 +571,6 @@ export default function AnalyticsDashboard() {
           } catch (err) {
             // Only handle non-abort errors
             if (err.name !== 'AbortError' && !abortController.signal.aborted) {
-              console.error("Error in Promise.allSettled:", err);
               setFilteredPassingStatsByCombination([]);
             }
           }
@@ -642,7 +602,6 @@ export default function AnalyticsDashboard() {
           });
           
         const url = `/api/analytics${params.toString() ? `?${params.toString()}` : ""}`;
-          console.log("Fetching single filter data:", url);
           
           // Check if aborted before fetch
           if (abortController.signal.aborted) {
@@ -668,20 +627,17 @@ export default function AnalyticsDashboard() {
           }
           
           if (response.ok && result.success) {
-            console.log("Single filter API response:", result.data);
             // Set overall metrics
             setFilteredPassingStats(result.data?.performanceMetrics || null);
             
             // Set breakdowns if available
           if (result.data?.performanceMetricsByBatch) {
-              console.log("Got batch breakdown:", result.data.performanceMetricsByBatch);
             setFilteredPassingStatsByBatch(result.data.performanceMetricsByBatch);
           } else {
             setFilteredPassingStatsByBatch(null);
           }
             
           if (result.data?.performanceMetricsByBranch) {
-              console.log("Got branch breakdown:", result.data.performanceMetricsByBranch);
             setFilteredPassingStatsByBranch(result.data.performanceMetricsByBranch);
           } else {
             setFilteredPassingStatsByBranch(null);
@@ -693,7 +649,6 @@ export default function AnalyticsDashboard() {
       } catch (err) {
         // Only handle non-abort errors
         if (err.name !== 'AbortError' && !abortController.signal.aborted) {
-          console.error("Error fetching filtered passing stats:", err);
           setFilteredPassingStats(null);
           setFilteredPassingStatsByBatch(null);
           setFilteredPassingStatsByBranch(null);
@@ -846,7 +801,8 @@ export default function AnalyticsDashboard() {
                 passed: 0,
                 failed: 0,
                 average: 0,
-                hasData: false
+                hasData: false,
+                gradeDistribution: {}
               };
             }
             
@@ -855,6 +811,7 @@ export default function AnalyticsDashboard() {
             const passedCount = subData.passed || (totalStudents - failedCount);
             const passRate = parseFloat(subData.passRate || 0);
             const failRate = totalStudents > 0 ? parseFloat(((failedCount / totalStudents) * 100).toFixed(1)) : 0;
+            const hasData = totalStudents > 0; // Only true if there are actual students
             
             return {
               subject: subjectCode,
@@ -864,7 +821,8 @@ export default function AnalyticsDashboard() {
               passed: passedCount,
               failed: failedCount,
               average: parseFloat(subData.average || 0),
-              hasData: true
+              hasData: hasData,
+              gradeDistribution: subData.gradeDistribution || {} // Store grade distribution
             };
           });
           
@@ -874,7 +832,6 @@ export default function AnalyticsDashboard() {
         }
       } catch (err) {
         if (err.name !== 'AbortError') {
-          console.error("Error fetching subject comparison:", err);
           setSubjectComparisonData([]);
         }
       } finally {
@@ -888,6 +845,203 @@ export default function AnalyticsDashboard() {
       abortController.abort();
     };
   }, [selectedSubjects, subjectComparisonBatch, subjectComparisonBranch, subjectComparisonSemester]);
+
+  // Export to Excel function
+  const exportToExcel = useCallback((data) => {
+    if (!data || data.length === 0) return;
+    
+    try {
+      // Prepare data for Excel
+      const excelData = data.map((item, idx) => {
+        const failed = (item.Total || 0) - (item.Passed || 0);
+        return {
+          "S.No": idx + 1,
+          "Category": item.name || "N/A",
+          "Total Students": item.Total || 0,
+          "Passed": item.Passed || 0,
+          "Failed": failed,
+          "Pass Rate (%)": item.PassRate ? `${item.PassRate.toFixed(1)}%` : "0%"
+        };
+      });
+
+      // Create workbook and worksheet
+      const ws = XLSX.utils.json_to_sheet(excelData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Pass Rate Analysis");
+
+      // Set column widths
+      const colWidths = [
+        { wch: 8 },   // S.No
+        { wch: 30 },  // Category
+        { wch: 15 },  // Total Students
+        { wch: 12 },  // Passed
+        { wch: 12 },  // Failed
+        { wch: 15 }   // Pass Rate
+      ];
+      ws['!cols'] = colWidths;
+
+      // Generate filename with current date
+      const dateStr = new Date().toISOString().split('T')[0];
+      const filename = `Pass_Rate_Analysis_${dateStr}.xlsx`;
+
+      // Export to file
+      XLSX.writeFile(wb, filename);
+    } catch (error) {
+      alert("Failed to export to Excel. Please try again.");
+    }
+  }, []);
+
+  // Download Report function (PDF)
+  const downloadReport = useCallback((data) => {
+    if (!data || data.length === 0) {
+      alert("No data available to download.");
+      return;
+    }
+    
+    try {
+      // Check if jsPDF is available
+      if (typeof jsPDF === 'undefined') {
+        alert("PDF library not loaded. Please refresh the page.");
+        return;
+      }
+
+      const doc = new jsPDF();
+      
+      // Add title
+      doc.setFontSize(18);
+      doc.setTextColor(30, 41, 59);
+      doc.text("Pass Rate Analysis Report", 14, 20);
+      
+      // Add date
+      doc.setFontSize(10);
+      doc.setTextColor(100, 100, 100);
+      const dateStr = new Date().toLocaleDateString('en-GB', { 
+        day: '2-digit', 
+        month: 'short', 
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      doc.text(`Generated on: ${dateStr}`, 14, 28);
+
+      // Prepare table data
+      const tableData = data.map((item, idx) => {
+        if (!item) return null;
+        const failed = (item.Total || 0) - (item.Passed || 0);
+        return [
+          idx + 1,
+          item.name || "N/A",
+          item.Total || 0,
+          item.Passed || 0,
+          failed,
+          item.PassRate ? `${item.PassRate.toFixed(1)}%` : "0%"
+        ];
+      }).filter(row => row !== null);
+
+      if (tableData.length === 0) {
+        alert("No valid data to generate report.");
+        return;
+      }
+
+      // Check if autoTable is available
+      if (typeof doc.autoTable === 'undefined') {
+        // Fallback: Create simple table without autoTable
+        let yPos = 40;
+        doc.setFontSize(10);
+        doc.setTextColor(30, 41, 59);
+        
+        // Headers
+        doc.setFont(undefined, 'bold');
+        doc.text("S.No", 14, yPos);
+        doc.text("Category", 25, yPos);
+        doc.text("Total", 100, yPos);
+        doc.text("Passed", 120, yPos);
+        doc.text("Failed", 140, yPos);
+        doc.text("Pass Rate", 160, yPos);
+        
+        yPos += 10;
+        doc.setFont(undefined, 'normal');
+        
+        tableData.forEach((row) => {
+          if (yPos > 280) {
+            doc.addPage();
+            yPos = 20;
+          }
+          doc.text(String(row[0]), 14, yPos);
+          doc.text(String(row[1]).substring(0, 20), 25, yPos);
+          doc.text(String(row[2]), 100, yPos);
+          doc.text(String(row[3]), 120, yPos);
+          doc.text(String(row[4]), 140, yPos);
+          doc.text(String(row[5]), 160, yPos);
+          yPos += 8;
+        });
+      } else {
+        // Use autoTable if available
+        doc.autoTable({
+          startY: 35,
+          head: [["S.No", "Category", "Total Students", "Passed", "Failed", "Pass Rate (%)"]],
+          body: tableData,
+          theme: "striped",
+          headStyles: {
+            fillColor: [30, 41, 59],
+            textColor: [255, 255, 255],
+            fontStyle: "bold"
+          },
+          alternateRowStyles: {
+            fillColor: [245, 247, 250]
+          },
+          styles: {
+            fontSize: 9,
+            cellPadding: 3
+          },
+          columnStyles: {
+            0: { cellWidth: 15 },
+            1: { cellWidth: 60 },
+            2: { cellWidth: 30 },
+            3: { cellWidth: 25 },
+            4: { cellWidth: 25 },
+            5: { cellWidth: 30 }
+          }
+        });
+      }
+
+      // Add summary statistics
+      const totalStudents = data.reduce((sum, item) => sum + (item?.Total || 0), 0);
+      const totalPassed = data.reduce((sum, item) => sum + (item?.Passed || 0), 0);
+      const totalFailed = totalStudents - totalPassed;
+      const overallPassRate = totalStudents > 0 ? ((totalPassed / totalStudents) * 100).toFixed(1) : 0;
+
+      // Get final Y position
+      let finalY = 35;
+      if (doc.lastAutoTable && doc.lastAutoTable.finalY) {
+        finalY = doc.lastAutoTable.finalY + 10;
+      } else {
+        finalY = 40 + (tableData.length * 8) + 10;
+      }
+
+      doc.setFontSize(12);
+      doc.setTextColor(30, 41, 59);
+      doc.text("Summary Statistics", 14, finalY);
+      
+      doc.setFontSize(10);
+      doc.text(`Total Students: ${totalStudents}`, 14, finalY + 8);
+      doc.text(`Total Passed: ${totalPassed}`, 14, finalY + 14);
+      doc.text(`Total Failed: ${totalFailed}`, 14, finalY + 20);
+      doc.setFontSize(11);
+      doc.setTextColor(16, 185, 129);
+      doc.text(`Overall Pass Rate: ${overallPassRate}%`, 14, finalY + 26);
+
+      // Generate filename
+      const dateStrFile = new Date().toISOString().split('T')[0];
+      const filename = `Pass_Rate_Analysis_Report_${dateStrFile}.pdf`;
+
+      // Save PDF
+      doc.save(filename);
+    } catch (error) {
+      console.error("PDF generation error:", error);
+      alert(`Failed to generate report: ${error.message || "Unknown error"}`);
+    }
+  }, []);
 
   if (loading)
     return (
@@ -925,7 +1079,7 @@ export default function AnalyticsDashboard() {
       total: metrics.totalRecords || 0,
       passed: metrics.passedRecords || 0,
       fail: metrics.failedRecords || 0,
-      passRate: metrics.passRate?.toFixed(1) || "0"
+      passRate: metrics.passRate ? parseFloat(metrics.passRate.toFixed(1)) : 0
     };
   };
 
@@ -937,35 +1091,113 @@ export default function AnalyticsDashboard() {
   // Check if we should show breakdown by branch (batch selected, branch = empty)
   const showBranchBreakdown = passingAnalysisBatch.length > 0 && passingAnalysisBranch.length === 0 && filteredPassingStatsByBranch && filteredPassingStatsByBranch.length > 0;
   
+  // Color mapping for branches, batches, and semesters
+  const getColorForData = (name, batch, branch, semester = null) => {
+    // Color palette for branches
+    const branchColors = {
+      'CSE': '#3b82f6',    // Blue
+      'ECE': '#8b5cf6',     // Purple
+      'EEE': '#10b981',     // Emerald
+      'ME': '#f59e0b',      // Amber
+      'CIVIL': '#ef4444',   // Red
+      'AIML': '#ec4899',    // Pink
+      'CS': '#3b82f6',
+      'EC': '#8b5cf6',
+      'EE': '#10b981',
+      'MECH': '#f59e0b'
+    };
+    
+    // Color palette for batches (different shades)
+    const batchColors = {
+      '2022': '#60a5fa',    // Light blue
+      '2023': '#34d399',    // Light emerald
+      '2024': '#fbbf24',    // Light amber
+      '2025': '#f87171',    // Light red
+      '2026': '#a78bfa',    // Light purple
+      '2027': '#fb7185',    // Light pink
+      '2028': '#4ade80'     // Light green
+    };
+    
+    // Color palette for semesters
+    const semesterColors = {
+      '1': '#3b82f6',   // Blue
+      '2': '#8b5cf6',    // Purple
+      '3': '#10b981',    // Emerald
+      '4': '#f59e0b',    // Amber
+      '5': '#ef4444',    // Red
+      '6': '#ec4899',    // Pink
+      '7': '#06b6d4',    // Cyan
+      '8': '#f97316'     // Orange
+    };
+    
+    // Extract semester from name if not provided
+    if (!semester) {
+      const semMatch = name.match(/Sem\s*(\d+)/i);
+      if (semMatch) {
+        semester = semMatch[1];
+      }
+    }
+    
+    // Priority: Branch > Batch > Semester
+    // If branch is available, use branch color
+    if (branch && branchColors[branch]) {
+      return branchColors[branch];
+    }
+    
+    // If batch is available, use batch color
+    if (batch && batchColors[batch]) {
+      return batchColors[batch];
+    }
+    
+    // If semester is available, use semester color
+    if (semester && semesterColors[semester]) {
+      return semesterColors[semester];
+    }
+    
+    // Try to extract branch from name
+    const branchMatch = name.match(/\b(CSE|ECE|EEE|ME|CE|AIML|CIVIL|CS|EC|EE|MECH)\b/i);
+    if (branchMatch && branchColors[branchMatch[1].toUpperCase()]) {
+      return branchColors[branchMatch[1].toUpperCase()];
+    }
+    
+    // Try to extract batch from name
+    const batchMatch = name.match(/\b(20\d{2})\b/);
+    if (batchMatch && batchColors[batchMatch[1]]) {
+      return batchColors[batchMatch[1]];
+    }
+    
+    // Try to extract semester from name
+    const semMatch = name.match(/Sem\s*(\d+)/i);
+    if (semMatch && semesterColors[semMatch[1]]) {
+      return semesterColors[semMatch[1]];
+    }
+    
+    // Default gradient colors
+    const defaultColors = ['#60a5fa', '#f472b6', '#22c55e', '#f59e0b', '#a855f7', '#2dd4bf', '#ef4444', '#eab308'];
+    const index = name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    return defaultColors[index % defaultColors.length];
+  };
+
   // Bar chart data - show separate bars for each selected filter value
   let passFailData = [];
-  
-  console.log("=== Generating passFailData ===");
-  console.log("Filters:", {
-    batch: passingAnalysisBatch,
-    branch: passingAnalysisBranch
-  });
-  console.log("Available data:", {
-    filteredPassingStats,
-    filteredPassingStatsByBatch,
-    filteredPassingStatsByBranch,
-    filteredPassingStatsByCombination
-  });
   
   // If only batch filters selected, show breakdown by branch (branch-wise analysis for batch)
   if (passingAnalysisBatch.length > 0 && passingAnalysisBranch.length === 0) {
     // Show breakdown by branch for selected batch
     if (filteredPassingStatsByBranch && filteredPassingStatsByBranch.length > 0) {
       passFailData = filteredPassingStatsByBranch
-        .map(item => ({
-          name: item.branch,
-      Passed: item.passed,
-          PassRate: item.total > 0 ? parseFloat(((item.passed / item.total) * 100).toFixed(1)) : 0,
-      Total: item.total
-    }));
-      console.log("Batch selected - showing branch breakdown:", passFailData);
+        .map(item => {
+          const branchUpper = item.branch ? item.branch.toUpperCase() : null;
+          return {
+            name: item.branch || "Unknown",
+            Passed: item.passed || 0,
+            PassRate: (item.total && item.total > 0) ? parseFloat((((item.passed || 0) / item.total) * 100).toFixed(1)) : 0,
+            Total: item.total || 0,
+            branch: branchUpper,
+            color: getColorForData(item.branch || "Unknown", null, branchUpper)
+          };
+        });
     } else {
-      console.warn("No branch breakdown available for selected batch");
       passFailData = [];
     }
   } 
@@ -975,37 +1207,28 @@ export default function AnalyticsDashboard() {
     if (filteredPassingStatsByBatch && filteredPassingStatsByBatch.length > 0) {
       passFailData = filteredPassingStatsByBatch
         .map(item => ({
-          name: `Batch ${item.batch}`,
-          Passed: item.passed,
-          PassRate: item.total > 0 ? parseFloat(((item.passed / item.total) * 100).toFixed(1)) : 0,
-          Total: item.total
+          name: `Batch ${item.batch || "Unknown"}`,
+          Passed: item.passed || 0,
+          PassRate: (item.total && item.total > 0) ? parseFloat((((item.passed || 0) / item.total) * 100).toFixed(1)) : 0,
+          Total: item.total || 0,
+          batch: item.batch,
+          color: getColorForData(`Batch ${item.batch || "Unknown"}`, item.batch, null)
         }));
-      console.log("Branch selected - showing batch breakdown:", passFailData);
   } else {
-      console.warn("No breakdown available for selected branch");
       passFailData = [];
     }
   } 
   // If multiple filter types selected (batch + branch, or batch + branch + semester), show one bar per combination
-  else if ((passingAnalysisBatch.length > 0 && passingAnalysisBranch.length > 0) || 
-           (passingAnalysisBatch.length > 0 && passingAnalysisSemester.length > 0) ||
-           (passingAnalysisBranch.length > 0 && passingAnalysisSemester.length > 0) ||
-           (passingAnalysisBatch.length > 0 && passingAnalysisBranch.length > 0 && passingAnalysisSemester.length > 0)) {
+  if ((passingAnalysisBatch.length > 0 && passingAnalysisBranch.length > 0) || 
+      (passingAnalysisBatch.length > 0 && passingAnalysisSemester.length > 0) ||
+      (passingAnalysisBranch.length > 0 && passingAnalysisSemester.length > 0) ||
+      (passingAnalysisBatch.length > 0 && passingAnalysisBranch.length > 0 && passingAnalysisSemester.length > 0)) {
     // Use combination data if available
-    console.log("Using combination data for chart:", filteredPassingStatsByCombination);
-    console.log("Combination data type:", typeof filteredPassingStatsByCombination);
-    console.log("Combination data is array:", Array.isArray(filteredPassingStatsByCombination));
-    
     if (filteredPassingStatsByCombination && Array.isArray(filteredPassingStatsByCombination) && filteredPassingStatsByCombination.length > 0) {
       const validCombinations = filteredPassingStatsByCombination.filter(combo => {
         const isValid = combo && combo.data && !combo.error && combo.data.totalRecords !== undefined;
-        if (!isValid) {
-          console.warn("Invalid combination:", combo);
-        }
         return isValid;
       });
-      console.log("Valid combinations for chart:", validCombinations);
-      console.log("Valid combinations count:", validCombinations.length);
       
       if (validCombinations.length > 0) {
         // Sort combinations for better display order:
@@ -1040,6 +1263,7 @@ export default function AnalyticsDashboard() {
           // Filter out 0% data and map to chart data
         passFailData = sortedCombinations
           .map(combo => {
+            if (!combo || !combo.data) return null;
             const metrics = combo.data;
             // Calculate pass rate properly
             let passRate = 0;
@@ -1057,37 +1281,30 @@ export default function AnalyticsDashboard() {
             // Use the calculated pass rate instead of the API's passRate to ensure accuracy
             const finalPassRate = actualPassRate || passRate;
             
-            console.log(`📊 Chart data for ${combo.label}:`, {
-              semester: combo.semester,
-              passedRecords: metrics.passedRecords,
-              totalRecords: metrics.totalRecords,
-              apiPassRate: passRate,
-              calculatedPassRate: actualPassRate,
-              finalPassRate: finalPassRate,
-              hasData: metrics.totalRecords > 0
-            });
+            // Extract batch, branch, and semester from label for color assignment
+            const batchMatch = combo.label.match(/\b(20\d{2})\b/);
+            const branchMatch = combo.label.match(/\b(CSE|ECE|EEE|ME|CE|AIML|CIVIL|CS|EC|EE|MECH)\b/i);
+            const semMatch = combo.label.match(/Sem\s*(\d+)/i);
+            const batch = batchMatch ? batchMatch[1] : null;
+            const branch = branchMatch ? branchMatch[1].toUpperCase() : null;
+            const semester = semMatch ? semMatch[1] : (combo.semester ? String(combo.semester).replace(/^Sem\s*/i, "").trim() : null);
             
             return {
               name: combo.label,
               Passed: metrics.passedRecords || 0,
               PassRate: finalPassRate, // Use calculated pass rate
-              Total: metrics.totalRecords || 0
+              Total: metrics.totalRecords || 0,
+              batch: batch,
+              branch: branch,
+              semester: semester,
+              color: getColorForData(combo.label, batch, branch, semester)
             };
           })
-          // Filter out entries with 0 total records (no data available)
-          .filter(item => {
-            const hasData = item.Total > 0;
-            if (!hasData) {
-              console.log(`Filtering out ${item.name} - no data (Total: ${item.Total})`);
-            }
-            return hasData;
-          });
-        console.log("Generated passFailData from combinations (sorted, filtered):", passFailData);
+          // Filter out null entries and entries with 0 total records (no data available)
+          .filter(item => item && item.Total > 0);
       } else {
-        console.warn("No valid combinations found for chart. All combinations:", filteredPassingStatsByCombination);
         // Fallback: try to use overall stats if available
         if (filteredPassingStats) {
-          console.log("Using fallback: filteredPassingStats");
           const batches = passingAnalysisBatch.filter(b => b !== "all");
           const branches = passingAnalysisBranch.filter(b => b !== "all");
           
@@ -1110,12 +1327,21 @@ export default function AnalyticsDashboard() {
           }
           
           if (labels.length > 0) {
-            passFailData = labels.map(label => ({
-              name: label,
-              Passed: filteredPassingStats.passedRecords || 0,
-              PassRate: filteredPassingStats.passRate ? parseFloat(filteredPassingStats.passRate.toFixed(1)) : 0,
-              Total: filteredPassingStats.totalRecords || 0
-            }));
+            passFailData = labels.map(label => {
+              const batchMatch = label.match(/\b(20\d{2})\b/);
+              const branchMatch = label.match(/\b(CSE|ECE|EEE|ME|CE|AIML|CIVIL|CS|EC|EE|MECH)\b/i);
+              const batch = batchMatch ? batchMatch[1] : null;
+              const branch = branchMatch ? branchMatch[1].toUpperCase() : null;
+              return {
+                name: label,
+                Passed: filteredPassingStats.passedRecords || 0,
+                PassRate: filteredPassingStats.passRate ? parseFloat(filteredPassingStats.passRate.toFixed(1)) : 0,
+                Total: filteredPassingStats.totalRecords || 0,
+                batch: batch,
+                branch: branch,
+                color: getColorForData(label, batch, branch)
+              };
+            });
           } else {
             passFailData = [];
           }
@@ -1124,21 +1350,25 @@ export default function AnalyticsDashboard() {
         }
       }
     } else {
-      console.warn("No combination data available for chart. Type:", typeof filteredPassingStatsByCombination, "Length:", filteredPassingStatsByCombination?.length);
       // Fallback: use overall stats
       if (filteredPassingStats) {
-        console.log("Using fallback: filteredPassingStats for multiple filters");
         const batches = passingAnalysisBatch.filter(b => b !== "all");
         const branches = passingAnalysisBranch.filter(b => b !== "all");
         
         if (batches.length > 0 && branches.length > 0) {
           passFailData = batches.flatMap(batch => 
-            branches.map(branch => ({
-              name: `Batch ${batch} ${branch}`,
-              Passed: filteredPassingStats.passedRecords || 0,
-              PassRate: filteredPassingStats.passRate ? parseFloat(filteredPassingStats.passRate.toFixed(1)) : 0,
-              Total: filteredPassingStats.totalRecords || 0
-            }))
+            branches.map(branch => {
+              const branchUpper = branch.toUpperCase();
+              return {
+                name: `Batch ${batch} ${branch}`,
+                Passed: filteredPassingStats.passedRecords || 0,
+                PassRate: filteredPassingStats.passRate ? parseFloat(filteredPassingStats.passRate.toFixed(1)) : 0,
+                Total: filteredPassingStats.totalRecords || 0,
+                batch: batch,
+                branch: branchUpper,
+                color: getColorForData(`Batch ${batch} ${branch}`, batch, branchUpper)
+              };
+            })
           );
         } else {
           passFailData = [];
@@ -1152,30 +1382,27 @@ export default function AnalyticsDashboard() {
   else {
     passFailData = [{
       name: "Overall",
-      Passed: passingStats.passed,
-      PassRate: passingStats.passRate,
-      Total: passingStats.total
+      Passed: passingStats.passed || 0,
+      PassRate: typeof passingStats.passRate === 'number' ? passingStats.passRate : (typeof passingStats.passRate === 'string' ? parseFloat(passingStats.passRate) || 0 : 0),
+      Total: passingStats.total || 0,
+      color: getColorForData("Overall", null, null)
     }];
   }
-  
-  console.log("=== Final passFailData ===", passFailData);
-  console.log("passFailData length:", passFailData.length);
 
-  // Add subject to comparison list
+  // Add subject to comparison list (supports "All")
   const handleAddSubject = () => {
     if (!selectedSubjectToAdd) return;
     
-    // Check if already added
-    if (selectedSubjects.includes(selectedSubjectToAdd)) {
-      return; // Already added
+    // Add all subjects
+    if (selectedSubjectToAdd === "__ALL__") {
+      const allCodes = basketSubjects.map((s) => s.code).filter(Boolean);
+      setSelectedSubjects(Array.from(new Set(allCodes)));
+      setSelectedSubjectToAdd("");
+      return;
     }
     
-    // Check limit
-    if (selectedSubjects.length >= 6) {
-      return; // Already at max
-    }
-    
-    // Add to list
+    // Add single subject
+    if (selectedSubjects.includes(selectedSubjectToAdd)) return;
     setSelectedSubjects([...selectedSubjects, selectedSubjectToAdd]);
     setSelectedSubjectToAdd(""); // Reset dropdown
   };
@@ -1188,6 +1415,7 @@ export default function AnalyticsDashboard() {
 
   // ========================= Render =========================
   return (
+    <>
     <div className="space-y-8">
       {/* HEADER */}
       <div className="text-center mb-8">
@@ -1294,7 +1522,7 @@ export default function AnalyticsDashboard() {
           {/* PASSING ANALYSIS */}
           <CoolChartCard title="Passing Analysis" icon="✅" fullWidth>
             {/* Enhanced Filter Section */}
-            <div className="mb-6 p-5 rounded-2xl border border-white/10 bg-gradient-to-r from-white/5 via-white/5 to-white/5 backdrop-blur-sm">
+          <div className="mb-6 p-5 rounded-2xl border border-white/10 bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-amber-400/10 backdrop-blur-sm">
               <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
                 <div className="flex items-center gap-2 text-white/90 font-semibold">
                   <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1384,26 +1612,10 @@ export default function AnalyticsDashboard() {
                     </div>
                   </div>
 
-                  {/* Semester Checkboxes */}
+                  {/* Semester Checkboxes (Multi-Select) */}
                   <div className="bg-white/5 rounded-xl p-4 border border-white/10">
                     <label className="block text-white/90 font-semibold mb-3 text-sm">Semester</label>
                     <div className="space-y-2 max-h-48 overflow-y-auto">
-                      {/* Select All */}
-                      <label className="flex items-center gap-2 cursor-pointer hover:bg-white/5 p-2 rounded transition-colors border-b border-white/10 pb-2 mb-2">
-                        <input
-                          type="checkbox"
-                          checked={passingAnalysisSemester.length === semesters.filter(s => s !== "all").length}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setPassingAnalysisSemester(semesters.filter(s => s !== "all"));
-                            } else {
-                              setPassingAnalysisSemester([]);
-                            }
-                          }}
-                          className="w-4 h-4 rounded border-white/30 bg-white/10 text-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-0"
-                        />
-                        <span className="text-white/90 text-sm font-semibold">All</span>
-                      </label>
                       {semesters.filter(s => s !== "all").map((semester) => (
                         <label key={semester} className="flex items-center gap-2 cursor-pointer hover:bg-white/5 p-2 rounded transition-colors">
                           <input
@@ -1503,7 +1715,7 @@ export default function AnalyticsDashboard() {
                       <p className="text-3xl font-black text-emerald-400">{passingStats.passed}</p>
                       {passingStats.total > 0 && (
                         <p className="text-xs text-emerald-300/70 mt-1">
-                          {((passingStats.passed / passingStats.total) * 100).toFixed(1)}% of total
+                          {passingStats.total > 0 ? ((passingStats.passed / passingStats.total) * 100).toFixed(1) : 0}% of total
                         </p>
                       )}
                     </div>
@@ -1519,11 +1731,11 @@ export default function AnalyticsDashboard() {
                         </svg>
                       </div>
                       <p className="text-blue-200 text-sm mb-2 font-medium">Pass Rate</p>
-                      <p className="text-3xl font-black text-blue-400">{passingStats.passRate}%</p>
+                      <p className="text-3xl font-black text-blue-400">{passingStats.passRate || 0}%</p>
                       <div className="mt-2 h-1.5 bg-blue-500/20 rounded-full overflow-hidden">
                         <div 
                           className="h-full bg-gradient-to-r from-blue-400 to-blue-600 rounded-full transition-all duration-500"
-                          style={{ width: `${passingStats.passRate}%` }}
+                          style={{ width: `${passingStats.passRate || 0}%` }}
                         ></div>
                       </div>
                     </div>
@@ -1536,18 +1748,40 @@ export default function AnalyticsDashboard() {
                     <h4 className="text-lg font-bold text-white/90">
                       Pass Rate Analysis
                     </h4>
-                    <div className="flex items-center gap-4 text-sm text-white/70">
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500"></div>
-                        <span>Number of Students</span>
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-4 text-sm text-white/70">
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500"></div>
+                          <span>Percentage of Students</span>
+                        </div>
                       </div>
-                      </div>
+                      {/* Export Buttons */}
+                      {passFailData && passFailData.length > 0 && (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => exportToExcel(passFailData)}
+                            className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white text-sm font-semibold rounded-lg transition-all shadow-lg hover:shadow-xl flex items-center gap-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Export Excel
+                          </button>
+                          <button
+                            onClick={() => downloadReport(passFailData)}
+                            className="px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white text-sm font-semibold rounded-lg transition-all shadow-lg hover:shadow-xl flex items-center gap-2"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                            </svg>
+                            Download Report
+                          </button>
+                        </div>
+                      )}
                     </div>
+                  </div>
                   
                   {(() => {
-                    console.log("Chart rendering - passFailData:", passFailData);
-                    console.log("Chart rendering - passFailData length:", passFailData?.length);
-                    
                     if (!passFailData || passFailData.length === 0) {
                       if (loadingPassingStats) {
                         return (
@@ -1576,9 +1810,8 @@ export default function AnalyticsDashboard() {
                       );
                     }
                   
-                    // Calculate max value for Y-axis domain
-                    const maxTotal = Math.max(...passFailData.map(item => item.Total || 0));
-                    const yAxisMax = maxTotal > 0 ? Math.ceil(maxTotal * 1.1) : 100; // Add 10% padding
+                    // Y-axis domain should always be 0-100 for percentage
+                    const yAxisMax = 100;
                   
                     return (
                   <ResponsiveContainer width="100%" height={350}>
@@ -1603,37 +1836,47 @@ export default function AnalyticsDashboard() {
                           stroke="#94a3b8"
                           tick={{ fill: "#fff", fontSize: 12 }}
                           tickLine={{ stroke: "#94a3b8" }}
-                        label={{ value: 'Number of Students', angle: -90, position: 'insideLeft', fill: '#fff', style: { textAnchor: 'middle', fontSize: '14px', fontWeight: 'bold' } }}
+                        label={{ value: 'Percentage of Students', angle: -90, position: 'insideLeft', fill: '#fff', style: { textAnchor: 'middle', fontSize: '14px', fontWeight: 'bold' } }}
                         domain={[0, yAxisMax]}
                         />
                         <Tooltip 
                         formatter={(value, name, props) => {
-                          if (name === "Total") {
-                            const passRate = props.payload?.PassRate || 0;
+                          if (name === "PassRate" || name === "Percentage of Students") {
+                            const total = props.payload?.Total || 0;
+                            const passed = props.payload?.Passed || 0;
                             return [
-                              `${value} students (${passRate}% pass rate)`,
-                              "Total Students"
+                              `${value}% (${passed} out of ${total} students)`,
+                              "Pass Rate"
                             ];
                           }
                           return [value, name];
                         }}
                           contentStyle={{ 
-                            backgroundColor: "rgba(0, 0, 0, 0.9)", 
-                            border: "1px solid rgba(255, 255, 255, 0.2)",
+                            backgroundColor: "rgba(30, 41, 59, 0.95)", 
+                            border: "1px solid rgba(59, 130, 246, 0.5)",
                             borderRadius: "12px",
-                            color: "#fff",
+                            color: "#e2e8f0",
                             padding: "12px",
-                            boxShadow: "0 4px 20px rgba(0,0,0,0.3)"
+                            boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+                            fontSize: "13px",
+                            fontWeight: "500"
                           }}
-                          cursor={{ fill: "rgba(255, 255, 255, 0.05)" }}
+                          labelStyle={{
+                            color: "#60a5fa",
+                            fontWeight: "bold",
+                            marginBottom: "8px"
+                          }}
+                          cursor={{ fill: "rgba(59, 130, 246, 0.1)" }}
                         />
                         <Bar 
-                        dataKey="Total" 
-                        fill="url(#passRateGradient)"
+                        dataKey="PassRate" 
                           radius={[12, 12, 0, 0]}
-                        name="Number of Students"
+                        name="Percentage of Students"
                           animationDuration={800}
                   >
+                        {passFailData && passFailData.length > 0 && passFailData.map((entry, idx) => (
+                          <Cell key={`cell-${idx}`} fill={entry?.color || getColorForData(entry?.name, entry?.batch, entry?.branch)} />
+                        ))}
                         <LabelList 
                           dataKey="PassRate" 
                           position="top" 
@@ -1646,6 +1889,48 @@ export default function AnalyticsDashboard() {
                     );
                   })()}
             </div>
+
+            {/* Detailed Data Table */}
+            {passFailData && passFailData.length > 0 && (
+              <div className="mt-6 bg-white/5 rounded-2xl p-6 border border-white/10">
+                <h4 className="text-lg font-bold text-white/90 mb-4">
+                  Detailed Pass Rate Data
+                </h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="bg-white/10 border-b border-white/20">
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-white/90">Category</th>
+                        <th className="px-4 py-3 text-center text-sm font-semibold text-white/90">Total Students</th>
+                        <th className="px-4 py-3 text-center text-sm font-semibold text-white/90">Passed</th>
+                        <th className="px-4 py-3 text-center text-sm font-semibold text-white/90">Failed</th>
+                        <th className="px-4 py-3 text-center text-sm font-semibold text-white/90">Pass Rate (%)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {passFailData && passFailData.length > 0 && passFailData.map((item, idx) => {
+                        if (!item) return null;
+                        const failed = (item.Total || 0) - (item.Passed || 0);
+                        return (
+                          <tr 
+                            key={idx} 
+                            className="border-b border-white/10 hover:bg-white/5 transition-colors"
+                          >
+                            <td className="px-4 py-3 text-sm text-white/80 font-medium">{item.name || 'N/A'}</td>
+                            <td className="px-4 py-3 text-sm text-white/70 text-center">{item.Total || 0}</td>
+                            <td className="px-4 py-3 text-sm text-emerald-400 text-center font-semibold">{item.Passed || 0}</td>
+                            <td className="px-4 py-3 text-sm text-red-400 text-center font-semibold">{failed}</td>
+                            <td className="px-4 py-3 text-sm text-white/90 text-center font-bold">
+                              {item.PassRate ? `${item.PassRate.toFixed(1)}%` : '0%'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
               </>
             )}
           </CoolChartCard>
@@ -1661,11 +1946,13 @@ export default function AnalyticsDashboard() {
             {/* Enhanced Filter Section */}
             <div className="mb-6 p-5 rounded-2xl border border-white/10 bg-gradient-to-r from-white/5 via-white/5 to-white/5 backdrop-blur-sm">
               <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
-                <div className="flex items-center gap-2 text-white/90 font-semibold">
-                  <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="flex items-center gap-2 font-semibold">
+                  <svg className="w-5 h-5 text-purple-400 drop-shadow-lg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
-                  <span className="text-lg">Compare Subjects</span>
+                  <span className="text-lg bg-gradient-to-r from-cyan-300 via-purple-300 to-amber-300 bg-clip-text text-transparent drop-shadow-md">
+                    Compare Subjects
+                  </span>
                 </div>
                 
                 <div className="flex flex-wrap gap-3 items-center">
@@ -1714,10 +2001,10 @@ export default function AnalyticsDashboard() {
               <select
                           value={selectedSubjectToAdd}
                           onChange={(e) => setSelectedSubjectToAdd(e.target.value)}
-                          disabled={selectedSubjects.length >= 6}
-                          className="px-4 py-2 bg-white/10 border border-white/20 text-white rounded-lg text-sm min-w-[250px] focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="px-4 py-2 bg-white/10 border border-white/20 text-white rounded-lg text-sm min-w-[250px] focus:outline-none focus:ring-2 focus:ring-purple-500"
                         >
                           <option value="" className="text-black">-- Select a subject --</option>
+                          <option value="__ALL__" className="text-black">All Subjects</option>
                           {basketSubjects
                             .filter(subject => !selectedSubjects.includes(subject.code))
                             .map((subject) => (
@@ -1732,7 +2019,7 @@ export default function AnalyticsDashboard() {
                     {/* Add Button */}
                     <button
                       onClick={handleAddSubject}
-                      disabled={!selectedSubjectToAdd || selectedSubjects.length >= 6 || loadingBasketSubjects}
+                      disabled={!selectedSubjectToAdd || loadingBasketSubjects}
                       className="px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 disabled:bg-purple-500/10 disabled:opacity-50 disabled:cursor-not-allowed border border-purple-500/30 text-purple-300 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1740,17 +2027,6 @@ export default function AnalyticsDashboard() {
                       </svg>
                       Add Subject
                     </button>
-                    
-                    {/* Subject Limit Indicator */}
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs font-semibold px-3 py-1.5 rounded ${
-                        selectedSubjects.length >= 6 
-                          ? "bg-yellow-500/20 text-yellow-300 border border-yellow-500/30" 
-                          : "bg-blue-500/20 text-blue-300 border border-blue-500/30"
-                      }`}>
-                        {selectedSubjects.length}/6 subjects
-                      </span>
-                    </div>
                     
                     {/* Clear All Button */}
                     {selectedSubjects.length > 0 && (
@@ -1769,15 +2045,6 @@ export default function AnalyticsDashboard() {
                     )}
                   </div>
                   
-                  {/* Max Limit Warning */}
-                  {selectedSubjects.length >= 6 && (
-                    <div className="px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 text-yellow-300 rounded-lg text-xs font-semibold flex items-center gap-2">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                      </svg>
-                      Maximum 6 subjects reached. Remove a subject to add another.
-                    </div>
-                  )}
                 </div>
               </div>
               
@@ -1786,7 +2053,7 @@ export default function AnalyticsDashboard() {
                 <div className="mt-4 p-4 bg-white/5 rounded-xl border border-white/10">
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-white/90 text-sm font-semibold">
-                      Selected Subjects ({selectedSubjects.length}/6):
+                      Selected Subjects ({selectedSubjects.length}):
                     </span>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -1913,7 +2180,7 @@ export default function AnalyticsDashboard() {
                         const subjectsWithData = subjectComparisonData.filter(s => s.hasData);
                         return subjectsWithData.length > 0
                           ? (
-                              subjectsWithData.reduce((sum, s) => sum + s.passRate, 0) /
+                              subjectsWithData.reduce((sum, s) => sum + (s.passRate || 0), 0) /
                               subjectsWithData.length
                             ).toFixed(1)
                           : 0;
@@ -1933,7 +2200,7 @@ export default function AnalyticsDashboard() {
                     </div>
                     <p className="text-blue-200 text-xs mb-1">Total Students</p>
                     <p className="text-2xl font-bold text-blue-400">
-                      {subjectComparisonData.reduce((sum, s) => sum + s.totalStudents, 0).toLocaleString()}
+                      {subjectComparisonData.reduce((sum, s) => sum + (s.totalStudents || 0), 0).toLocaleString()}
                     </p>
                   </div>
                   <div className="bg-yellow-500/10 rounded-xl p-4 border border-yellow-500/20 text-center hover:bg-yellow-500/15 transition-all">
@@ -1948,7 +2215,7 @@ export default function AnalyticsDashboard() {
                         const subjectsWithData = subjectComparisonData.filter(s => s.hasData && s.average > 0);
                         return subjectsWithData.length > 0
                           ? (
-                              subjectsWithData.reduce((sum, s) => sum + s.average, 0) /
+                              subjectsWithData.reduce((sum, s) => sum + (s.average || 0), 0) /
                               subjectsWithData.length
                             ).toFixed(2)
                           : "N/A";
@@ -1964,7 +2231,7 @@ export default function AnalyticsDashboard() {
                     </div>
                     <p className="text-purple-200 text-xs mb-1">Total Passed</p>
                     <p className="text-2xl font-bold text-purple-400">
-                      {subjectComparisonData.reduce((sum, s) => sum + s.passed, 0).toLocaleString()}
+                      {subjectComparisonData.reduce((sum, s) => sum + (s.passed || 0), 0).toLocaleString()}
                     </p>
                   </div>
                 </div>
@@ -2667,26 +2934,26 @@ export default function AnalyticsDashboard() {
                         <p>{(() => {
                           const subjectsWithData = subjectComparisonData.filter(s => s.hasData);
                           return subjectsWithData.length > 0
-                            ? (subjectsWithData.reduce((sum, s) => sum + s.passRate, 0) / subjectsWithData.length).toFixed(1)
+                            ? (subjectsWithData.reduce((sum, s) => sum + (s.passRate || 0), 0) / subjectsWithData.length).toFixed(1)
                             : 0;
                         })()}%</p>
                       </div>
                       <div className="summary-card">
                         <h3>Total Students</h3>
-                        <p>{subjectComparisonData.reduce((sum, s) => sum + s.totalStudents, 0).toLocaleString()}</p>
+                        <p>{subjectComparisonData.reduce((sum, s) => sum + (s.totalStudents || 0), 0).toLocaleString()}</p>
                       </div>
                       <div className="summary-card">
                         <h3>Avg Grade</h3>
                         <p>{(() => {
                           const subjectsWithData = subjectComparisonData.filter(s => s.hasData && s.average > 0);
                           return subjectsWithData.length > 0
-                            ? (subjectsWithData.reduce((sum, s) => sum + s.average, 0) / subjectsWithData.length).toFixed(2)
+                            ? (subjectsWithData.reduce((sum, s) => sum + (s.average || 0), 0) / subjectsWithData.length).toFixed(2)
                             : "N/A";
                         })()}</p>
                       </div>
                       <div className="summary-card">
                         <h3>Total Passed</h3>
-                        <p>{subjectComparisonData.reduce((sum, s) => sum + s.passed, 0).toLocaleString()}</p>
+                        <p>{subjectComparisonData.reduce((sum, s) => sum + (s.passed || 0), 0).toLocaleString()}</p>
                       </div>
                     </div>
                     </div>
@@ -2714,11 +2981,11 @@ export default function AnalyticsDashboard() {
                                 <tr key={idx}>
                                   <td>{s.subject}</td>
                                   <td>{subject?.name || "N/A"}</td>
-                                  <td>{s.totalStudents.toLocaleString()}</td>
-                                  <td>{s.passed.toLocaleString()}</td>
-                                  <td>{s.failed.toLocaleString()}</td>
-                                  <td>{s.passRate.toFixed(1)}%</td>
-                                  <td>{s.average > 0 ? s.average.toFixed(2) : "N/A"}</td>
+                                  <td>{((s.totalStudents || 0)).toLocaleString()}</td>
+                                  <td>{((s.passed || 0)).toLocaleString()}</td>
+                                  <td>{((s.failed || 0)).toLocaleString()}</td>
+                                  <td>{((s.passRate || 0)).toFixed(1)}%</td>
+                                  <td>{s.average && s.average > 0 ? Number(s.average).toFixed(2) : "N/A"}</td>
                                 </tr>
                               );
                             })}
@@ -2728,16 +2995,14 @@ export default function AnalyticsDashboard() {
                   </div>
                   
                   <ResponsiveContainer width="100%" height={400} id="subject-comparison-chart-container">
+                    {(() => {
+                      const chartData = subjectComparisonData.filter(s => s.hasData);
+                      const subjectColors = ["#60a5fa","#f472b6","#22c55e","#f59e0b","#a855f7","#2dd4bf","#ef4444","#eab308","#7dd3fc","#c084fc"];
+                      return (
                     <BarChart 
-                      data={subjectComparisonData.filter(s => s.hasData)} 
+                      data={chartData} 
                       margin={{ top: 30, right: 20, left: 50, bottom: 80 }}
                     >
-                      <defs>
-                        <linearGradient id="subjectPassGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#22c55e" stopOpacity={1} />
-                          <stop offset="100%" stopColor="#16a34a" stopOpacity={0.9} />
-                        </linearGradient>
-                      </defs>
                       <XAxis 
                         dataKey="subject" 
                         stroke="#94a3b8"
@@ -2794,21 +3059,168 @@ export default function AnalyticsDashboard() {
                       />
                       <Bar 
                         dataKey="passRate" 
-                        fill="url(#subjectPassGradient)"
+                        fill="#60a5fa"
                         radius={[8, 8, 0, 0]}
                         name="Pass Rate (%)"
                         animationDuration={800}
+                        minPointSize={4}
+                        background={{ fill: "rgba(148,163,184,0.15)" }}
                       >
+                        {chartData.map((entry, idx) => (
+                          <Cell key={entry.subject} fill={subjectColors[idx % subjectColors.length]} />
+                        ))}
                         <LabelList 
                           dataKey="passRate" 
                           position="top" 
                           formatter={(value) => `${value}%`}
-                          style={{ fill: '#fff', fontSize: '12px', fontWeight: 'bold' }}
+                          style={{ fill: '#10agfa', fontSize: '12px', fontWeight: 800 }}
                         />
                       </Bar>
                 </BarChart>
-              </ResponsiveContainer>
+                      );
+                    })()}
+                  </ResponsiveContainer>
                 </div>
+
+                {/* Grade Distribution Chart - Show only when one subject is selected */}
+                {subjectComparisonData.filter(s => s.hasData).length === 1 && (() => {
+                  const singleSubject = subjectComparisonData.find(s => s.hasData);
+                  if (!singleSubject || !singleSubject.gradeDistribution) return null;
+                  
+                  const gradeDistribution = singleSubject.gradeDistribution || {};
+                  // Define all possible grades in order
+                  const gradeOrder = ['O', 'E', 'A', 'B', 'C', 'D', 'F', 'M', 'S', 'R'];
+                  const gradeColors = {
+                    'O': '#10b981', // emerald
+                    'E': '#3b82f6', // blue
+                    'A': '#22c55e', // green
+                    'B': '#60a5fa', // light blue
+                    'C': '#f59e0b', // amber
+                    'D': '#f97316', // orange
+                    'F': '#ef4444', // red
+                    'M': '#dc2626', // dark red
+                    'S': '#991b1b', // darker red
+                    'R': '#7f1d1d'  // darkest red
+                  };
+                  
+                  // Prepare chart data
+                  const chartData = gradeOrder.map(grade => ({
+                    grade: grade,
+                    count: gradeDistribution[grade] || gradeDistribution[grade.toUpperCase()] || 0,
+                    color: gradeColors[grade] || '#6b7280'
+                  })).filter(item => item.count > 0); // Only show grades with data
+                  
+                  const subject = basketSubjects.find(bs => bs.code === singleSubject.subject);
+                  
+                  return (
+                    <div className="bg-white/5 rounded-2xl p-6 border border-white/10 mt-6">
+                      <div className="mb-4">
+                        <h4 className="text-lg font-bold text-white/90 mb-1 flex items-center gap-2">
+                          <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                          </svg>
+                          Grade Distribution - {singleSubject.subject} {subject?.name ? `(${subject.name})` : ''}
+                        </h4>
+                        <p className="text-xs text-white/60">
+                          Distribution of grades for {((singleSubject.totalStudents || 0)).toLocaleString()} student(s)
+                        </p>
+                      </div>
+                      
+                      {chartData.length > 0 ? (
+                        <>
+                          <ResponsiveContainer width="100%" height={400}>
+                            <BarChart 
+                              data={chartData} 
+                              margin={{ top: 20, right: 20, left: 20, bottom: 20 }}
+                            >
+                              <XAxis 
+                                dataKey="grade" 
+                                stroke="#94a3b8"
+                                tick={{ fill: "#fff", fontSize: 14, fontWeight: 600 }}
+                                tickLine={{ stroke: "#94a3b8" }}
+                                label={{ value: 'Grade', position: 'insideBottom', offset: -5, fill: '#fff', style: { textAnchor: 'middle', fontSize: '14px', fontWeight: 'bold' } }}
+                              />
+                              <YAxis 
+                                stroke="#94a3b8"
+                                tick={{ fill: "#fff", fontSize: 12 }}
+                                tickLine={{ stroke: "#94a3b8" }}
+                                label={{ value: 'Number of Students', angle: -90, position: 'insideLeft', fill: '#fff', style: { textAnchor: 'middle', fontSize: '14px', fontWeight: 'bold' } }}
+                              />
+                              <Tooltip 
+                                formatter={(value) => [`${value} student(s)`, 'Count']}
+                                contentStyle={{ 
+                                  backgroundColor: "rgba(0, 0, 0, 0.9)", 
+                                  border: "1px solid rgba(255, 255, 255, 0.2)",
+                                  borderRadius: "12px",
+                                  color: "#fff",
+                                  padding: "12px",
+                                  boxShadow: "0 4px 20px rgba(0,0,0,0.3)"
+                                }}
+                                cursor={{ fill: "rgba(255, 255, 255, 0.05)" }}
+                              />
+                              <Bar 
+                                dataKey="count" 
+                                radius={[8, 8, 0, 0]}
+                                name="Number of Students"
+                                animationDuration={800}
+                              >
+                                {chartData.map((entry, idx) => (
+                                  <Cell key={`cell-${idx}`} fill={entry.color} />
+                                ))}
+                                <LabelList 
+                                  dataKey="count" 
+                                  position="top" 
+                                  style={{ fill: '#fff', fontSize: '12px', fontWeight: 600 }}
+                                />
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                          
+                          {/* Grade Distribution Table */}
+                          <div className="mt-6 overflow-x-auto">
+                            <table className="w-full border-collapse">
+                              <thead>
+                                <tr className="border-b border-white/10">
+                                  <th className="px-4 py-3 text-left text-sm font-bold text-white/90">Grade</th>
+                                  <th className="px-4 py-3 text-center text-sm font-bold text-white/90">Count</th>
+                                  <th className="px-4 py-3 text-center text-sm font-bold text-white/90">Percentage</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {gradeOrder.map((grade) => {
+                                  const count = gradeDistribution[grade] || gradeDistribution[grade.toUpperCase()] || 0;
+                                  const percentage = (singleSubject.totalStudents && singleSubject.totalStudents > 0) 
+                                    ? ((count / singleSubject.totalStudents) * 100).toFixed(1) 
+                                    : 0;
+                                  return (
+                                    <tr key={grade} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                      <td className="px-4 py-3 text-sm font-mono font-bold" style={{ color: gradeColors[grade] || '#fff' }}>
+                                        {grade}
+                                      </td>
+                                      <td className="px-4 py-3 text-sm text-center text-white/70 font-semibold">
+                                        {count.toLocaleString()}
+                                      </td>
+                                      <td className="px-4 py-3 text-sm text-center text-white/70 font-semibold">
+                                        {percentage}%
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-center py-12 text-white/50">
+                          <svg className="w-12 h-12 mx-auto text-white/30 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                          </svg>
+                          <p className="font-semibold text-white/70 mb-1">No grade distribution data available</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
                 
                 {/* Detailed Comparison Table */}
                 <div className="bg-white/5 rounded-2xl p-6 border border-white/10 mt-6">
@@ -2830,11 +3242,11 @@ export default function AnalyticsDashboard() {
                               return [
                                 s.subject,
                                 subject?.name || "N/A",
-                                s.totalStudents,
-                                s.passed,
-                                s.failed,
-                                s.passRate.toFixed(1),
-                                s.average > 0 ? s.average.toFixed(2) : "N/A"
+                                s.totalStudents || 0,
+                                s.passed || 0,
+                                s.failed || 0,
+                                (s.passRate || 0).toFixed(1),
+                                s.average && s.average > 0 ? Number(s.average).toFixed(2) : "N/A"
                               ];
                             })
                         ].map(row => row.map(cell => `"${cell}"`).join(",")).join("\n");
@@ -2876,12 +3288,12 @@ export default function AnalyticsDashboard() {
                               <tr key={idx} className="border-b border-white/10 hover:bg-white/5 transition-colors">
                                 <td className="px-4 py-3 text-sm font-mono text-purple-300">{s.subject}</td>
                                 <td className="px-4 py-3 text-sm text-white/80">{subject?.name || "N/A"}</td>
-                                <td className="px-4 py-3 text-sm text-center text-white/70 font-semibold">{s.totalStudents.toLocaleString()}</td>
-                                <td className="px-4 py-3 text-sm text-center text-emerald-400 font-bold">{s.passed.toLocaleString()}</td>
-                                <td className="px-4 py-3 text-sm text-center text-red-400 font-bold">{s.failed.toLocaleString()}</td>
-                                <td className="px-4 py-3 text-sm text-center text-emerald-400 font-bold">{s.passRate.toFixed(1)}%</td>
+                                <td className="px-4 py-3 text-sm text-center text-white/70 font-semibold">{((s.totalStudents || 0)).toLocaleString()}</td>
+                                <td className="px-4 py-3 text-sm text-center text-emerald-400 font-bold">{((s.passed || 0)).toLocaleString()}</td>
+                                <td className="px-4 py-3 text-sm text-center text-red-400 font-bold">{((s.failed || 0)).toLocaleString()}</td>
+                                <td className="px-4 py-3 text-sm text-center text-emerald-400 font-bold">{((s.passRate || 0)).toFixed(1)}%</td>
                                 <td className="px-4 py-3 text-sm text-center text-yellow-400 font-bold">
-                                  {s.average > 0 ? s.average.toFixed(2) : "N/A"}
+                                  {s.average && s.average > 0 ? Number(s.average).toFixed(2) : "N/A"}
                                 </td>
                               </tr>
                             );
@@ -3073,6 +3485,45 @@ export default function AnalyticsDashboard() {
         </div>
       )}
     </div>
+    <style jsx global>{`
+      /* Print fixes: keep charts and labels visible on white background */
+      @media print {
+        * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+          color-adjust: exact !important;
+        }
+        body {
+          background: #ffffff !important;
+          color: #111827 !important;
+        }
+        #subject-comparison-chart-container,
+        #subject-comparison-chart {
+          background: #ffffff !important;
+        }
+        #subject-comparison-chart-container svg text,
+        #subject-comparison-chart svg text,
+        #subject-comparison-chart-container .recharts-label,
+        #subject-comparison-chart .recharts-label,
+        #subject-comparison-chart-container .recharts-cartesian-axis-tick text,
+        #subject-comparison-chart .recharts-cartesian-axis-tick text,
+        #subject-comparison-chart-container .recharts-legend-item-text,
+        #subject-comparison-chart .recharts-legend-item-text {
+          fill: #111827 !important;
+          color: #111827 !important;
+        }
+        #subject-comparison-chart-container .recharts-tooltip-wrapper,
+        #subject-comparison-chart .recharts-tooltip-wrapper {
+          color: #111827 !important;
+        }
+        #subject-comparison-chart-container svg rect,
+        #subject-comparison-chart svg rect {
+          stroke: #0f172a !important;
+          stroke-width: 0.5 !important;
+        }
+      }
+    `}</style>
+    </>
   );
 }
 
@@ -3157,7 +3608,7 @@ function TopStudentsTable({ data, batchFilter = "all", branchFilter = "all", sea
       branch: branch || null,
       _batchRaw: batch,
       _branchRaw: branch,
-      name: "N/A" // Name not available in API response
+      name: student.name || student.Name || student.fullName || student.studentName || "N/A"
     };
   });
 
@@ -3308,6 +3759,7 @@ function TopStudentsTable({ data, batchFilter = "all", branchFilter = "all", sea
             <tr className="border-b border-white/20 bg-white/5">
             <th className="text-left py-4 px-6 font-bold">Rank</th>
             <th className="text-left py-4 px-6 font-bold">Reg No</th>
+            <th className="text-left py-4 px-6 font-bold">Name</th>
             <th className="text-left py-4 px-6 font-bold">Branch</th>
             <th className="text-left py-4 px-6 font-bold">Batch</th>
               <th className="text-left py-4 px-6 font-bold">Average Grade</th>
@@ -3317,7 +3769,7 @@ function TopStudentsTable({ data, batchFilter = "all", branchFilter = "all", sea
         <tbody>
             {limitedData.length === 0 ? (
               <tr>
-                <td colSpan={6} className="text-center py-8 text-white/50">
+                <td colSpan={7} className="text-center py-8 text-white/50">
                   No students found matching your criteria
                 </td>
               </tr>
@@ -3329,6 +3781,7 @@ function TopStudentsTable({ data, batchFilter = "all", branchFilter = "all", sea
               >
                 <td className="py-4 px-6 font-bold text-blue-300">{index + 1}</td>
                   <td className="py-4 px-6 font-mono text-white/90">{student.regNo || "N/A"}</td>
+              <td className="py-4 px-6 text-white/90">{student.name || "N/A"}</td>
                 <td className="py-4 px-6">{student.branch || "N/A"}</td>
                 <td className="py-4 px-6">{student.batch || "N/A"}</td>
                 <td className="py-4 px-6 font-bold text-emerald-300">

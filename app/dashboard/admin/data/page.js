@@ -23,6 +23,13 @@ export default function AdminCBCSIndex() {
   const [studentFilter, setStudentFilter] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50);
+
+  // OTP modal state for destructive delete
+  const [showOtpModal, setShowOtpModal] = useState(false);
+  const [otpEmail, setOtpEmail] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [otpStep, setOtpStep] = useState("idle"); // idle | sent | verifying
+  const [otpMessage, setOtpMessage] = useState("");
   
   // Edit and delete states
   const [selectedRecords, setSelectedRecords] = useState([]);
@@ -70,29 +77,68 @@ export default function AdminCBCSIndex() {
   };
 
   // Clear all registration data
-  const clearAllRegistrationData = async () => {
-    if (!confirm('Are you sure you want to clear ALL registration data? This action cannot be undone.')) {
+  const clearAllRegistrationData = () => {
+    setOtpEmail("");
+    setOtpCode("");
+    setOtpMessage("");
+    setOtpStep("idle");
+    setShowOtpModal(true);
+  };
+
+  const requestOtp = async () => {
+    // Email is taken from admin session on backend; no need to input here
+    setOtpStep("idle");
+    setLoading(true);
+    setOtpMessage("");
+    try {
+      const res = await fetch("/api/registration-data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "request-otp" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setOtpMessage(data.error || "Failed to send OTP");
+      } else {
+        setOtpMessage("OTP sent to your email. It is valid for 10 minutes.");
+        setOtpStep("sent");
+      }
+    } catch (err) {
+      setOtpMessage(err.message || "Failed to send OTP");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const verifyOtpAndDelete = async () => {
+      if (!otpCode) {
+        setOtpMessage("Please enter OTP");
       return;
     }
-    
+    setOtpStep("verifying");
     setLoading(true);
+    setOtpMessage("");
     try {
-      const response = await fetch('/api/registration-data', {
-        method: 'DELETE'
+      const res = await fetch("/api/registration-data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "verify-otp", otp: otpCode }),
       });
-      const result = await response.json();
-      
-      if (response.ok) {
-        setUploadMessage(`Successfully cleared ${result.deletedCount} registration records`);
+      const data = await res.json();
+      if (!res.ok) {
+        setOtpMessage(data.error || "OTP verification failed");
+        setOtpStep("sent");
+      } else {
+        setUploadMessage(`Successfully cleared ${data.deletedCount} registration records`);
+        setShowOtpModal(false);
         setRegistrationData([]);
         setFilteredData([]);
         setDataStats(null);
         setSelectedRecords([]);
-      } else {
-        setUploadMessage(`Error: ${result.error}`);
       }
-    } catch (error) {
-      setUploadMessage(`Error: ${error.message}`);
+    } catch (err) {
+      setOtpMessage(err.message || "Failed to verify OTP");
+      setOtpStep("sent");
     } finally {
       setLoading(false);
     }
@@ -150,7 +196,7 @@ export default function AdminCBCSIndex() {
   const handleUpdateRecord = async (e) => {
     e.preventDefault();
     if (!editingRecord) return;
-
+    
     setLoading(true);
     setUploadMessage("");
 
@@ -247,7 +293,14 @@ export default function AdminCBCSIndex() {
         filtered = filtered.filter(item => {
           const regNo = String(item.Reg_No || '').toLowerCase();
           const name = String(item.Name || '').toLowerCase();
-          return regNo.includes(searchTerm) || name.includes(searchTerm);
+          const code = String(item.Subject_Code || '').toLowerCase();
+          const subject = String(item.Subject_Name || '').toLowerCase();
+          return (
+            regNo.includes(searchTerm) ||
+            name.includes(searchTerm) ||
+            code.includes(searchTerm) ||
+            subject.includes(searchTerm)
+          );
         });
       }
       
@@ -645,12 +698,12 @@ export default function AdminCBCSIndex() {
                 </div>
                 
                 <div>
-                  <label className="block text-xs sm:text-sm font-bold text-[#1A1F29] mb-2">Search:</label>
+                  <label className="block text-xs sm:text-sm font-bold text-[#1A1F29] mb-2">Search (Reg/Name/Subject Code/Subject):</label>
                   <input
                     type="text"
                     value={studentFilter}
                     onChange={(e) => setStudentFilter(e.target.value)}
-                    placeholder="Reg No or Name..."
+                    placeholder="Reg No, Name, Subject Code, or Subject..."
                     className="w-full px-3 py-2 border-2 rounded-lg focus:ring-4 focus:ring-[#05A3C7]/20 outline-none text-xs sm:text-sm min-h-[44px]"
                     style={{ borderColor: "rgba(5,163,199,0.3)" }}
                   />
@@ -668,14 +721,14 @@ export default function AdminCBCSIndex() {
                       🗑️ Delete Selected ({selectedRecords.length})
                     </button>
                   )}
-                  <button
-                    onClick={clearAllRegistrationData}
-                    disabled={loading}
+                    <button
+                      onClick={clearAllRegistrationData}
+                      disabled={loading}
                     className="w-full px-2 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 font-bold transition-all active:scale-95 text-xs min-h-[44px]"
-                    title="Clear All"
-                  >
+                      title="Clear All"
+                    >
                     🗑️ Clear All
-                  </button>
+                    </button>
                 </div>
               </div>
 
@@ -939,6 +992,71 @@ export default function AdminCBCSIndex() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+        
+        {/* OTP Modal for Clear All */}
+        {showOtpModal && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl sm:rounded-2xl p-5 sm:p-6 max-w-md w-full">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg sm:text-xl font-black text-[#1A1F29] flex items-center gap-2">
+                  🔐 Verify to Clear All
+                </h3>
+                <button
+                  onClick={() => setShowOtpModal(false)}
+                  className="text-[#5A6C7D] hover:text-[#1A1F29] text-2xl font-bold w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <div className="text-sm text-[#1A1F29] bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  OTP will be sent to your admin email on file. No need to enter email here.
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-[#1A1F29] mb-1">OTP</label>
+                  <input
+                    type="text"
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    placeholder="Enter 6-digit OTP"
+                    className="w-full px-3 py-2 border-2 rounded-lg focus:ring-4 focus:ring-[#05A3C7]/20 outline-none text-sm"
+                    style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                    disabled={loading || otpStep === "idle"}
+                  />
+                </div>
+
+                {otpMessage && (
+                  <div className={`text-sm rounded-lg p-3 ${otpMessage.toLowerCase().includes('error') || otpMessage.toLowerCase().includes('fail') ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
+                    {otpMessage}
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={requestOtp}
+                    disabled={loading}
+                    className="flex-1 px-4 py-2 rounded-lg text-white font-bold text-sm min-h-[44px] hover:shadow-md transition-all disabled:opacity-50"
+                    style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+                  >
+                    {loading && otpStep !== "verifying" ? "Sending..." : "Send OTP"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={verifyOtpAndDelete}
+                    disabled={loading || otpStep === "idle"}
+                    className="flex-1 px-4 py-2 rounded-lg text-white font-bold text-sm min-h-[44px] hover:shadow-md transition-all disabled:opacity-50"
+                    style={{ background: "linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)" }}
+                  >
+                    {loading && otpStep === "verifying" ? "Verifying..." : "Verify & Delete"}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}

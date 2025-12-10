@@ -29,11 +29,10 @@ export default function UserBasketTrack() {
           if (userData.email && userData.email.includes('@cutm.ac.in')) {
             const regNumber = userData.email.split('@')[0];
             setRegistration(regNumber);
-            console.log('Auto-filled registration number:', regNumber);
           }
         }
       } catch (error) {
-        console.error('Error fetching user data:', error);
+        // Error fetching user data
       }
     };
 
@@ -58,8 +57,6 @@ export default function UserBasketTrack() {
         semesters: [],
         basket: ""
       };
-      
-      console.log("User auto basket request:", requestBody);
       
       const res = await fetch("/api/cbcs/track", {
         method: "POST",
@@ -151,16 +148,6 @@ export default function UserBasketTrack() {
     const isLateralEntry = studentData?.is_lateral_entry || false;
     const totalRequired = isLateralEntry ? 120 : 160;
     const percentage = Math.min(100, Math.round((totalEarned / totalRequired) * 100));
-    
-    // Debug logging - ALWAYS log to help diagnose issues
-    console.log('🔍 User Panel Overall Stats Calculation:', {
-      totalBaskets,
-      basketsCompleted,
-      allBasketsCompleted: basketsCompleted === totalBaskets,
-      basketProgressKeys: Object.keys(basketProgress || {}),
-      basketStatuses,
-      willShowTotalAs: basketsCompleted === totalBaskets && totalBaskets > 0 ? 'Completed' : 'Not Completed'
-    });
     
     return { totalBaskets, basketsCompleted, totalEarned, totalFailed, totalCredits, totalRequired, percentage, isLateralEntry };
   }, [basketProgress, studentData]);
@@ -519,6 +506,29 @@ export default function UserBasketTrack() {
                   `;
                 }).join('');
                 
+                // Add empty rows with proper cell structure to maintain table format
+                // Minimum 10 rows total (including Total row), so add empty rows if needed
+                const minRows = 10; // Including Total row
+                const currentSubjectCount = subjects.length;
+                const emptyRowsNeeded = Math.max(0, minRows - currentSubjectCount - 1); // -1 for Total row
+                
+                const emptyRows = Array(emptyRowsNeeded).fill(null).map(() => {
+                  const slNoCell = hasSlNo ? `<td style="text-align: center; padding: 5px;"></td>` : '';
+                  return `
+                    <tr>
+                      ${slNoCell}
+                      <td style="padding: 5px;"></td>
+                      <td style="padding: 5px;"></td>
+                      <td style="text-align: center; padding: 5px;"></td>
+                      <td style="text-align: center; padding: 5px;"></td>
+                      <td style="text-align: center; padding: 5px;"></td>
+                      <td style="text-align: center; padding: 5px;"></td>
+                      <td style="text-align: center; padding: 5px;"></td>
+                      <td style="text-align: center; padding: 5px;"></td>
+                    </tr>
+                  `;
+                }).join('');
+                
                 const headerColspan = hasSlNo ? 9 : 8;
                 const slNoHeader = hasSlNo ? '<td style="padding: 5px;">Sl. No</td>' : '';
                 const totalColspan = hasSlNo ? 3 : 2;
@@ -547,6 +557,9 @@ export default function UserBasketTrack() {
                     
                     <!-- Subject Rows -->
                     ${subjectRows || '<tr><td colspan="' + headerColspan + '" style="padding: 5px; text-align: center;">No subjects</td></tr>'}
+                    
+                    <!-- Empty Rows with proper cell structure -->
+                    ${emptyRows}
                     
                     <!-- Semester Total Row -->
                     <tr style="font-weight: bold; background-color: #E6F3FF;">
@@ -579,32 +592,62 @@ export default function UserBasketTrack() {
               const sem1Colspan = 4; // Sem 1 is odd (no Sl. No) = 8 cols, so 4 in outer table
               const sem2Colspan = 5; // Sem 2 is even (has Sl. No) = 9 cols, so 5 in outer table
               
-              // Add "1st Year Total Credits" row inside Sem 2 table (in Subject column)
-              const sem2TableWithYearTotal = sem2Table.html + `
-                    <!-- 1st Year Total Credits Row (inside Sem 2 table, Subject column) -->
-                    <tr style="font-weight: bold; background-color: #E6F3FF;">
-                      <td style="text-align: center; padding: 5px;"></td>
-                      <td style="text-align: center; padding: 5px;"></td>
-                      <td style="text-align: left; padding: 5px; font-weight: bold;">1st Year Total Credits</td>
-                      <td style="text-align: center; padding: 5px;">${firstYearTotals.basket1 || 0}</td>
-                      <td style="text-align: center; padding: 5px;">${firstYearTotals.basket2 || 0}</td>
-                      <td style="text-align: center; padding: 5px;">${firstYearTotals.basket3 || 0}</td>
-                      <td style="text-align: center; padding: 5px;">${firstYearTotals.basket4 || 0}</td>
-                      <td style="text-align: center; padding: 5px;">${firstYearTotals.basket5 || 0}</td>
-                      <td style="text-align: center; padding: 5px;">${firstYearTotals.grandTotal || 0}</td>
-                    </tr>
-                  `;
+              // Remove total row from individual semester tables (last Total row)
+              const sem1TableWithoutTotal = sem1Table.html.replace(/<tr style="font-weight: bold; background-color: #E6F3FF;">[\s\S]*?Total[\s\S]*?<\/tr>\s*$/, '');
+              const sem2TableWithoutTotal = sem2Table.html.replace(/<tr style="font-weight: bold; background-color: #E6F3FF;">[\s\S]*?Total[\s\S]*?<\/tr>\s*$/, '');
               
               result += `
                 <tr>
                   <td colspan="${sem1Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
                     <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
-                      ${sem1Table.html}
+                      ${sem1TableWithoutTotal}
                     </table>
                   </td>
                   <td colspan="${sem2Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
                     <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
-                      ${sem2TableWithYearTotal}
+                      ${sem2TableWithoutTotal}
+                    </table>
+                  </td>
+                </tr>
+              `;
+              
+              // Add both semester totals in one row (side-by-side) - no empty space
+              result += `
+                <tr>
+                  <td colspan="${sem1Colspan}" style="padding: 0; border: 1px solid #000;">
+                    <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+                      <tr style="font-weight: bold; background-color: #E6F3FF;">
+                        <td colspan="2" style="text-align: right; padding: 5px;">Total</td>
+                        <td style="text-align: center; padding: 5px;">${sem1Table.totals.basket1}</td>
+                        <td style="text-align: center; padding: 5px;">${sem1Table.totals.basket2}</td>
+                        <td style="text-align: center; padding: 5px;">${sem1Table.totals.basket3}</td>
+                        <td style="text-align: center; padding: 5px;">${sem1Table.totals.basket4}</td>
+                        <td style="text-align: center; padding: 5px;">${sem1Table.totals.basket5}</td>
+                        <td style="text-align: center; padding: 5px;">${sem1Table.totals.grandTotal}</td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td colspan="${sem2Colspan}" style="padding: 0; border: 1px solid #000;">
+                    <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+                      <tr style="font-weight: bold; background-color: #E6F3FF;">
+                        <td colspan="3" style="text-align: right; padding: 5px;">Total</td>
+                        <td style="text-align: center; padding: 5px;">${sem2Table.totals.basket1}</td>
+                        <td style="text-align: center; padding: 5px;">${sem2Table.totals.basket2}</td>
+                        <td style="text-align: center; padding: 5px;">${sem2Table.totals.basket3}</td>
+                        <td style="text-align: center; padding: 5px;">${sem2Table.totals.basket4}</td>
+                        <td style="text-align: center; padding: 5px;">${sem2Table.totals.basket5}</td>
+                        <td style="text-align: center; padding: 5px;">${sem2Table.totals.grandTotal}</td>
+                      </tr>
+                      <!-- 1st Year Total Credits Row (inside Sem 2 table, Subject column) -->
+                      <tr style="font-weight: bold; background-color: #E6F3FF;">
+                        <td colspan="3" style="text-align: left; padding: 5px; font-weight: bold;">1st Year Total Credits</td>
+                        <td style="text-align: center; padding: 5px;">${firstYearTotals.basket1 || 0}</td>
+                        <td style="text-align: center; padding: 5px;">${firstYearTotals.basket2 || 0}</td>
+                        <td style="text-align: center; padding: 5px;">${firstYearTotals.basket3 || 0}</td>
+                        <td style="text-align: center; padding: 5px;">${firstYearTotals.basket4 || 0}</td>
+                        <td style="text-align: center; padding: 5px;">${firstYearTotals.basket5 || 0}</td>
+                        <td style="text-align: center; padding: 5px;">${firstYearTotals.grandTotal || 0}</td>
+                      </tr>
                     </table>
                   </td>
                 </tr>
@@ -622,32 +665,62 @@ export default function UserBasketTrack() {
               const sem3Colspan = 4; // Sem 3 is odd (no Sl. No) = 8 cols, so 4 in outer table
               const sem4Colspan = 5; // Sem 4 is even (has Sl. No) = 9 cols, so 5 in outer table
               
-              // Add "1st & 2nd Year Total Credits" row inside Sem 4 table (in Subject column)
-              const sem4TableWithYearTotal = sem4Table.html + `
-                    <!-- 1st & 2nd Year Total Credits Row (inside Sem 4 table, Subject column) -->
-                    <tr style="font-weight: bold; background-color: #E6F3FF;">
-                      <td style="text-align: center; padding: 5px;"></td>
-                      <td style="text-align: center; padding: 5px;"></td>
-                      <td style="text-align: left; padding: 5px; font-weight: bold;">1st & 2nd Year Total Credits</td>
-                      <td style="text-align: center; padding: 5px;">${secondYearTotals.basket1 || 0}</td>
-                      <td style="text-align: center; padding: 5px;">${secondYearTotals.basket2 || 0}</td>
-                      <td style="text-align: center; padding: 5px;">${secondYearTotals.basket3 || 0}</td>
-                      <td style="text-align: center; padding: 5px;">${secondYearTotals.basket4 || 0}</td>
-                      <td style="text-align: center; padding: 5px;">${secondYearTotals.basket5 || 0}</td>
-                      <td style="text-align: center; padding: 5px;">${secondYearTotals.grandTotal || 0}</td>
-                    </tr>
-                  `;
+              // Remove total row from individual semester tables (last Total row)
+              const sem3TableWithoutTotal = sem3Table.html.replace(/<tr style="font-weight: bold; background-color: #E6F3FF;">[\s\S]*?Total[\s\S]*?<\/tr>\s*$/, '');
+              const sem4TableWithoutTotal = sem4Table.html.replace(/<tr style="font-weight: bold; background-color: #E6F3FF;">[\s\S]*?Total[\s\S]*?<\/tr>\s*$/, '');
               
               result += `
                 <tr>
                   <td colspan="${sem3Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
                     <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
-                      ${sem3Table.html}
+                      ${sem3TableWithoutTotal}
                     </table>
                   </td>
                   <td colspan="${sem4Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
                     <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
-                      ${sem4TableWithYearTotal}
+                      ${sem4TableWithoutTotal}
+                    </table>
+                  </td>
+                </tr>
+              `;
+              
+              // Add both semester totals in one row (side-by-side) - no empty space
+              result += `
+                <tr>
+                  <td colspan="${sem3Colspan}" style="padding: 0; border: 1px solid #000;">
+                    <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+                      <tr style="font-weight: bold; background-color: #E6F3FF;">
+                        <td colspan="2" style="text-align: right; padding: 5px;">Total</td>
+                        <td style="text-align: center; padding: 5px;">${sem3Table.totals.basket1}</td>
+                        <td style="text-align: center; padding: 5px;">${sem3Table.totals.basket2}</td>
+                        <td style="text-align: center; padding: 5px;">${sem3Table.totals.basket3}</td>
+                        <td style="text-align: center; padding: 5px;">${sem3Table.totals.basket4}</td>
+                        <td style="text-align: center; padding: 5px;">${sem3Table.totals.basket5}</td>
+                        <td style="text-align: center; padding: 5px;">${sem3Table.totals.grandTotal}</td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td colspan="${sem4Colspan}" style="padding: 0; border: 1px solid #000;">
+                    <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+                      <tr style="font-weight: bold; background-color: #E6F3FF;">
+                        <td colspan="3" style="text-align: right; padding: 5px;">Total</td>
+                        <td style="text-align: center; padding: 5px;">${sem4Table.totals.basket1}</td>
+                        <td style="text-align: center; padding: 5px;">${sem4Table.totals.basket2}</td>
+                        <td style="text-align: center; padding: 5px;">${sem4Table.totals.basket3}</td>
+                        <td style="text-align: center; padding: 5px;">${sem4Table.totals.basket4}</td>
+                        <td style="text-align: center; padding: 5px;">${sem4Table.totals.basket5}</td>
+                        <td style="text-align: center; padding: 5px;">${sem4Table.totals.grandTotal}</td>
+                      </tr>
+                      <!-- 1st & 2nd Year Total Credits Row (inside Sem 4 table, Subject column) -->
+                      <tr style="font-weight: bold; background-color: #E6F3FF;">
+                        <td colspan="3" style="text-align: left; padding: 5px; font-weight: bold;">1st & 2nd Year Total Credits</td>
+                        <td style="text-align: center; padding: 5px;">${secondYearTotals.basket1 || 0}</td>
+                        <td style="text-align: center; padding: 5px;">${secondYearTotals.basket2 || 0}</td>
+                        <td style="text-align: center; padding: 5px;">${secondYearTotals.basket3 || 0}</td>
+                        <td style="text-align: center; padding: 5px;">${secondYearTotals.basket4 || 0}</td>
+                        <td style="text-align: center; padding: 5px;">${secondYearTotals.basket5 || 0}</td>
+                        <td style="text-align: center; padding: 5px;">${secondYearTotals.grandTotal || 0}</td>
+                      </tr>
                     </table>
                   </td>
                 </tr>
@@ -666,41 +739,9 @@ export default function UserBasketTrack() {
                 const sem1Colspan = 4;
                 const sem2Colspan = 5;
                 
-                // Add year totals inside even semester tables (Sem 6, Sem 8)
-                let sem2TableWithYearTotal = sem2Table.html;
-                if (sem2Num === 6) {
-                  // Add "1st, 2nd & 3rd year Total Credits" inside Sem 6 table (in Subject column)
-                  sem2TableWithYearTotal = sem2Table.html + `
-                        <!-- 1st, 2nd & 3rd year Total Credits Row (inside Sem 6 table, Subject column) -->
-                        <tr style="font-weight: bold; background-color: #E6F3FF;">
-                          <td style="text-align: center; padding: 5px;"></td>
-                          <td style="text-align: center; padding: 5px;"></td>
-                          <td style="text-align: left; padding: 5px; font-weight: bold;">1st, 2nd & 3rd year Total Credits</td>
-                          <td style="text-align: center; padding: 5px;">${thirdYearTotals.basket1 || 0}</td>
-                          <td style="text-align: center; padding: 5px;">${thirdYearTotals.basket2 || 0}</td>
-                          <td style="text-align: center; padding: 5px;">${thirdYearTotals.basket3 || 0}</td>
-                          <td style="text-align: center; padding: 5px;">${thirdYearTotals.basket4 || 0}</td>
-                          <td style="text-align: center; padding: 5px;">${thirdYearTotals.basket5 || 0}</td>
-                          <td style="text-align: center; padding: 5px;">${thirdYearTotals.grandTotal || 0}</td>
-                        </tr>
-                      `;
-                } else if (sem2Num === 8) {
-                  // Add "1st, 2nd, 3rd & 4th year Total" inside Sem 8 table (in Subject column)
-                  sem2TableWithYearTotal = sem2Table.html + `
-                        <!-- 1st, 2nd, 3rd & 4th year Total Row (inside Sem 8 table, Subject column) -->
-                        <tr style="font-weight: bold; background-color: #E6F3FF;">
-                          <td style="text-align: center; padding: 5px;"></td>
-                          <td style="text-align: center; padding: 5px;"></td>
-                          <td style="text-align: left; padding: 5px; font-weight: bold;">1st, 2nd, 3rd & 4th year Total</td>
-                          <td style="text-align: center; padding: 5px;">${fourthYearTotals.basket1 || 0}</td>
-                          <td style="text-align: center; padding: 5px;">${fourthYearTotals.basket2 || 0}</td>
-                          <td style="text-align: center; padding: 5px;">${fourthYearTotals.basket3 || 0}</td>
-                          <td style="text-align: center; padding: 5px;">${fourthYearTotals.basket4 || 0}</td>
-                          <td style="text-align: center; padding: 5px;">${fourthYearTotals.basket5 || 0}</td>
-                          <td style="text-align: center; padding: 5px;">${fourthYearTotals.grandTotal || 0}</td>
-                        </tr>
-                      `;
-                }
+                // Remove total row from individual semester tables (last Total row)
+                const sem1TableWithoutTotal = sem1Table.html.replace(/<tr style="font-weight: bold; background-color: #E6F3FF;">[\s\S]*?Total[\s\S]*?<\/tr>\s*$/, '');
+                const sem2TableWithoutTotal = sem2Table.html.replace(/<tr style="font-weight: bold; background-color: #E6F3FF;">[\s\S]*?Total[\s\S]*?<\/tr>\s*$/, '');
                 
                 result += `<tr><td colspan="9" style="height: 10px; border: 1px solid #000;"></td></tr>`;
                 
@@ -708,12 +749,68 @@ export default function UserBasketTrack() {
                   <tr>
                     <td colspan="${sem1Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
                       <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
-                        ${sem1Table.html}
+                        ${sem1TableWithoutTotal}
                       </table>
                     </td>
                     <td colspan="${sem2Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
                       <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
-                        ${sem2TableWithYearTotal}
+                        ${sem2TableWithoutTotal}
+                      </table>
+                    </td>
+                  </tr>
+                `;
+                
+                // Add both semester totals in one row (side-by-side) - no empty space
+                result += `
+                  <tr>
+                    <td colspan="${sem1Colspan}" style="padding: 0; border: 1px solid #000;">
+                      <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+                        <tr style="font-weight: bold; background-color: #E6F3FF;">
+                          <td colspan="2" style="text-align: right; padding: 5px;">Total</td>
+                          <td style="text-align: center; padding: 5px;">${sem1Table.totals.basket1}</td>
+                          <td style="text-align: center; padding: 5px;">${sem1Table.totals.basket2}</td>
+                          <td style="text-align: center; padding: 5px;">${sem1Table.totals.basket3}</td>
+                          <td style="text-align: center; padding: 5px;">${sem1Table.totals.basket4}</td>
+                          <td style="text-align: center; padding: 5px;">${sem1Table.totals.basket5}</td>
+                          <td style="text-align: center; padding: 5px;">${sem1Table.totals.grandTotal}</td>
+                        </tr>
+                      </table>
+                    </td>
+                    <td colspan="${sem2Colspan}" style="padding: 0; border: 1px solid #000;">
+                      <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+                        <tr style="font-weight: bold; background-color: #E6F3FF;">
+                          <td colspan="3" style="text-align: right; padding: 5px;">Total</td>
+                          <td style="text-align: center; padding: 5px;">${sem2Table.totals.basket1}</td>
+                          <td style="text-align: center; padding: 5px;">${sem2Table.totals.basket2}</td>
+                          <td style="text-align: center; padding: 5px;">${sem2Table.totals.basket3}</td>
+                          <td style="text-align: center; padding: 5px;">${sem2Table.totals.basket4}</td>
+                          <td style="text-align: center; padding: 5px;">${sem2Table.totals.basket5}</td>
+                          <td style="text-align: center; padding: 5px;">${sem2Table.totals.grandTotal}</td>
+                        </tr>
+                        ${sem1Num === 5 && sem2Num === 6 ? `
+                        <!-- 1st, 2nd & 3rd year Total Credits Row (inside Sem 6 table, Subject column) -->
+                        <tr style="font-weight: bold; background-color: #E6F3FF;">
+                          <td colspan="3" style="text-align: left; padding: 5px; font-weight: bold;">1st, 2nd & 3rd year Total Credits</td>
+                          <td style="text-align: center; padding: 5px;">${thirdYearTotals.basket1 || 0}</td>
+                          <td style="text-align: center; padding: 5px;">${thirdYearTotals.basket2 || 0}</td>
+                          <td style="text-align: center; padding: 5px;">${thirdYearTotals.basket3 || 0}</td>
+                          <td style="text-align: center; padding: 5px;">${thirdYearTotals.basket4 || 0}</td>
+                          <td style="text-align: center; padding: 5px;">${thirdYearTotals.basket5 || 0}</td>
+                          <td style="text-align: center; padding: 5px;">${thirdYearTotals.grandTotal || 0}</td>
+                        </tr>
+                        ` : ''}
+                        ${sem1Num === 7 && sem2Num === 8 ? `
+                        <!-- 1st, 2nd, 3rd & 4th year Total Row (inside Sem 8 table, Subject column) -->
+                        <tr style="font-weight: bold; background-color: #E6F3FF;">
+                          <td colspan="3" style="text-align: left; padding: 5px; font-weight: bold;">1st, 2nd, 3rd & 4th year Total</td>
+                          <td style="text-align: center; padding: 5px;">${fourthYearTotals.basket1 || 0}</td>
+                          <td style="text-align: center; padding: 5px;">${fourthYearTotals.basket2 || 0}</td>
+                          <td style="text-align: center; padding: 5px;">${fourthYearTotals.basket3 || 0}</td>
+                          <td style="text-align: center; padding: 5px;">${fourthYearTotals.basket4 || 0}</td>
+                          <td style="text-align: center; padding: 5px;">${fourthYearTotals.basket5 || 0}</td>
+                          <td style="text-align: center; padding: 5px;">${fourthYearTotals.grandTotal || 0}</td>
+                        </tr>
+                        ` : ''}
                       </table>
                     </td>
                   </tr>
@@ -737,9 +834,156 @@ export default function UserBasketTrack() {
   };
 
   return (
+    <>
+      {/* Print Styles */}
+      <style jsx global>{`
+        @media print {
+          body * {
+            visibility: hidden;
+          }
+          .print-area, .print-area * {
+            visibility: visible;
+          }
+          .print-area {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            transform: none;
+            transform-origin: top left;
+            background: white;
+            box-shadow: none;
+            margin: 0;
+            padding: 15mm 10mm 10mm 10mm;
+          }
+          .no-print {
+            display: none !important;
+          }
+          @page {
+            size: A4;
+            margin: 15mm 10mm 10mm 10mm;
+          }
+          /* Styling for print - Bigger and centered */
+          .print-area {
+            text-align: center !important;
+            max-width: 100% !important;
+            margin: 0 auto !important;
+          }
+          .print-area h1 { 
+            font-size: 24px !important; 
+            margin-bottom: 12px !important; 
+            margin-top: 0 !important;
+            text-align: center !important;
+            font-weight: bold !important;
+          }
+          .print-area h3 { 
+            font-size: 16px !important; 
+            margin-bottom: 8px !important; 
+            text-align: center !important;
+          }
+          .print-area h4 { 
+            font-size: 14px !important; 
+            margin-bottom: 6px !important; 
+            text-align: center !important;
+          }
+          .print-area table { 
+            font-size: 11px !important; 
+            margin: 0 auto 10px auto !important; 
+            border-collapse: collapse !important;
+            width: 95% !important;
+            text-align: center !important;
+          }
+          .print-area th, .print-area td { 
+            padding: 6px 8px !important; 
+            border: 1px solid #000 !important;
+            text-align: center !important;
+          }
+          .print-area th {
+            font-weight: bold !important;
+            background-color: #f0f0f0 !important;
+          }
+          .print-area .mb-6 { 
+            margin-bottom: 12px !important; 
+          }
+          .print-area .mb-4 { 
+            margin-bottom: 10px !important; 
+          }
+          .print-area .p-6 { 
+            padding: 15px !important; 
+          }
+          .print-area .px-6 { 
+            padding-left: 15px !important; 
+            padding-right: 15px !important; 
+          }
+          .print-area .py-4 { 
+            padding-top: 10px !important; 
+            padding-bottom: 10px !important; 
+          }
+          .print-area .py-3 { 
+            padding-top: 8px !important; 
+            padding-bottom: 8px !important; 
+          }
+          .print-area .text-3xl { 
+            font-size: 22px !important; 
+          }
+          .print-area .text-lg { 
+            font-size: 14px !important; 
+          }
+          .print-area .text-md { 
+            font-size: 13px !important; 
+          }
+          .print-area .text-sm { 
+            font-size: 11px !important; 
+          }
+          .print-area .text-xs { 
+            font-size: 10px !important; 
+          }
+          /* Center all text content */
+          .print-area > div {
+            text-align: center !important;
+          }
+          .print-area .border {
+            margin: 0 auto !important;
+          }
+          /* Remove backgrounds and shadows for print */
+          .print-area .bg-gray-50,
+          .print-area .bg-white,
+          .print-area .bg-orange-50,
+          .print-area .bg-orange-100 {
+            background: white !important;
+          }
+          .print-area .shadow-sm,
+          .print-area .shadow-lg {
+            box-shadow: none !important;
+          }
+          /* Ensure tables fit on page */
+          .print-area .overflow-x-auto {
+            overflow: visible !important;
+          }
+          /* Hide decorative elements */
+          .print-area svg {
+            display: none !important;
+          }
+          .print-area .cursor-pointer {
+            cursor: default !important;
+          }
+          /* Show print header */
+          .print-area div[style*="display: none"] {
+            display: block !important;
+          }
+          /* Print header styling */
+          .print-area > div > h1:first-of-type {
+            font-size: 18px !important;
+            text-align: center !important;
+            margin-bottom: 10px !important;
+            margin-top: 0 !important;
+          }
+        }
+      `}</style>
+
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-white shadow-sm border-b">
+      <div className="bg-white shadow-sm border-b no-print">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="py-6 text-center">
               <h1 className="text-3xl font-bold text-gray-900">Basket Progress Tracker</h1>
@@ -794,9 +1038,9 @@ export default function UserBasketTrack() {
 
         {/* Basket Results */}
         {!loading && studentData && (
-          <div className="bg-white rounded-lg shadow-sm border">
+          <div className="bg-white rounded-lg shadow-sm border print-area">
             {/* Export Buttons */}
-            <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+            <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 no-print">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-gray-900">Your Basket Progress</h3>
                 <div className="flex flex-wrap gap-2 justify-end">
@@ -823,6 +1067,12 @@ export default function UserBasketTrack() {
                   </button>
                 </div>
               </div>
+            </div>
+
+            {/* Print Header - Only visible when printing */}
+            <div className="text-center mb-4" style={{ display: 'none' }}>
+              <h1 className="text-3xl font-bold text-gray-900">Basket Progress Tracker</h1>
+              <p className="text-sm text-gray-600 mt-1">CBCS Basket Completion Progress</p>
             </div>
 
             <div className="p-6">
@@ -979,15 +1229,6 @@ export default function UserBasketTrack() {
                               // basketsCompleted must equal totalBaskets (5) for status to be "Completed"
                               const allBasketsCompleted = overallStats.basketsCompleted === overallStats.totalBaskets && overallStats.totalBaskets > 0;
                               
-                              // Always log for debugging
-                              console.log('✅ User Panel Total Status Render:', {
-                                basketsCompleted: overallStats.basketsCompleted,
-                                totalBaskets: overallStats.totalBaskets,
-                                allBasketsCompleted,
-                                condition: `${overallStats.basketsCompleted} === ${overallStats.totalBaskets} && ${overallStats.totalBaskets} > 0`,
-                                willShow: allBasketsCompleted ? '✅ Completed' : '❌ Not Completed'
-                              });
-                              
                               return (
                             <span className={`px-2 py-1 rounded text-[10px] sm:text-xs font-medium ${
                                   allBasketsCompleted
@@ -1012,7 +1253,7 @@ export default function UserBasketTrack() {
 
         {/* Basket Details Modal */}
         {showBasketDetails && selectedBasket && (
-          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 no-print">
             <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
               <div className="mt-3">
                 <div className="flex items-center justify-between mb-4">
@@ -1111,5 +1352,6 @@ export default function UserBasketTrack() {
         )}
       </div>
     </div>
+    </>
   );
 }

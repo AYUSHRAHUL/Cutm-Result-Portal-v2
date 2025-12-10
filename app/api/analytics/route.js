@@ -155,11 +155,13 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     if (semesterFilters.length === 0 || semesterFilters.includes("all")) return true;
     if (!record.Sem) return false;
     const sem = String(record.Sem).trim();
+    const semNormalized = sem.replace(/^Sem\s*/i, "").trim();
     
     // Check if record's semester matches any of the selected semesters
     return semesterFilters.some(semester => {
       if (semester === "all") return true;
-      return sem === semester || sem.toLowerCase() === semester.toLowerCase();
+      const filterNormalized = String(semester).replace(/^Sem\s*/i, "").trim();
+      return semNormalized === filterNormalized || sem === semester || sem.toLowerCase() === semester.toLowerCase();
     });
   };
   
@@ -814,7 +816,7 @@ function getPerformanceMetricsByCombination(data, overridesMap, batchFilters, br
     
     // Extract batch
     const batch = regNoStr.length >= 2 ? `20${regNoStr.substring(0, 2)}` : null;
-    if (!batch || !batchFilters.includes(batch)) return;
+    if (!batch || (batchFilters.length > 0 && !batchFilters.includes(batch))) return;
     
     // Extract branch
     let branchName = null;
@@ -836,19 +838,32 @@ function getPerformanceMetricsByCombination(data, overridesMap, batchFilters, br
         }
       }
     }
-    if (!branchName || !branchFilters.includes(branchName)) return;
+    if (!branchName || (branchFilters.length > 0 && !branchFilters.includes(branchName))) return;
     
     // Group by semester
     const recordsBySemester = {};
     records.forEach(record => {
       if (!record.Sem) return;
       const sem = String(record.Sem).trim();
-      if (!semesterFilters.includes(sem)) return;
+      // Normalize semester for comparison (handle "Sem 1", "1", "Sem1", etc.)
+      const semNormalized = sem.replace(/^Sem\s*/i, "").trim();
       
-      if (!recordsBySemester[sem]) {
-        recordsBySemester[sem] = [];
+      // Check if this semester matches any of the filters
+      // If semesterFilters is empty, include all semesters
+      if (semesterFilters.length > 0) {
+        const matchesFilter = semesterFilters.some(filterSem => {
+          const filterNormalized = String(filterSem).replace(/^Sem\s*/i, "").trim();
+          return semNormalized === filterNormalized || sem === filterSem || sem.toLowerCase() === filterSem.toLowerCase();
+        });
+        
+        if (!matchesFilter) return;
       }
-      recordsBySemester[sem].push(record);
+      
+      // Use normalized semester as key for consistency
+      if (!recordsBySemester[semNormalized]) {
+        recordsBySemester[semNormalized] = [];
+      }
+      recordsBySemester[semNormalized].push(record);
     });
     
     // For each semester, check pass/fail

@@ -99,7 +99,7 @@ export default function TeacherBasketProgressTracker() {
 
   // Enhanced UI state
   const [viewMode, setViewMode] = useState('table'); // 'table', 'cards', 'chart'
-  const [sortBy, setSortBy] = useState('name'); // 'name', 'registration', 'credits', 'percentage'
+  const [sortBy, setSortBy] = useState('registration'); // default to registration number sorting
   const [sortOrder, setSortOrder] = useState('asc'); // 'asc', 'desc'
   const [filterStatus, setFilterStatus] = useState('all'); // 'all', 'completed', 'in-progress', 'not-started'
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
@@ -313,6 +313,19 @@ Please check if the department name matches exactly with the available departmen
         const registrationsToSearch = selectedRegistrations.length > 0 
           ? selectedRegistrations 
           : (registration && registration.trim().length >= 6 ? [registration.trim().toUpperCase()] : []);
+          
+        const normalizedDepartment = department && department !== "All" && department !== "Select Department" ? department : "";
+        const normalizedBatch = batch && batch !== "All" && batch !== "Select Batch" ? batch : "";
+        const normalizedSemesters = semesterValues.length > 0 && !semesterValues.includes("All") ? semesterValues : [];
+        const normalizedBasket = basket && basket !== "All" && basket !== "Select Basket" ? basket : "";
+        const isManualRegistrationSearch = selectedRegistrations.length === 0;
+        const buildRequestBody = (reg, ignoreFilters = false) => ({
+          department: ignoreFilters ? "" : normalizedDepartment,
+          batch: ignoreFilters ? "" : normalizedBatch,
+          registration: reg,
+          semesters: normalizedSemesters,
+          basket: normalizedBasket
+        });
         
         if (registrationsToSearch.length === 0) {
           throw new Error("Please select at least one student using checkboxes or enter a valid registration number (minimum 6 characters)");
@@ -329,13 +342,7 @@ Please check if the department name matches exactly with the available departmen
           
           for (const reg of registrationsToSearch) {
             try {
-        const requestBody = {
-          department: department && department !== "All" && department !== "Select Department" ? department : "", 
-          batch: batch && batch !== "All" && batch !== "Select Batch" ? batch : "", 
-                registration: reg, 
-                semesters: semesterValues.length > 0 && !semesterValues.includes("All") ? semesterValues : [], 
-                basket: basket && basket !== "All" && basket !== "Select Basket" ? basket : ""
-              };
+              const requestBody = buildRequestBody(reg, false);
               
               const res = await fetch("/api/cbcs/track", {
                 method: "POST",
@@ -392,13 +399,7 @@ Please check if the department name matches exactly with the available departmen
           playNotificationSound();
         } else {
           // Single registration search (existing logic)
-          const requestBody = {
-            department: department && department !== "All" && department !== "Select Department" ? department : "", 
-            batch: batch && batch !== "All" && batch !== "Select Batch" ? batch : "", 
-            registration: registrationsToSearch[0], 
-          semesters: semesterValues.length > 0 && !semesterValues.includes("All") ? semesterValues : [], 
-          basket: basket && basket !== "All" && basket !== "Select Basket" ? basket : ""
-        };
+          const requestBody = buildRequestBody(registrationsToSearch[0], isManualRegistrationSearch);
         
         console.log("Individual search request:", requestBody);
         
@@ -614,39 +615,62 @@ Please check if the department name matches exactly with the available departmen
     
     // Apply sorting
     students.sort((a, b) => {
-      let aVal, bVal;
+      let aVal;
+      let bVal;
       
       switch (sortBy) {
         case 'name':
-          aVal = a.name || '';
-          bVal = b.name || '';
+          aVal = (a.name || '').toString().toLowerCase().trim();
+          bVal = (b.name || '').toString().toLowerCase().trim();
           break;
         case 'registration':
-          aVal = a.registration || '';
-          bVal = b.registration || '';
+          aVal = (a.registration || '').toString().toLowerCase().trim();
+          bVal = (b.registration || '').toString().toLowerCase().trim();
           break;
         case 'credits':
-          aVal = a.totalCredits || 0;
-          bVal = b.totalCredits || 0;
+          aVal = Number(a.totalCredits) || 0;
+          bVal = Number(b.totalCredits) || 0;
           break;
         case 'percentage':
-          aVal = a.percentage || 0;
-          bVal = b.percentage || 0;
+          aVal = Number(a.percentage) || 0;
+          bVal = Number(b.percentage) || 0;
           break;
         default:
-          aVal = a.name || '';
-          bVal = b.name || '';
+          aVal = (a.name || '').toString().toLowerCase().trim();
+          bVal = (b.name || '').toString().toLowerCase().trim();
       }
       
       if (typeof aVal === 'string') {
-        return sortOrder === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        const comparison = aVal.localeCompare(bVal, undefined, { numeric: true, sensitivity: 'base' });
+        return sortOrder === 'asc' ? comparison : -comparison;
       } else {
         return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
       }
     });
     
     return students;
-  }, [allStudentsData, searchTerm, filterStatus, sortBy, sortOrder]);
+  }, [allStudentsData, searchTerm, filterStatus, sortBy, sortOrder, selectedRegistrations]);
+
+  const sortedBasketSubjects = useMemo(() => {
+    if (!selectedBasket?.subjects) return [];
+    
+    const parseSemesterValue = (semester) => {
+      if (!semester) return Number.MAX_SAFE_INTEGER;
+      const match = semester.toString().match(/\d+/);
+      return match ? parseInt(match[0], 10) : Number.MAX_SAFE_INTEGER;
+    };
+    
+    return [...selectedBasket.subjects].sort((a, b) => {
+      const semA = parseSemesterValue(a.semester);
+      const semB = parseSemesterValue(b.semester);
+      
+      if (semA !== semB) return semA - semB;
+      
+      const nameA = (a.name || '').toString().toLowerCase().trim();
+      const nameB = (b.name || '').toString().toLowerCase().trim();
+      return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
+    });
+  }, [selectedBasket]);
 
   // Auto-refresh functionality
   useEffect(() => {
@@ -3999,8 +4023,8 @@ Please check if the department name matches exactly with the available departmen
                       </tr>
                     </thead>
                     <tbody>
-                      {selectedBasket.subjects && selectedBasket.subjects.length > 0 ? (
-                        selectedBasket.subjects.map((subject, index) => (
+                      {sortedBasketSubjects.length > 0 ? (
+                        sortedBasketSubjects.map((subject, index) => (
                           <tr key={`${subject.code}-${index}`} className="hover:bg-gray-50 transition-colors">
                             <td className="border border-gray-300 px-3 py-2 text-center text-gray-900">{index + 1}</td>
                             <td className="border border-gray-300 px-3 py-2 font-mono text-sm text-gray-900">{subject.code || 'N/A'}</td>

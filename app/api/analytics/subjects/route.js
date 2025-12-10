@@ -134,6 +134,7 @@ export async function GET(req) {
 
     // Get unique subjects from CUTM1 using aggregation for better performance
     // IMPORTANT: This ONLY queries CUTM1, NOT the CBCS collection
+    // Also calculate totalStudents count for each subject
     const subjects = await cutm.aggregate([
       {
         $match: {
@@ -158,7 +159,8 @@ export async function GET(req) {
                 ""
               ]
             }
-          }
+          },
+          totalStudents: { $sum: 1 } // Count records for this subject
         }
       },
       {
@@ -171,12 +173,14 @@ export async function GET(req) {
               then: "$_id",
               else: "$name"
             }
-          }
+          },
+          totalStudents: 1
         }
       },
       {
         $match: {
-          code: { $ne: "" }
+          code: { $ne: "" },
+          totalStudents: { $gt: 0 } // Only include subjects with data
         }
       },
       {
@@ -211,11 +215,13 @@ export async function GET(req) {
           if (!subjectMap.has(code)) {
             subjectMap.set(code, {
               code: code,
-              name: name || code
+              name: name || code,
+              totalStudents: 1
             });
           } else {
             // If name is missing but we have a new record with a name, update it
             const existing = subjectMap.get(code);
+            existing.totalStudents = (existing.totalStudents || 0) + 1;
             if (!existing.name || existing.name === existing.code) {
               if (name && name !== "") {
                 existing.name = name;
@@ -225,8 +231,9 @@ export async function GET(req) {
         }
       });
 
-      // Convert map to array and sort
+      // Convert map to array, filter out zero students, and sort
       formattedSubjects = Array.from(subjectMap.values())
+        .filter(sub => (sub.totalStudents || 0) > 0) // Only include subjects with data
         .sort((a, b) => a.code.localeCompare(b.code));
     }
 

@@ -10,8 +10,10 @@ export default function AdminUsersPage() {
   const [error, setError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [filterRole, setFilterRole] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
   const [editingUser, setEditingUser] = useState(null);
   const [editForm, setEditForm] = useState({ name: "", email: "", role: "user", isBlocked: false });
+  const [isBlocking, setIsBlocking] = useState(false);
 
   // Fetch users
   useEffect(() => {
@@ -40,9 +42,12 @@ export default function AdminUsersPage() {
         user.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         user.email?.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesRole = filterRole === "all" || user.role === filterRole;
-      return matchesSearch && matchesRole;
+      const matchesStatus = filterStatus === "all" || 
+        (filterStatus === "blocked" && user.isBlocked) ||
+        (filterStatus === "active" && !user.isBlocked);
+      return matchesSearch && matchesRole && matchesStatus;
     });
-  }, [users, searchTerm, filterRole]);
+  }, [users, searchTerm, filterRole, filterStatus]);
 
   // Open edit modal
   function openEditModal(user) {
@@ -79,11 +84,14 @@ export default function AdminUsersPage() {
         isBlocked: editForm.isBlocked
       };
 
+      // Convert _id to string if it's an ObjectId
+      const userId = typeof editingUser._id === 'object' ? editingUser._id.toString() : editingUser._id;
+
       const res = await fetch("/api/users", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: editingUser._id,
+          userId: userId,
           updates
         })
       });
@@ -92,6 +100,7 @@ export default function AdminUsersPage() {
       if (!res.ok) throw new Error(data.error || "Failed to update user");
 
       setMessage("User updated successfully");
+      // Refresh users list and close modal
       await fetchUsers();
       setTimeout(() => {
         closeEditModal();
@@ -109,29 +118,64 @@ export default function AdminUsersPage() {
       return;
     }
 
+    const newBlockedStatus = !user.isBlocked;
+    
+    // Optimistic update - update UI immediately
+    setUsers(prevUsers => 
+      prevUsers.map(u => {
+        // Handle both string and ObjectId comparison
+        const uId = typeof u._id === 'object' ? u._id.toString() : String(u._id);
+        const userId = typeof user._id === 'object' ? user._id.toString() : String(user._id);
+        return uId === userId ? { ...u, isBlocked: newBlockedStatus } : u;
+      })
+    );
+
     try {
-      setLoading(true);
       setError("");
       setMessage("");
+      setIsBlocking(true);
+
+      // Convert _id to string if it's an ObjectId
+      const userId = typeof user._id === 'object' ? user._id.toString() : String(user._id);
 
       const res = await fetch("/api/users", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: user._id,
-          updates: { isBlocked: !user.isBlocked }
+          userId: userId,
+          updates: { isBlocked: newBlockedStatus }
         })
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to update user");
+      
+      if (!res.ok) {
+        // Revert optimistic update on error
+        setUsers(prevUsers => 
+          prevUsers.map(u => {
+            const uId = typeof u._id === 'object' ? u._id.toString() : String(u._id);
+            const userId = typeof user._id === 'object' ? user._id.toString() : String(user._id);
+            return uId === userId ? { ...u, isBlocked: user.isBlocked } : u;
+          })
+        );
+        throw new Error(data.error || "Failed to update user");
+      }
 
-      setMessage(`User ${user.isBlocked ? "unblocked" : "blocked"} successfully`);
+      setMessage(`User ${newBlockedStatus ? "blocked" : "unblocked"} successfully`);
+      
+      // Always refresh users list after successful update to ensure UI is in sync
       await fetchUsers();
     } catch (err) {
-      setError(err.message);
+      console.error("Error updating user:", err);
+      setError(err.message || "Failed to update user");
+      // Try to refresh anyway to get actual state
+      try {
+        await fetchUsers();
+      } catch (refreshErr) {
+        console.error("Error refreshing users:", refreshErr);
+      }
     } finally {
-      setLoading(false);
+      setIsBlocking(false);
     }
   }
 
@@ -261,7 +305,7 @@ export default function AdminUsersPage() {
           className="rounded-xl sm:rounded-2xl border-2 bg-white p-4 sm:p-5 mb-4 sm:mb-6 shadow-lg"
           style={{ borderColor: "rgba(5,163,199,0.2)" }}
         >
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
             <div>
               <label className="block text-sm font-bold text-[#1A1F29] mb-2">Search Users</label>
               <input
@@ -285,6 +329,19 @@ export default function AdminUsersPage() {
                 <option value="admin">Admin</option>
                 <option value="teacher">Teacher</option>
                 <option value="user">User</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-[#1A1F29] mb-2">Filter by Status</label>
+              <select
+                className="w-full rounded-xl border-2 bg-white px-3 sm:px-4 py-2.5 sm:py-3 outline-none focus:ring-4 focus:ring-[#05A3C7]/20 text-[#1A1F29] font-medium text-sm sm:text-base min-h-[44px]"
+                style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                value={filterStatus}
+                onChange={e => setFilterStatus(e.target.value)}
+              >
+                <option value="all">All Status</option>
+                <option value="active">Active</option>
+                <option value="blocked">Blocked</option>
               </select>
             </div>
           </div>
@@ -328,72 +385,148 @@ export default function AdminUsersPage() {
 
           {filteredUsers.length === 0 ? (
             <div className="p-8 text-center text-[#5A6C7D]">
-              <p className="text-sm sm:text-base font-medium">No users found</p>
+              <p className="text-sm sm:text-base font-medium">
+                {users.length === 0 
+                  ? "No users found in the system" 
+                  : "No users match your search or filter criteria"}
+              </p>
+              {(searchTerm || filterRole !== "all" || filterStatus !== "all") && (
+                <button
+                  onClick={() => {
+                    setSearchTerm("");
+                    setFilterRole("all");
+                    setFilterStatus("all");
+                  }}
+                  className="mt-3 px-4 py-2 rounded-lg text-sm font-bold text-white"
+                  style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+                >
+                  Clear Filters
+                </button>
+              )}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr style={{ background: "rgba(5,163,199,0.1)" }}>
-                    <th className="px-3 sm:px-4 py-3 text-left font-black text-xs uppercase tracking-wider text-[#1A1F29]">Name</th>
-                    <th className="px-3 sm:px-4 py-3 text-left font-black text-xs uppercase tracking-wider text-[#1A1F29]">Email</th>
-                    <th className="px-3 sm:px-4 py-3 text-left font-black text-xs uppercase tracking-wider text-[#1A1F29]">Role</th>
-                    <th className="px-3 sm:px-4 py-3 text-left font-black text-xs uppercase tracking-wider text-[#1A1F29]">Status</th>
-                    <th className="px-3 sm:px-4 py-3 text-left font-black text-xs uppercase tracking-wider text-[#1A1F29]">Registered</th>
-                    <th className="px-3 sm:px-4 py-3 text-center font-black text-xs uppercase tracking-wider text-[#1A1F29]">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y-2" style={{ borderColor: "rgba(5,163,199,0.1)" }}>
-                  {filteredUsers.map((user) => (
-                    <tr key={user._id} className="hover:bg-[#05A3C7]/5 transition-colors">
-                      <td className="px-3 sm:px-4 py-3 font-bold text-[#1A1F29]">{user.name || "N/A"}</td>
-                      <td className="px-3 sm:px-4 py-3 text-[#5A6C7D]">{user.email}</td>
-                      <td className="px-3 sm:px-4 py-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-bold border ${getRoleBadgeColor(user.role)}`}>
-                          {user.role?.toUpperCase() || "USER"}
-                        </span>
-                      </td>
-                      <td className="px-3 sm:px-4 py-3">
-                        {user.isBlocked ? (
-                          <span className="px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800 border border-red-300">
-                            Blocked
+            <>
+              {/* Mobile Card View */}
+              <div className="block md:hidden divide-y-2" style={{ borderColor: "rgba(5,163,199,0.1)" }}>
+                {filteredUsers.map((user) => (
+                  <div key={user._id} className="p-4 hover:bg-[#05A3C7]/5 transition-colors">
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-bold text-[#1A1F29] text-sm mb-1 truncate">{user.name || "N/A"}</div>
+                        <div className="text-[#5A6C7D] text-xs mb-2 truncate">{user.email}</div>
+                        <div className="flex flex-wrap gap-2 mb-2">
+                          <span className={`px-2 py-1 rounded-full text-xs font-bold border ${getRoleBadgeColor(user.role)}`}>
+                            {user.role?.toUpperCase() || "USER"}
                           </span>
-                        ) : (
-                          <span className="px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800 border border-green-300">
-                            Active
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 sm:px-4 py-3 text-[#5A6C7D] text-xs">
-                        {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : "N/A"}
-                      </td>
-                      <td className="px-3 sm:px-4 py-3">
-                        <div className="flex items-center justify-center gap-2">
-                          <button
-                            onClick={() => openEditModal(user)}
-                            className="px-2 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold text-white hover:shadow-md transition-all"
-                            style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => toggleBlock(user)}
-                            className={`px-2 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold text-white hover:shadow-md transition-all ${
-                              user.isBlocked 
-                                ? "bg-green-600 hover:bg-green-700" 
-                                : "bg-red-600 hover:bg-red-700"
-                            }`}
-                            disabled={loading}
-                          >
-                            {user.isBlocked ? "Unblock" : "Block"}
-                          </button>
+                          {user.isBlocked ? (
+                            <span className="px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800 border border-red-300">
+                              Blocked
+                            </span>
+                          ) : (
+                            <span className="px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800 border border-green-300">
+                              Active
+                            </span>
+                          )}
                         </div>
-                      </td>
+                        <div className="text-[#5A6C7D] text-xs">
+                          Registered: {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : "N/A"}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 mt-3">
+                      <button
+                        onClick={() => openEditModal(user)}
+                        className="flex-1 px-3 py-2 rounded-lg text-xs font-bold text-white hover:shadow-md transition-all"
+                        style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => toggleBlock(user)}
+                        className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold text-white hover:shadow-md transition-all disabled:opacity-50 ${
+                          user.isBlocked 
+                            ? "bg-green-600 hover:bg-green-700" 
+                            : "bg-red-600 hover:bg-red-700"
+                        }`}
+                        disabled={isBlocking || loading}
+                      >
+                        {user.isBlocked ? "Unblock" : "Block"}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop Table View */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr style={{ background: "rgba(5,163,199,0.1)" }}>
+                      <th className="px-3 sm:px-4 py-3 text-left font-black text-xs uppercase tracking-wider text-[#1A1F29]">Name</th>
+                      <th className="px-3 sm:px-4 py-3 text-left font-black text-xs uppercase tracking-wider text-[#1A1F29]">Email</th>
+                      <th className="px-3 sm:px-4 py-3 text-left font-black text-xs uppercase tracking-wider text-[#1A1F29]">Role</th>
+                      <th className="px-3 sm:px-4 py-3 text-left font-black text-xs uppercase tracking-wider text-[#1A1F29]">Status</th>
+                      <th className="px-3 sm:px-4 py-3 text-left font-black text-xs uppercase tracking-wider text-[#1A1F29]">Registered</th>
+                      <th className="px-3 sm:px-4 py-3 text-center font-black text-xs uppercase tracking-wider text-[#1A1F29]">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y-2" style={{ borderColor: "rgba(5,163,199,0.1)" }}>
+                    {filteredUsers.map((user) => (
+                      <tr key={user._id} className="hover:bg-[#05A3C7]/5 transition-colors">
+                        <td className="px-3 sm:px-4 py-3 font-bold text-[#1A1F29]">{user.name || "N/A"}</td>
+                        <td className="px-3 sm:px-4 py-3 text-[#5A6C7D] break-words">{user.email}</td>
+                        <td className="px-3 sm:px-4 py-3">
+                          <span className={`px-2 py-1 rounded-full text-xs font-bold border ${getRoleBadgeColor(user.role)}`}>
+                            {user.role?.toUpperCase() || "USER"}
+                          </span>
+                        </td>
+                        <td className="px-3 sm:px-4 py-3">
+                          {user.isBlocked ? (
+                            <span className="px-2 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800 border border-red-300">
+                              Blocked
+                            </span>
+                          ) : (
+                            <span className="px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800 border border-green-300">
+                              Active
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 sm:px-4 py-3 text-[#5A6C7D] text-xs whitespace-nowrap">
+                          {user.createdAt ? new Date(user.createdAt).toLocaleDateString('en-US', { 
+                            year: 'numeric', 
+                            month: 'short', 
+                            day: 'numeric' 
+                          }) : "N/A"}
+                        </td>
+                        <td className="px-3 sm:px-4 py-3">
+                          <div className="flex items-center justify-center gap-2">
+                            <button
+                              onClick={() => openEditModal(user)}
+                              className="px-2 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold text-white hover:shadow-md transition-all disabled:opacity-50"
+                              style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+                              disabled={loading || isBlocking}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => toggleBlock(user)}
+                              className={`px-2 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold text-white hover:shadow-md transition-all disabled:opacity-50 ${
+                                user.isBlocked 
+                                  ? "bg-green-600 hover:bg-green-700" 
+                                  : "bg-red-600 hover:bg-red-700"
+                              }`}
+                              disabled={loading || isBlocking}
+                            >
+                              {user.isBlocked ? "Unblock" : "Block"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
 
@@ -409,11 +542,28 @@ export default function AdminUsersPage() {
         </div>
       </div>
 
+      {/* Loading Overlay */}
+      {(loading || isBlocking) && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+          <div 
+            className="rounded-xl sm:rounded-2xl p-4 sm:p-6 flex items-center gap-3 shadow-2xl max-w-sm w-full"
+            style={{
+              background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
+            }}
+          >
+            <div className="w-5 h-5 sm:w-6 sm:h-6 border-3 border-white/30 border-t-white rounded-full animate-spin flex-shrink-0"></div>
+            <span className="text-white font-bold text-sm sm:text-base">
+              {isBlocking ? "Updating user status..." : "Loading..."}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Edit Modal */}
       {editingUser && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div 
-            className="bg-white rounded-xl sm:rounded-2xl border-2 p-4 sm:p-6 max-w-md w-full shadow-2xl"
+            className="bg-white rounded-xl sm:rounded-2xl border-2 p-4 sm:p-6 max-w-md w-full shadow-2xl max-h-[90vh] overflow-y-auto"
             style={{ borderColor: "rgba(5,163,199,0.2)" }}
           >
             <h2 
