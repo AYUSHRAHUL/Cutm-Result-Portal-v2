@@ -48,6 +48,12 @@ export default function AnalyticsDashboard() {
   const [loadingSubjectComparison, setLoadingSubjectComparison] = useState(false);
   const [subjectComparisonUniqueStudents, setSubjectComparisonUniqueStudents] = useState(null);
   const [subjectComparisonPassedAll, setSubjectComparisonPassedAll] = useState(null);
+  
+  // Student list for single subject
+  const [subjectStudents, setSubjectStudents] = useState([]);
+  const [selectedStudentRegNo, setSelectedStudentRegNo] = useState("");
+  const [loadingStudents, setLoadingStudents] = useState(false);
+  
   const [overviewBatchFilter, setOverviewBatchFilter] = useState("all"); // Separate filter for Department Distribution only
   const [filteredDepartmentStats, setFilteredDepartmentStats] = useState(null); // Separate state for filtered department stats
   const [loadingDepartmentStats, setLoadingDepartmentStats] = useState(false);
@@ -907,6 +913,75 @@ export default function AnalyticsDashboard() {
     return () => {
       abortController.abort();
     };
+  }, [selectedSubjects, subjectComparisonBatch, subjectComparisonBranch, subjectComparisonSemester]);
+
+  // Fetch students when exactly 1 subject is selected
+  useEffect(() => {
+    if (selectedSubjects.length !== 1) {
+      setSubjectStudents([]);
+      setSelectedStudentRegNo("");
+      return;
+    }
+
+    const fetchStudents = async () => {
+      try {
+        setLoadingStudents(true);
+        const subjectCode = selectedSubjects[0];
+        
+        const params = new URLSearchParams();
+        params.set('subject', subjectCode);
+        if (subjectComparisonBatch && subjectComparisonBatch !== "all") {
+          params.set('batch', subjectComparisonBatch);
+        }
+        if (subjectComparisonBranch && subjectComparisonBranch !== "all") {
+          params.set('branch', subjectComparisonBranch);
+        }
+        if (subjectComparisonSemester && subjectComparisonSemester !== "all") {
+          params.set('semester', subjectComparisonSemester);
+        }
+        
+        const url = `/api/analytics/subject-students?${params.toString()}`;
+        console.log(`[Subject Students] Fetching from: ${url}`);
+        
+        const response = await fetch(url, {
+          credentials: "include",
+        });
+        
+        console.log(`[Subject Students] Response status: ${response.status}`);
+        
+        if (response.ok) {
+          const result = await response.json();
+          console.log(`[Subject Students] API result:`, result);
+          console.log(`[Subject Students] Result success:`, result.success);
+          console.log(`[Subject Students] Students array length:`, result.students?.length || 0);
+          
+          if (result.success && Array.isArray(result.students)) {
+            console.log(`[Subject Students] Setting ${result.students.length} students`);
+            setSubjectStudents(result.students);
+            
+            if (result.students.length === 0) {
+              console.warn(`[Subject Students] API returned success but empty students array`);
+              console.warn(`[Subject Students] Subject: ${subjectCode}, Filters: batch=${subjectComparisonBatch}, branch=${subjectComparisonBranch}, semester=${subjectComparisonSemester}`);
+            }
+          } else {
+            console.warn(`[Subject Students] Invalid result structure:`, result);
+            setSubjectStudents([]);
+          }
+        } else {
+          const errorData = await response.json().catch(() => ({}));
+          console.error(`[Subject Students] API error:`, response.status, errorData);
+          console.error(`[Subject Students] Request URL: ${url}`);
+          setSubjectStudents([]);
+        }
+      } catch (err) {
+        console.error("Error fetching students:", err);
+        setSubjectStudents([]);
+      } finally {
+        setLoadingStudents(false);
+      }
+    };
+    
+    fetchStudents();
   }, [selectedSubjects, subjectComparisonBatch, subjectComparisonBranch, subjectComparisonSemester]);
 
   // Export to Excel function
@@ -2172,6 +2247,73 @@ export default function AnalyticsDashboard() {
                         </div>
                       );
                     })}
+                  </div>
+                </div>
+              )}
+
+              {/* Student Dropdown - Show right after subject selection */}
+              {selectedSubjects.length === 1 && (
+                <div className="mt-4 p-4 bg-white/5 rounded-xl border border-white/10">
+                  <div className="mb-3">
+                    <label className="block text-sm font-semibold text-white/90 mb-2 flex items-center gap-2">
+                      <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                      </svg>
+                      Select Student:
+                    </label>
+                    
+                    {loadingStudents ? (
+                      <div className="flex items-center gap-3 p-3 bg-white/5 rounded-lg">
+                        <div className="w-4 h-4 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+                        <span className="text-white/70 text-sm">Loading students...</span>
+                      </div>
+                    ) : subjectStudents.length > 0 ? (
+                      <div className="space-y-3">
+                        <select
+                          value={selectedStudentRegNo}
+                          onChange={(e) => setSelectedStudentRegNo(e.target.value)}
+                          className="w-full px-4 py-3 bg-white/5 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        >
+                          <option value="" className="text-gray-800">-- Select a student --</option>
+                          {subjectStudents.map((student) => (
+                            <option key={student.Reg_No} value={student.Reg_No} className="text-gray-800">
+                              {student.Reg_No} - {student.Name || "N/A"} ({student.Branch || "N/A"}) - Grade: {student.Grade || "N/A"}
+                            </option>
+                          ))}
+                        </select>
+                        {selectedStudentRegNo && (
+                          <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                            <h4 className="text-xs font-semibold text-blue-300 mb-2">Selected Student Details:</h4>
+                            {(() => {
+                              const student = subjectStudents.find(s => s.Reg_No === selectedStudentRegNo);
+                              return student ? (
+                                <div className="space-y-1 text-xs text-white/80">
+                                  <p><span className="font-semibold">Reg No:</span> {student.Reg_No}</p>
+                                  <p><span className="font-semibold">Name:</span> {student.Name || "N/A"}</p>
+                                  <p><span className="font-semibold">Branch:</span> {student.Branch || "N/A"}</p>
+                                  <p><span className="font-semibold">Grade:</span> 
+                                    <span className={`ml-2 px-2 py-0.5 rounded text-xs font-semibold ${
+                                      ['A', 'A+', 'O'].includes(student.Grade?.toUpperCase()) 
+                                        ? 'bg-emerald-500/20 text-emerald-300' 
+                                        : ['F', 'E', 'D'].includes(student.Grade?.toUpperCase())
+                                        ? 'bg-red-500/20 text-red-300'
+                                        : 'bg-yellow-500/20 text-yellow-300'
+                                    }`}>
+                                      {student.Grade || "N/A"}
+                                    </span>
+                                  </p>
+                                  <p><span className="font-semibold">Semester:</span> {student.Sem || "N/A"}</p>
+                                </div>
+                              ) : null;
+                            })()}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-center py-4 text-white/50">
+                        <p className="text-sm text-white/70">No students found for this subject</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
