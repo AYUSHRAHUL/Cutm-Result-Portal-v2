@@ -87,11 +87,19 @@ export async function GET(req) {
     // Add semester filter
     if (semesterFilter && semesterFilter !== "all") {
       const semValue = String(semesterFilter).trim();
+      // Normalize semester: handle "Sem 1", "Sem1", "1", etc.
+      const semNormalized = semValue.replace(/^Sem\s*/i, "").trim();
+      const semNum = parseInt(semNormalized);
+      
       matchConditions.push({
         $or: [
           { Sem: semValue },
-          { Sem: { $regex: new RegExp(`^${semValue}`, 'i') } },
-          { Sem: parseInt(semValue) || semValue }
+          { Sem: semNormalized },
+          { Sem: semNum },
+          { Sem: `Sem ${semNormalized}` },
+          { Sem: `Sem${semNormalized}` },
+          { Sem: { $regex: new RegExp(`^${semNormalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i') } },
+          { Sem: { $regex: new RegExp(`Sem\\s*${semNormalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i') } }
         ]
       });
     }
@@ -157,25 +165,25 @@ export async function GET(req) {
         });
       }
       
-      if (branchFilter && branchFilter !== "all") {
-        const normalizedBranch = String(branchFilter).trim();
-        simpleQuery.$and = simpleQuery.$and || [];
-        simpleQuery.$and.push({
-          $or: [
-            { Branch: normalizedBranch },
-            { Branch: { $regex: new RegExp(`^${normalizedBranch}`, 'i') } }
-          ]
-        });
-      }
+      // Note: Branch filter is applied in post-processing to support branch overrides
+      // Don't add branch filter to query here - it will be filtered after fetching
       
       if (semesterFilter && semesterFilter !== "all") {
         const semValue = String(semesterFilter).trim();
+        // Normalize semester: handle "Sem 1", "Sem1", "1", etc.
+        const semNormalized = semValue.replace(/^Sem\s*/i, "").trim();
+        const semNum = parseInt(semNormalized);
+        
         simpleQuery.$and = simpleQuery.$and || [];
         simpleQuery.$and.push({
           $or: [
             { Sem: semValue },
-            { Sem: { $regex: new RegExp(`^${semValue}`, 'i') } },
-            { Sem: parseInt(semValue) || semValue }
+            { Sem: semNormalized },
+            { Sem: semNum },
+            { Sem: `Sem ${semNormalized}` },
+            { Sem: `Sem${semNormalized}` },
+            { Sem: { $regex: new RegExp(`^${semNormalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i') } },
+            { Sem: { $regex: new RegExp(`Sem\\s*${semNormalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i') } }
           ]
         });
       }
@@ -189,17 +197,87 @@ export async function GET(req) {
             ...simpleQuery.$and
           ]
         };
+      } else if (simpleQuery.$or) {
+        // If no $and conditions, just use the $or for subject code
+        finalQuery = { $or: simpleQuery.$or };
       }
       
       console.log(`[Subject Students] Trying simple find query:`, JSON.stringify(finalQuery, null, 2));
       const allRecords = await db.collection("CUTM1").find(finalQuery).toArray();
       console.log(`[Subject Students] Found ${allRecords.length} records from simple query`);
       
+      // Load branch overrides for the fetched records if branch filter is active
+      let overridesMap = new Map();
+      if (branchFilter && branchFilter !== "all" && allRecords.length > 0) {
+        try {
+          const regSet = Array.from(new Set(allRecords.map(r => String(r.Reg_No || "").toUpperCase()).filter(Boolean)));
+          if (regSet.length > 0) {
+            const ovDocs = await db.collection("branch_overrides").find({ reg: { $in: regSet } }).project({ reg: 1, branch: 1 }).toArray();
+            overridesMap = new Map(ovDocs.map(d => [String(d.reg).toUpperCase(), d.branch]));
+            console.log(`[Subject Students] Loaded ${overridesMap.size} branch overrides for ${regSet.length} unique students`);
+          }
+        } catch (err) {
+          console.warn(`[Subject Students] Error loading branch overrides:`, err);
+        }
+      }
+      
       // Deduplicate by Reg_No and get first occurrence of each student
+      // Also apply branch filter with overrides if needed
       const uniqueMap = new Map();
       allRecords.forEach(record => {
         const regNo = String(record.Reg_No || "").toUpperCase();
         if (regNo && !uniqueMap.has(regNo)) {
+          // Apply branch filter with overrides if branch filter is active
+          if (branchFilter && branchFilter !== "all") {
+            const normalizedBranch = String(branchFilter).trim().toUpperCase();
+            let matchesBranch = false;
+            
+            // Check branch overrides first
+            const overrideBranch = overridesMap.get(regNo);
+            if (overrideBranch) {
+              const overrideUpper = String(overrideBranch).toUpperCase();
+              const branchNameMap = {
+                'CSE': ['COMPUTER SCIENCE', 'CSE', 'COMPUTER SCIENCE ENGINEERING'],
+                'ECE': ['ELECTRONICS & COMMUNICATION', 'ECE', 'ELECTRONICS AND COMMUNICATION', 'ELECTRONICS COMMUNICATION'],
+                'EEE': ['ELECTRICAL & ELECTRONICS', 'EEE', 'ELECTRICAL AND ELECTRONICS', 'ELECTRICAL ELECTRONICS'],
+                'ME': ['MECHANICAL', 'ME', 'MECHANICAL ENGINEERING'],
+                'CIVIL': ['CIVIL', 'CIVIL ENGINEERING'],
+                'AIML': ['AIML', 'ARTIFICIAL INTELLIGENCE', 'MACHINE LEARNING']
+              };
+              const validNames = branchNameMap[normalizedBranch] || [];
+              matchesBranch = validNames.some(name => 
+                overrideUpper.includes(name) || name.includes(overrideUpper) || overrideUpper === name
+              );
+            }
+            
+            // Check Reg_No department code if override didn't match
+            if (!matchesBranch && regNo.length >= 8) {
+              const branchMap = {
+                'CSE': ['2', '8'],
+                'ECE': ['3', '4'],
+                'EEE': ['5'],
+                'ME': ['6'],
+                'CIVIL': ['1', '9'],
+                'AIML': ['7']
+              };
+              const deptCode = regNo.charAt(7);
+              const branchCodes = branchMap[normalizedBranch] || [];
+              matchesBranch = branchCodes.includes(deptCode);
+            }
+            
+            // Check Branch field as fallback
+            if (!matchesBranch && record.Branch) {
+              const recordBranch = String(record.Branch).toUpperCase();
+              matchesBranch = recordBranch === normalizedBranch || 
+                            recordBranch.includes(normalizedBranch) || 
+                            normalizedBranch.includes(recordBranch);
+            }
+            
+            if (!matchesBranch) {
+              return; // Skip this record if it doesn't match branch filter
+            }
+          }
+          
           uniqueMap.set(regNo, {
             Reg_No: record.Reg_No,
             Name: record.Name || "",

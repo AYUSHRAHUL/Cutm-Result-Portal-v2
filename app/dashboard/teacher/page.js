@@ -200,7 +200,7 @@ export default function TeacherDashboard() {
             </ModuleCard>
             
             <ModuleCard 
-              title="CBCS Data" 
+              title="CBCS Tracker" 
               icon="📚" 
               gradient="from-[#8B5CF6] to-[#7C3AED]"
               onClick={() => go("/dashboard/teacher/data")}

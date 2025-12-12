@@ -37,12 +37,47 @@ export async function GET(req) {
       const client = await clientPromise;
       const db = client.db("cutm1");
       const overrides = db.collection("branch_overrides");
+      const regData = db.collection("registrationData");
+      
       const items = await overrides
         .find({}, { projection: { _id: 0, reg: 1, branch: 1, batch: 1, updatedAt: 1 } })
         .sort({ updatedAt: -1 })
         .limit(200)
         .toArray();
-      return NextResponse.json({ overrides: items });
+      
+      // Fetch original branch and batch for each registration
+      const itemsWithOriginal = await Promise.all(
+        items.map(async (item) => {
+          const regDoc = await regData.findOne(
+            { Reg_No: item.reg.toUpperCase() }, 
+            { projection: { Branch: 1, Department: 1, Batch: 1 } }
+          ).catch(() => null);
+          
+          const idx8 = item.reg.length >= 8 ? item.reg.charAt(7) : "";
+          const idx8Map = {
+            "1": "Civil Engineering",
+            "2": "Computer Science Engineering",
+            "3": "Electronics & Communication Engineering",
+            "4": "Electronics & Communication Engineering",
+            "5": "Electrical & Electronics Engineering",
+            "6": "Mechanical Engineering",
+            "7": "AIML",
+            "8": "Computer Science Engineering",
+            "9": "Civil Engineering",
+          };
+          const detectedFromIdx = idx8Map[idx8] || "";
+          const originalBranch = normalizeBranch(regDoc?.Branch || regDoc?.Department) || detectedFromIdx || "";
+          const originalBatch = normalizeBatch(regDoc?.Batch) || (item.reg.length >= 2 ? `20${item.reg.substring(0,2)}` : "");
+          
+          return {
+            ...item,
+            originalBranch: originalBranch || null,
+            originalBatch: originalBatch || null
+          };
+        })
+      );
+      
+      return NextResponse.json({ overrides: itemsWithOriginal });
     }
 
     const reg = searchParams.get("reg");
@@ -77,8 +112,10 @@ export async function GET(req) {
     return NextResponse.json({ 
       reg, 
       detected, 
+      originalBranch: detected, // Original branch from registration data
       override: overrideDoc?.branch || null,
       detectedBatch,
+      originalBatch: detectedBatch, // Original batch from registration data
       overrideBatch: overrideDoc?.batch || null
     });
   } catch (e) {
@@ -88,26 +125,59 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    const { reg, newBranch, newBatch } = await req.json();
+    const body = await req.json();
+    const { reg, newBranch, newBatch } = body;
     if (!reg) return NextResponse.json({ error: "reg is required" }, { status: 400 });
-    if (!newBranch && !newBatch) return NextResponse.json({ error: "Provide newBranch or newBatch" }, { status: 400 });
+    if (newBranch === undefined && newBatch === undefined) return NextResponse.json({ error: "Provide newBranch or newBatch" }, { status: 400 });
 
-    const normalizedBranch = newBranch ? normalizeBranch(newBranch) : null;
-    const normalizedBatch = newBatch ? normalizeBatch(newBatch) : null;
-    if (newBranch && !normalizedBranch) return NextResponse.json({ error: "Invalid branch" }, { status: 400 });
-    if (newBatch && !normalizedBatch) return NextResponse.json({ error: "Invalid batch. Use YYYY (e.g., 2022)" }, { status: 400 });
+    // Handle "-" as explicit null (remove override)
+    const branchValue = newBranch === null ? null : (newBranch ? normalizeBranch(newBranch) : null);
+    const batchValue = newBatch === null ? null : (newBatch ? normalizeBatch(newBatch) : null);
+    
+    // Validate only if a non-null value was provided
+    if (newBranch !== null && newBranch !== undefined && newBranch !== "" && !branchValue) {
+      return NextResponse.json({ error: "Invalid branch" }, { status: 400 });
+    }
+    if (newBatch !== null && newBatch !== undefined && newBatch !== "" && !batchValue) {
+      return NextResponse.json({ error: "Invalid batch. Use YYYY (e.g., 2022)" }, { status: 400 });
+    }
 
     const client = await clientPromise;
     const db = client.db("cutm1");
 
     const overrides = db.collection("branch_overrides");
-    const update = { reg: reg.toUpperCase(), updatedAt: new Date() };
-    if (normalizedBranch) update.branch = normalizedBranch;
-    if (normalizedBatch) update.batch = normalizedBatch;
+    
+    // Get existing override to preserve batch if only branch is being updated
+    const existing = await overrides.findOne({ reg: reg.toUpperCase() });
+    
+    // Build update object - only include fields that should be updated
+    const updateFields = { reg: reg.toUpperCase(), updatedAt: new Date() };
+    
+    // Update branch if explicitly provided in request body
+    if ('newBranch' in body) {
+      // newBranch was provided in request (could be null to remove override)
+      updateFields.branch = branchValue;
+    } else {
+      // newBranch was NOT provided - preserve existing branch
+      if (existing?.branch !== undefined) {
+        updateFields.branch = existing.branch;
+      }
+    }
+    
+    // Update batch if explicitly provided in request body
+    if ('newBatch' in body) {
+      // newBatch was provided in request (could be null to remove override)
+      updateFields.batch = batchValue;
+    } else {
+      // newBatch was NOT provided - preserve existing batch
+      if (existing?.batch !== undefined) {
+        updateFields.batch = existing.batch;
+      }
+    }
 
     await overrides.updateOne(
       { reg: reg.toUpperCase() },
-      { $set: update },
+      { $set: updateFields },
       { upsert: true }
     );
 

@@ -36,8 +36,9 @@ export default function BranchChangePage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Lookup failed");
       setInfo(data);
-      setTarget(data.override || data.detected || "");
-      setTargetBatch(data.overrideBatch || data.detectedBatch || "");
+      // Set default to "-" (No Change) when lookup is done
+      setTarget("-");
+      setTargetBatch("-");
     } catch (e) {
       setErr(e.message);
     } finally { setLoading(false); }
@@ -66,22 +67,48 @@ export default function BranchChangePage() {
   async function applyChange(e) {
     e.preventDefault();
     setErr(""); setMsg("");
-    if (!reg || (!target && !targetBatch)) { setErr("Select a branch and/or batch"); return; }
+    if (!reg) { setErr("Enter registration number"); return; }
+    
+    // Check if both are set to "-" (No Change)
+    if (target === "-" && targetBatch === "-") {
+      setErr("Please select a branch or batch to change, or choose a different option");
+      return;
+    }
+    
     try {
       setLoading(true);
+      // Send fields - "-" means no change (don't send), other values mean update
+      const payload = { reg };
+      if (target !== "-" && target !== "") {
+        payload.newBranch = target;
+      } else if (target === "-") {
+        // "-" means remove override (set to null)
+        payload.newBranch = null;
+      }
+      
+      if (targetBatch !== "-" && targetBatch !== "") {
+        payload.newBatch = targetBatch;
+      } else if (targetBatch === "-") {
+        // "-" means remove override (set to null)
+        payload.newBatch = null;
+      }
+      
       const res = await fetch("/api/branch-change", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reg, newBranch: target || null, newBatch: targetBatch || null })
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Update failed");
       setMsg("Override saved successfully.");
       setInfo(prev => ({ 
         ...prev, 
-        override: target || prev?.override || null,
-        overrideBatch: targetBatch || prev?.overrideBatch || null
+        override: target === "-" ? null : (target !== "-" && target ? target : prev?.override || null),
+        overrideBatch: targetBatch === "-" ? null : (targetBatch !== "-" && targetBatch ? targetBatch : prev?.overrideBatch || null)
       }));
+      // Reset to default "-" after save
+      setTarget("-");
+      setTargetBatch("-");
       // Refresh list
       loadOverrides();
     } catch (e) {
@@ -135,7 +162,9 @@ export default function BranchChangePage() {
               <thead className="bg-gray-100 text-gray-700">
                 <tr>
                   <th className="px-3 py-2 text-left">Reg No</th>
+                  <th className="px-3 py-2 text-left">Original Branch</th>
                   <th className="px-3 py-2 text-left">Branch Override</th>
+                  <th className="px-3 py-2 text-left">Original Batch</th>
                   <th className="px-3 py-2 text-left">Batch Override</th>
                   <th className="px-3 py-2 text-left">Updated</th>
                 </tr>
@@ -143,7 +172,7 @@ export default function BranchChangePage() {
               <tbody>
                 {(overrides || []).length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-3 py-3 text-center text-gray-500">
+                    <td colSpan={6} className="px-3 py-3 text-center text-gray-500">
                       {loadingOverrides ? "Loading..." : "No overrides found."}
                     </td>
                   </tr>
@@ -151,8 +180,10 @@ export default function BranchChangePage() {
                   overrides.map((o) => (
                     <tr key={`${o.reg}-${o.updatedAt || ""}`} className="border-t">
                       <td className="px-3 py-2 font-semibold">{o.reg}</td>
-                      <td className="px-3 py-2">{o.branch || "—"}</td>
-                      <td className="px-3 py-2">{o.batch || "—"}</td>
+                      <td className="px-3 py-2 text-blue-600">{o.originalBranch || "—"}</td>
+                      <td className="px-3 py-2 text-orange-600 font-medium">{o.branch || "—"}</td>
+                      <td className="px-3 py-2 text-blue-600">{o.originalBatch || "—"}</td>
+                      <td className="px-3 py-2 text-orange-600 font-medium">{o.batch || "—"}</td>
                       <td className="px-3 py-2 text-gray-600">
                         {o.updatedAt ? new Date(o.updatedAt).toLocaleString() : "—"}
                       </td>
@@ -166,22 +197,33 @@ export default function BranchChangePage() {
 
         {info && (
           <div className="space-y-4 border-t pt-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="rounded-md bg-gray-50 p-3">
-                <div className="text-xs text-gray-500">Detected (current)</div>
-                <div className="font-semibold">{info.detected || "N/A"}</div>
+            {/* Original Branch & Batch Section */}
+            <div className="space-y-2">
+              <h3 className="text-lg font-semibold text-[#0a4b78]">Original Information</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="rounded-md bg-blue-50 border-2 border-blue-200 p-3">
+                  <div className="text-xs text-blue-600 font-medium mb-1">Original Branch</div>
+                  <div className="font-semibold text-[#0a4b78]">{info.originalBranch || info.detected || "N/A"}</div>
+                </div>
+                <div className="rounded-md bg-blue-50 border-2 border-blue-200 p-3">
+                  <div className="text-xs text-blue-600 font-medium mb-1">Original Batch</div>
+                  <div className="font-semibold text-[#0a4b78]">{info.originalBatch || info.detectedBatch || "N/A"}</div>
+                </div>
               </div>
-              <div className="rounded-md bg-gray-50 p-3">
-                <div className="text-xs text-gray-500">Existing Override</div>
-                <div className="font-semibold">{info.override || "—"}</div>
-              </div>
-              <div className="rounded-md bg-gray-50 p-3">
-                <div className="text-xs text-gray-500">Detected Batch</div>
-                <div className="font-semibold">{info.detectedBatch || "N/A"}</div>
-              </div>
-              <div className="rounded-md bg-gray-50 p-3">
-                <div className="text-xs text-gray-500">Existing Batch Override</div>
-                <div className="font-semibold">{info.overrideBatch || "—"}</div>
+            </div>
+
+            {/* Override Section */}
+            <div className="space-y-2">
+              <h3 className="text-lg font-semibold text-[#0a4b78]">Override Information</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="rounded-md bg-orange-50 border-2 border-orange-200 p-3">
+                  <div className="text-xs text-orange-600 font-medium mb-1">Branch Override</div>
+                  <div className="font-semibold text-orange-700">{info.override || "—"}</div>
+                </div>
+                <div className="rounded-md bg-orange-50 border-2 border-orange-200 p-3">
+                  <div className="text-xs text-orange-600 font-medium mb-1">Batch Override</div>
+                  <div className="font-semibold text-orange-700">{info.overrideBatch || "—"}</div>
+                </div>
               </div>
             </div>
 
@@ -190,24 +232,24 @@ export default function BranchChangePage() {
                 <div>
                   <label className="block text-sm font-medium">Set New Branch</label>
                   <select value={target} onChange={e=>setTarget(e.target.value)} className="w-full rounded-md border px-3 py-2">
-                    <option value="">Select Branch</option>
+                    <option value="-">— (No Change)</option>
                     {BRANCHES.map(b => <option key={b} value={b}>{b}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium">Set New Batch</label>
                   <select value={targetBatch} onChange={e=>setTargetBatch(e.target.value)} className="w-full rounded-md border px-3 py-2">
-                    <option value="">Select Batch</option>
+                    <option value="-">— (No Change)</option>
                     {BATCHES.map(b => <option key={b} value={b}>{b}</option>)}
                   </select>
                 </div>
               </div>
 
-              <button disabled={loading || (!target && !targetBatch)} className="rounded-md bg-green-600 text-white px-4 py-2">
+              <button disabled={loading || (target === "-" && targetBatch === "-")} className="rounded-md bg-green-600 text-white px-4 py-2">
                 {loading ? "Saving..." : "Save Override"}
               </button>
               <p className="text-xs text-gray-600">
-                This creates an override for this registration. All panels and reports will reflect the new branch and/or batch immediately.
+                Select a branch or batch to set override. "— (No Change)" will remove existing override. All panels and reports will reflect the changes immediately.
               </p>
             </form>
           </div>

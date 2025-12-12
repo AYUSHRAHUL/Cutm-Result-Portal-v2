@@ -6,6 +6,7 @@ import {
   SemesterChart,
   DataSourceChart,
   BatchChart,
+  GradeTrendsOverTimeChart,
 } from "./charts/ChartComponents";
 import {
   BarChart,
@@ -52,7 +53,16 @@ export default function AnalyticsDashboard() {
   // Student list for single subject
   const [subjectStudents, setSubjectStudents] = useState([]);
   const [selectedStudentRegNo, setSelectedStudentRegNo] = useState("");
+  const [selectedStudents, setSelectedStudents] = useState([]); // Array of selected Reg_Nos
   const [loadingStudents, setLoadingStudents] = useState(false);
+  const [studentsError, setStudentsError] = useState(null);
+  // Full student records and student-specific performance
+  const [studentRecords, setStudentRecords] = useState([]);
+  const [loadingStudentRecords, setLoadingStudentRecords] = useState(false);
+  const [studentRecordsError, setStudentRecordsError] = useState(null);
+  // Subject-wise analysis for selected students
+  const [subjectWiseAnalysis, setSubjectWiseAnalysis] = useState([]);
+  const [loadingSubjectWiseAnalysis, setLoadingSubjectWiseAnalysis] = useState(false);
   
   const [overviewBatchFilter, setOverviewBatchFilter] = useState("all"); // Separate filter for Department Distribution only
   const [filteredDepartmentStats, setFilteredDepartmentStats] = useState(null); // Separate state for filtered department stats
@@ -916,17 +926,25 @@ export default function AnalyticsDashboard() {
   }, [selectedSubjects, subjectComparisonBatch, subjectComparisonBranch, subjectComparisonSemester]);
 
   // Fetch students when exactly 1 subject is selected
+  // Fetch students for selected subject from dropdown (triggers when subject is selected)
   useEffect(() => {
-    if (selectedSubjects.length !== 1) {
+    console.log(`[Subject Students] useEffect triggered - selectedSubjectToAdd: "${selectedSubjectToAdd}"`);
+    
+    if (!selectedSubjectToAdd || selectedSubjectToAdd === "__ALL__" || selectedSubjectToAdd === "") {
+      console.log(`[Subject Students] Clearing students - invalid subject selection`);
       setSubjectStudents([]);
       setSelectedStudentRegNo("");
+      setSelectedStudents([]);
+      setStudentsError(null);
       return;
     }
 
     const fetchStudents = async () => {
       try {
         setLoadingStudents(true);
-        const subjectCode = selectedSubjects[0];
+        setStudentsError(null);
+        const subjectCode = selectedSubjectToAdd;
+        console.log(`[Subject Students] Starting fetch for subject: ${subjectCode}`);
         
         const params = new URLSearchParams();
         params.set('subject', subjectCode);
@@ -937,7 +955,9 @@ export default function AnalyticsDashboard() {
           params.set('branch', subjectComparisonBranch);
         }
         if (subjectComparisonSemester && subjectComparisonSemester !== "all") {
-          params.set('semester', subjectComparisonSemester);
+          // Normalize semester format: "Sem 1" -> "1", "Sem1" -> "1", etc.
+          const semValue = String(subjectComparisonSemester).replace(/^Sem\s*/i, "").trim();
+          params.set('semester', semValue);
         }
         
         const url = `/api/analytics/subject-students?${params.toString()}`;
@@ -958,33 +978,186 @@ export default function AnalyticsDashboard() {
           if (result.success && Array.isArray(result.students)) {
             console.log(`[Subject Students] Setting ${result.students.length} students`);
             setSubjectStudents(result.students);
+            setSelectedStudents([]); // Clear selections when new students are loaded
+            setStudentsError(null);
             
             if (result.students.length === 0) {
               console.warn(`[Subject Students] API returned success but empty students array`);
               console.warn(`[Subject Students] Subject: ${subjectCode}, Filters: batch=${subjectComparisonBatch}, branch=${subjectComparisonBranch}, semester=${subjectComparisonSemester}`);
+              console.warn(`[Subject Students] Full API URL: ${url}`);
+              
+              // Build filter message
+              const activeFilters = [];
+              if (subjectComparisonBatch && subjectComparisonBatch !== "all") {
+                activeFilters.push(`Batch: ${subjectComparisonBatch}`);
+              }
+              if (subjectComparisonBranch && subjectComparisonBranch !== "all") {
+                activeFilters.push(`Branch: ${subjectComparisonBranch}`);
+              }
+              if (subjectComparisonSemester && subjectComparisonSemester !== "all") {
+                activeFilters.push(`Semester: ${subjectComparisonSemester}`);
+              }
+              
+              const filterMsg = activeFilters.length > 0 
+                ? ` with filters: ${activeFilters.join(", ")}`
+                : " (no filters applied)";
+              
+              let errorMessage = `No students found for subject "${subjectCode}"${filterMsg}.`;
+              
+              if (activeFilters.length > 0) {
+                errorMessage += ` The filters may be too restrictive. Try clicking "Try without filters" below or adjust the filters above.`;
+              } else {
+                errorMessage += ` This subject may not exist in the database, or it may have a different code format. Check the console for more details.`;
+              }
+              
+              setStudentsError(errorMessage);
             }
           } else {
             console.warn(`[Subject Students] Invalid result structure:`, result);
             setSubjectStudents([]);
+            setStudentsError("Invalid response from server. Please try again.");
           }
         } else {
           const errorData = await response.json().catch(() => ({}));
           console.error(`[Subject Students] API error:`, response.status, errorData);
           console.error(`[Subject Students] Request URL: ${url}`);
           setSubjectStudents([]);
+          setStudentsError(errorData.error || `Failed to fetch students (Status: ${response.status})`);
         }
       } catch (err) {
         console.error("Error fetching students:", err);
         setSubjectStudents([]);
+        setStudentsError(`Network error: ${err.message}. Please check your connection and try again.`);
       } finally {
         setLoadingStudents(false);
       }
     };
     
     fetchStudents();
-  }, [selectedSubjects, subjectComparisonBatch, subjectComparisonBranch, subjectComparisonSemester]);
+  }, [selectedSubjectToAdd, subjectComparisonBatch, subjectComparisonBranch, subjectComparisonSemester]);
 
-  // Export to Excel function
+  // When exactly one student is selected, fetch that student's full records
+  useEffect(() => {
+    const regNo = selectedStudents.length === 1 ? selectedStudents[0] : null;
+    if (!regNo) {
+      setStudentRecords([]);
+      setStudentRecordsError(null);
+      setLoadingStudentRecords(false);
+      return;
+    }
+
+    const fetchStudentRecords = async () => {
+      try {
+        setLoadingStudentRecords(true);
+        setStudentRecordsError(null);
+        const res = await fetch('/api/students', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ registration: regNo })
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || `HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        setStudentRecords(Array.isArray(data.records) ? data.records : []);
+      } catch (err) {
+        setStudentRecords([]);
+        setStudentRecordsError(err.message || 'Failed to fetch student records');
+      } finally {
+        setLoadingStudentRecords(false);
+      }
+    };
+
+    fetchStudentRecords();
+  }, [selectedStudents]);
+
+  // Fetch all records for selected students and compute subject-wise analysis
+  useEffect(() => {
+    if (selectedStudents.length === 0) {
+      setSubjectWiseAnalysis([]);
+      return;
+    }
+
+    const fetchSubjectWiseData = async () => {
+      try {
+        setLoadingSubjectWiseAnalysis(true);
+        // Fetch records for each selected student
+        const allRecords = [];
+        
+        for (const regNo of selectedStudents) {
+          try {
+            const res = await fetch('/api/students', {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ registration: regNo })
+            });
+
+            if (res.ok) {
+              const data = await res.json();
+              if (Array.isArray(data.records)) {
+                allRecords.push(...data.records);
+              }
+            }
+          } catch (err) {
+            console.error(`Failed to fetch records for ${regNo}:`, err);
+          }
+        }
+
+        // Filter by selected subject if one is chosen
+        let filteredRecords = allRecords;
+        if (selectedSubjectToAdd && selectedSubjectToAdd !== "__ALL__") {
+          const normalizedSubject = String(selectedSubjectToAdd).trim().toUpperCase();
+          filteredRecords = allRecords.filter(record => {
+            const subCode = (record.Subject_Code || '').toString().toUpperCase();
+            return subCode === normalizedSubject || subCode.includes(normalizedSubject);
+          });
+        }
+
+        // Group by subject and calculate pass/fail
+        const subjectMap = {};
+        filteredRecords.forEach(record => {
+          const subject = record.Subject_Code || record.Subject_Name || 'Unknown';
+          const grade = (record.Grade || '').toString().toUpperCase();
+          const passingGrades = ['O', 'E', 'A', 'B', 'C'];
+          const isPassed = passingGrades.includes(grade);
+
+          if (!subjectMap[subject]) {
+            subjectMap[subject] = { passed: 0, failed: 0, total: 0 };
+          }
+          
+          subjectMap[subject].total++;
+          if (isPassed) {
+            subjectMap[subject].passed++;
+          } else {
+            subjectMap[subject].failed++;
+          }
+        });
+
+        // Convert to array and sort by subject name
+        const analysis = Object.entries(subjectMap)
+          .map(([subject, data]) => ({
+            subject,
+            passed: data.passed,
+            failed: data.failed,
+            total: data.total,
+            passRate: ((data.passed / data.total) * 100).toFixed(1)
+          }))
+          .sort((a, b) => a.subject.localeCompare(b.subject));
+
+        setSubjectWiseAnalysis(analysis);
+      } finally {
+        setLoadingSubjectWiseAnalysis(false);
+      }
+    };
+
+    fetchSubjectWiseData();
+  }, [selectedStudents, selectedSubjectToAdd]);
+
   const exportToExcel = useCallback((data) => {
     if (!data || data.length === 0) return;
     
@@ -2153,63 +2326,526 @@ export default function AnalyticsDashboard() {
                   </div>
                   
                   {/* Subject Selection from CUTM1 */}
-                  <div className="flex flex-col lg:flex-row gap-3 items-start lg:items-center">
-                    <div className="flex items-center gap-2 flex-1">
-                      <label className="text-white/70 text-sm font-medium whitespace-nowrap">Select Subject:</label>
-                      {loadingBasketSubjects ? (
-                        <div className="px-4 py-2 bg-white/10 border border-white/20 text-white rounded-lg text-sm min-w-[250px] flex items-center justify-center">
-                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-white/30 border-t-white"></div>
-                          <span className="ml-2 text-white/70 text-sm">Loading subjects...</span>
-                        </div>
-                      ) : basketSubjects.length === 0 ? (
-                        <div className="px-4 py-2 bg-white/10 border border-white/20 text-white rounded-lg text-sm min-w-[250px] flex items-center justify-center text-white/50">
-                          <span>No subjects available</span>
-                        </div>
-                      ) : (
-              <select
-                          value={selectedSubjectToAdd}
-                          onChange={(e) => setSelectedSubjectToAdd(e.target.value)}
-                          className="px-4 py-2 bg-white/10 border border-white/20 text-white rounded-lg text-sm min-w-[250px] focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        >
-                          <option value="" className="text-black">-- Select a subject --</option>
-                          <option value="__ALL__" className="text-black">All Subjects</option>
-                          {basketSubjects
-                            .filter(subject => !selectedSubjects.includes(subject.code))
-                            .map((subject) => (
-                              <option key={subject.code} value={subject.code} className="text-black">
-                                {subject.code} - {subject.name}
-                  </option>
-                ))}
-              </select>
-                      )}
-            </div>
+                  <div className="flex flex-col gap-4">
+                    <div className="flex flex-col lg:flex-row gap-3 items-start lg:items-center">
+                      <div className="flex items-center gap-2 flex-1">
+                        <label className="text-white/70 text-sm font-medium whitespace-nowrap">Select Subject:</label>
+                        {loadingBasketSubjects ? (
+                          <div className="px-4 py-2 bg-white/10 border border-white/20 text-white rounded-lg text-sm min-w-[250px] flex items-center justify-center">
+                            <div className="animate-spin rounded-full h-4 w-4 border-2 border-white/30 border-t-white"></div>
+                            <span className="ml-2 text-white/70 text-sm">Loading subjects...</span>
+                          </div>
+                        ) : basketSubjects.length === 0 ? (
+                          <div className="px-4 py-2 bg-white/10 border border-white/20 text-white rounded-lg text-sm min-w-[250px] flex items-center justify-center text-white/50">
+                            <span>No subjects available</span>
+                          </div>
+                        ) : (
+                          <select
+                            value={selectedSubjectToAdd}
+                            onChange={(e) => setSelectedSubjectToAdd(e.target.value)}
+                            className="px-4 py-2 bg-white/10 border border-white/20 text-white rounded-lg text-sm min-w-[250px] focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          >
+                            <option value="" className="text-black">-- Select a subject --</option>
+                            <option value="__ALL__" className="text-black">All Subjects</option>
+                            {basketSubjects
+                              .filter(subject => !selectedSubjects.includes(subject.code))
+                              .map((subject) => (
+                                <option key={subject.code} value={subject.code} className="text-black">
+                                  {subject.code} - {subject.name}
+                                </option>
+                              ))}
+                          </select>
+                        )}
+                      </div>
 
-                    {/* Add Button */}
-                    <button
-                      onClick={handleAddSubject}
-                      disabled={!selectedSubjectToAdd || loadingBasketSubjects}
-                      className="px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 disabled:bg-purple-500/10 disabled:opacity-50 disabled:cursor-not-allowed border border-purple-500/30 text-purple-300 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                      </svg>
-                      Add Subject
-                    </button>
-                    
-                    {/* Clear All Button */}
-                    {selectedSubjects.length > 0 && (
+                      {/* Add Button */}
                       <button
-                        onClick={() => {
-                          setSelectedSubjects([]);
-                          setSelectedSubjectToAdd("");
-                        }}
-                        className="px-3 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-300 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap"
+                        onClick={handleAddSubject}
+                        disabled={!selectedSubjectToAdd || loadingBasketSubjects}
+                        className="px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 disabled:bg-purple-500/10 disabled:opacity-50 disabled:cursor-not-allowed border border-purple-500/30 text-purple-300 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                         </svg>
-                        Clear All
+                        Add Subject
                       </button>
+                      
+                      {/* Clear All Button */}
+                      {selectedSubjects.length > 0 && (
+                        <button
+                          onClick={() => {
+                            setSelectedSubjects([]);
+                            setSelectedSubjectToAdd("");
+                            setSubjectStudents([]);
+                            setSelectedStudentRegNo("");
+                            setSelectedStudents([]);
+                          }}
+                          className="px-3 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-300 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 whitespace-nowrap"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                          Clear All
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Student Dropdown - Show right below subject selection */}
+                    {selectedSubjectToAdd && selectedSubjectToAdd !== "__ALL__" && (
+                      <div className="mt-2 p-4 bg-white/5 rounded-xl border border-white/10">
+                        <div className="mb-3">
+                          <label className="block text-sm font-semibold text-white/90 mb-2 flex items-center gap-2">
+                            <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                            </svg>
+                            Students List:
+                          </label>
+                          
+                          {loadingStudents ? (
+                            <div className="flex items-center gap-3 p-3 bg-white/5 rounded-lg">
+                              <div className="w-4 h-4 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+                              <span className="text-white/70 text-sm">Loading students...</span>
+                            </div>
+                          ) : studentsError ? (
+                            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+                              <div className="flex items-start gap-2">
+                                <svg className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <div className="flex-1">
+                                  <p className="text-sm text-red-300 font-semibold mb-1">Error Loading Students</p>
+                                  <p className="text-xs text-red-200/80 mb-2">{studentsError}</p>
+                                  {((subjectComparisonBatch && subjectComparisonBatch !== "all") || 
+                                    (subjectComparisonBranch && subjectComparisonBranch !== "all") || 
+                                    (subjectComparisonSemester && subjectComparisonSemester !== "all")) && (
+                                    <button
+                                      onClick={() => {
+                                        setSubjectComparisonBatch("all");
+                                        setSubjectComparisonBranch("all");
+                                        setSubjectComparisonSemester("all");
+                                      }}
+                                      className="text-xs px-3 py-1.5 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-300 rounded-lg transition-all flex items-center gap-1.5"
+                                    >
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                      </svg>
+                                      Try without filters
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ) : subjectStudents.length > 0 ? (
+                            <div className="space-y-3">
+                              {/* Selected Count */}
+                              {selectedStudents.length > 0 && (
+                                <div className="p-2 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                                  <p className="text-xs text-blue-300 font-semibold">
+                                    {selectedStudents.length} student{selectedStudents.length !== 1 ? 's' : ''} selected
+                                  </p>
+                                </div>
+                              )}
+                              
+                              {/* Student List with Checkboxes */}
+                              <div className="max-h-96 overflow-y-auto border border-white/10 rounded-lg bg-white/5 p-3 space-y-2">
+                                {/* All Option */}
+                                <label className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 cursor-pointer transition-colors group border border-white/10 bg-white/5">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedStudents.length === subjectStudents.length && subjectStudents.length > 0}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setSelectedStudents(subjectStudents.map(s => s.Reg_No));
+                                      } else {
+                                        setSelectedStudents([]);
+                                      }
+                                    }}
+                                    className="w-5 h-5 rounded border-2 border-white/30 bg-white/10 text-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer"
+                                  />
+                                  <div className="flex-1">
+                                    <span className="text-sm font-bold text-white/90 group-hover:text-blue-300 transition-colors">
+                                      Select All ({subjectStudents.length} students)
+                                    </span>
+                                    {selectedStudents.length > 0 && selectedStudents.length < subjectStudents.length && (
+                                      <span className="text-xs text-blue-300 ml-2">
+                                        ({selectedStudents.length} selected)
+                                      </span>
+                                    )}
+                                  </div>
+                                </label>
+                                
+                                <div className="border-t border-white/10 my-2"></div>
+                                
+                                {/* Individual Student Checkboxes */}
+                                {subjectStudents.map((student) => {
+                                  const isSelected = selectedStudents.includes(student.Reg_No);
+                                  return (
+                                    <label
+                                      key={student.Reg_No}
+                                      className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all group ${
+                                        isSelected 
+                                          ? 'bg-blue-500/20 border border-blue-500/30' 
+                                          : 'hover:bg-white/5 border border-transparent'
+                                      }`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={isSelected}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            setSelectedStudents([...selectedStudents, student.Reg_No]);
+                                          } else {
+                                            setSelectedStudents(selectedStudents.filter(reg => reg !== student.Reg_No));
+                                          }
+                                        }}
+                                        className="w-5 h-5 rounded border-2 border-white/30 bg-white/10 text-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer"
+                                      />
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-3 w-full">
+                                          <span className="text-sm font-mono text-purple-300 font-semibold">
+                                            {student.Reg_No}
+                                          </span>
+
+                                          <span className="text-sm text-white/90 font-medium truncate">
+                                            {student.Name || "N/A"}
+                                          </span>
+
+                                          <span className="ml-auto">
+                                            <span className={`text-xs px-2 py-0.5 rounded font-semibold ${
+                                              ['A', 'A+', 'O'].includes((student.Grade || '').toUpperCase()) 
+                                                ? 'bg-emerald-500/20 text-emerald-300' 
+                                                : ['F', 'E', 'D'].includes((student.Grade || '').toUpperCase())
+                                                ? 'bg-red-500/20 text-red-300'
+                                                : 'bg-yellow-500/20 text-yellow-300'
+                                            }`}>
+                                              {(student.Grade || "N/A").toString().toUpperCase()}
+                                            </span>
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                              
+                              {/* Selected Students Summary */}
+                              {selectedStudents.length > 0 && (
+                                <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                                  <h4 className="text-xs font-semibold text-blue-300 mb-2">
+                                    Selected Students ({selectedStudents.length}):
+                                  </h4>
+                                  <div className="flex flex-wrap gap-2">
+                                    {selectedStudents.slice(0, 5).map((regNo) => {
+                                      const student = subjectStudents.find(s => s.Reg_No === regNo);
+                                      return (
+                                        <span
+                                          key={regNo}
+                                          className="text-xs px-2 py-1 bg-blue-500/20 border border-blue-500/30 rounded text-blue-200 font-medium"
+                                        >
+                                          {student?.Name || regNo}
+                                        </span>
+                                      );
+                                    })}
+                                    {selectedStudents.length > 5 && (
+                                      <span className="text-xs px-2 py-1 bg-blue-500/20 border border-blue-500/30 rounded text-blue-200 font-medium">
+                                        +{selectedStudents.length - 5} more
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Student Performance Chart for single selection */}
+                              {selectedStudents.length === 1 && (
+                                <div className="mt-4 p-4 bg-white/5 rounded-xl border border-white/10">
+                                  <div className="flex items-center justify-between mb-3">
+                                    <span className="text-white/90 text-sm font-semibold">Student Performance</span>
+                                  </div>
+
+                                  {loadingStudentRecords ? (
+                                    <div className="p-3 bg-white/5 rounded-lg">
+                                      <div className="w-4 h-4 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
+                                      <p className="text-xs text-white/60 mt-2">Loading student records...</p>
+                                    </div>
+                                  ) : studentRecordsError ? (
+                                    <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+                                      <p className="text-sm text-red-200">{studentRecordsError}</p>
+                                    </div>
+                                  ) : studentRecords && studentRecords.length > 0 ? (
+                                    (() => {
+                                      // Build semester-wise average grade points
+                                      const gradeMap = { O:10, E:9, A:8, B:7, C:6, D:5, F:0, S:0, I:0, M:0, R:0 };
+                                      const semMap = {};
+                                      studentRecords.forEach(rec => {
+                                        const semRaw = rec.Sem || rec.sem || '';
+                                        const semNumMatch = String(semRaw).match(/(\d+)/);
+                                        const semNum = semNumMatch ? parseInt(semNumMatch[0], 10) : null;
+                                        const semLabel = semNum ? `Sem ${semNum}` : (semRaw || 'Unknown');
+                                        const grade = (rec.Grade || rec.grade || '').toString().toUpperCase();
+                                        const credits = parseFloat(rec.Credits || rec.Credit || 1) || 1;
+                                        const points = gradeMap[grade] !== undefined ? gradeMap[grade] : 0;
+                                        if (!semMap[semLabel]) semMap[semLabel] = { sum: 0, credits: 0, semNum: semNum || 999 };
+                                        semMap[semLabel].sum += points * credits;
+                                        semMap[semLabel].credits += credits;
+                                      });
+
+                                      const trendData = Object.entries(semMap)
+                                        .map(([sem, val]) => ({ semester: sem, average: val.credits > 0 ? (val.sum / val.credits).toFixed(2) : '0' , semNum: val.semNum }))
+                                        .sort((a, b) => a.semNum - b.semNum)
+                                        .map(({semester, average}) => ({ semester, average }));
+
+                                      return (
+                                        <div className="h-64">
+                                          <GradeTrendsOverTimeChart data={trendData} />
+                                        </div>
+                                      );
+                                    })()
+                                  ) : (
+                                    <div className="p-3 text-xs text-white/60">No detailed records available for this student.</div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Student Comparison Chart for 2+ selections */}
+                              {/* Subject-wise Pass/Fail Analysis for 2+ students */}
+                              {selectedStudents.length >= 2 && (
+                                <div className="mt-4 p-4 bg-white/5 rounded-xl border border-white/10">
+                                  <div className="flex items-center justify-between mb-3">
+                                    <span className="text-white/90 text-sm font-semibold">
+                                      Subject-wise Pass/Fail Analysis ({selectedStudents.length} students)
+                                    </span>
+                                    {subjectWiseAnalysis.length > 0 && (
+                                      <button
+                                        onClick={() => {
+                                          const exportData = subjectWiseAnalysis.map((item, idx) => ({
+                                            "S.No": idx + 1,
+                                            "Subject": item.subject,
+                                            "Passed": item.passed,
+                                            "Failed": item.failed,
+                                            "Total": item.total,
+                                            "Pass Rate (%)": item.passRate
+                                          }));
+                                          try {
+                                            const ws = XLSX.utils.json_to_sheet(exportData);
+                                            const wb = XLSX.utils.book_new();
+                                            XLSX.utils.book_append_sheet(wb, ws, "Subject Analysis");
+                                            ws['!cols'] = [
+                                              { wch: 8 },   // S.No
+                                              { wch: 25 },  // Subject
+                                              { wch: 12 },  // Passed
+                                              { wch: 12 },  // Failed
+                                              { wch: 10 },  // Total
+                                              { wch: 15 }   // Pass Rate
+                                            ];
+                                            const dateStr = new Date().toISOString().split('T')[0];
+                                            XLSX.writeFile(wb, `Subject_Analysis_${dateStr}.xlsx`);
+                                          } catch (err) {
+                                            console.error('Export failed:', err);
+                                            alert('Failed to export to Excel');
+                                          }
+                                        }}
+                                        className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition"
+                                      >
+                                        Export Excel
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {loadingSubjectWiseAnalysis ? (
+                                    <div className="p-3 bg-white/5 rounded-lg flex items-center gap-2">
+                                      <div className="w-4 h-4 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
+                                      <p className="text-xs text-white/60">Loading subject analysis...</p>
+                                    </div>
+                                  ) : subjectWiseAnalysis.length > 0 ? (
+                                    <>
+                                      {/* Bar Chart with Percentages */}
+                                      <div className="mb-6">
+                                        <div className="text-white/70 text-xs font-medium mb-3">Pass/Fail Distribution (%)</div>
+                                        <div className="h-64">
+                                          <ResponsiveContainer width="100%" height="100%">
+                                            <BarChart 
+                                              data={subjectWiseAnalysis.map(item => ({
+                                                ...item,
+                                                passPercentage: ((item.passed / item.total) * 100).toFixed(1),
+                                                failPercentage: ((item.failed / item.total) * 100).toFixed(1)
+                                              }))}
+                                            >
+                                              <XAxis 
+                                                dataKey="subject" 
+                                                tick={{ fontSize: 11, fill: '#ffffff' }}
+                                                angle={-45}
+                                                textAnchor="end"
+                                                height={80}
+                                              />
+                                              <YAxis 
+                                                tick={{ fontSize: 12, fill: '#ffffff' }}
+                                                label={{ value: 'Percentage (%)', angle: -90, position: 'insideLeft' }}
+                                              />
+                                              <Tooltip 
+                                                cursor={{ fill: 'rgba(255, 255, 255, 0.1)' }}
+                                                contentStyle={{ 
+                                                  backgroundColor: 'rgba(0, 0, 0, 0.8)', 
+                                                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                                                  borderRadius: '8px'
+                                                }}
+                                                formatter={(value) => `${value}%`}
+                                                labelFormatter={(label) => `Subject: ${label}`}
+                                              />
+                                              <Legend />
+                                              <Bar dataKey="passPercentage" fill="rgba(34, 197, 94, 0.8)" name="Passed (%)" radius={[8, 8, 0, 0]} label={{ position: 'top', fontSize: 11, fill: '#ffffff', formatter: (value) => `${value}%` }} />
+                                              <Bar dataKey="failPercentage" fill="rgba(239, 68, 68, 0.8)" name="Failed (%)" radius={[8, 8, 0, 0]} label={{ position: 'top', fontSize: 11, fill: '#ffffff', formatter: (value) => `${value}%` }} />
+                                            </BarChart>
+                                          </ResponsiveContainer>
+                                        </div>
+                                      </div>
+
+                                      {/* Detailed Report Table */}
+                                      <div className="overflow-x-auto">
+                                        <div className="text-white/70 text-xs font-medium mb-3">Detailed Report</div>
+                                        <table className="w-full text-xs">
+                                          <thead>
+                                            <tr className="border-b border-white/10 bg-white/5">
+                                              <th className="px-3 py-2 text-left text-white/80">Subject</th>
+                                              <th className="px-3 py-2 text-center text-white/80">Passed</th>
+                                              <th className="px-3 py-2 text-center text-white/80">Failed</th>
+                                              <th className="px-3 py-2 text-center text-white/80">Total</th>
+                                              <th className="px-3 py-2 text-center text-white/80">Pass %</th>
+                                              <th className="px-3 py-2 text-center text-white/80">Fail %</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {subjectWiseAnalysis.map((item, idx) => (
+                                              <tr key={idx} className="border-b border-white/5 hover:bg-white/5 transition">
+                                                <td className="px-3 py-2 text-white/90">{item.subject}</td>
+                                                <td className="px-3 py-2 text-center text-green-400 font-semibold">{item.passed}</td>
+                                                <td className="px-3 py-2 text-center text-red-400 font-semibold">{item.failed}</td>
+                                                <td className="px-3 py-2 text-center text-white/80">{item.total}</td>
+                                                <td className="px-3 py-2 text-center">
+                                                  <span className="bg-green-500/20 text-green-400 px-2 py-1 rounded text-xs font-semibold">
+                                                    {item.passRate}%
+                                                  </span>
+                                                </td>
+                                                <td className="px-3 py-2 text-center">
+                                                  <span className="bg-red-500/20 text-red-400 px-2 py-1 rounded text-xs font-semibold">
+                                                    {(100 - parseFloat(item.passRate)).toFixed(1)}%
+                                                  </span>
+                                                </td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <div className="p-3 text-xs text-white/60">No subject data available for analysis.</div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Student Comparison Chart for 2-9 students (OLD - keeping for reference) */}
+                              {false && selectedStudents.length >= 2 && selectedStudents.length < 10 && (
+                                <div className="mt-4 p-4 bg-white/5 rounded-xl border border-white/10">
+                                  <div className="flex items-center justify-between mb-3">
+                                    <span className="text-white/90 text-sm font-semibold">
+                                      Student Comparison ({selectedStudents.length} students)
+                                    </span>
+                                  </div>
+
+                                  {(() => {
+                                    // Build comparison data from selected students in subjectStudents list
+                                    const comparisonData = selectedStudents.map(regNo => {
+                                      const student = subjectStudents.find(s => s.Reg_No === regNo);
+                                      if (!student) return null;
+                                      
+                                      // Convert grade to numeric points for chart
+                                      const gradeMap = { O:10, E:9, A:8, B:7, C:6, D:5, F:0, S:0, I:0, M:0, R:0 };
+                                      const grade = (student.Grade || '').toString().toUpperCase();
+                                      const points = gradeMap[grade] || 0;
+                                      
+                                      return {
+                                        name: `${student.Name || 'N/A'} (${student.Reg_No})`,
+                                        grade: points,
+                                        gradeLabel: grade || 'N/A',
+                                        regNo: student.Reg_No
+                                      };
+                                    }).filter(Boolean);
+
+                                    return comparisonData.length > 0 ? (
+                                      <div className="h-64">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                          <BarChart data={comparisonData}>
+                                            <XAxis 
+                                              dataKey="name" 
+                                              tick={{ fontSize: 12, fill: '#ffffff' }}
+                                              angle={-45}
+                                              textAnchor="end"
+                                              height={80}
+                                            />
+                                            <YAxis 
+                                              tick={{ fontSize: 12, fill: '#ffffff' }}
+                                              domain={[0, 10]}
+                                              label={{ value: 'Grade Points', angle: -90, position: 'insideLeft' }}
+                                            />
+                                            <Tooltip 
+                                              cursor={{ fill: 'rgba(255, 255, 255, 0.1)' }}
+                                              contentStyle={{ 
+                                                backgroundColor: 'rgba(0, 0, 0, 0.8)', 
+                                                border: '1px solid rgba(255, 255, 255, 0.2)',
+                                                borderRadius: '8px'
+                                              }}
+                                              formatter={(value, name) => {
+                                                if (name === 'grade') {
+                                                  const idx = comparisonData.findIndex(d => d.grade === value);
+                                                  return [value.toFixed(2), `Grade: ${comparisonData[idx]?.gradeLabel || 'N/A'}`];
+                                                }
+                                                return [value, name];
+                                              }}
+                                            />
+                                            <Legend />
+                                            <Bar 
+                                              dataKey="grade" 
+                                              fill="rgba(59, 130, 246, 0.8)"
+                                              name="Grade Points"
+                                              radius={[8, 8, 0, 0]}
+                                            />
+                                          </BarChart>
+                                        </ResponsiveContainer>
+                                      </div>
+                                    ) : (
+                                      <div className="p-3 text-xs text-white/60">No data available for comparison.</div>
+                                    );
+                                  })()}
+                                </div>
+                              )}
+
+                              {/* Pass/Fail aggregate for 10+ students - REMOVED, using subject-wise instead */}
+                            </div>
+                          ) : (
+                            <div className="text-center py-4 text-white/50">
+                              <p className="text-sm text-white/70">No students found for this subject</p>
+                              <p className="text-xs text-white/50 mt-1">
+                                {(() => {
+                                  const activeFilters = [];
+                                  if (subjectComparisonBatch && subjectComparisonBatch !== "all") {
+                                    activeFilters.push(`Batch: ${subjectComparisonBatch}`);
+                                  }
+                                  if (subjectComparisonBranch && subjectComparisonBranch !== "all") {
+                                    activeFilters.push(`Branch: ${subjectComparisonBranch}`);
+                                  }
+                                  if (subjectComparisonSemester && subjectComparisonSemester !== "all") {
+                                    activeFilters.push(`Semester: ${subjectComparisonSemester}`);
+                                  }
+                                  
+                                  if (activeFilters.length > 0) {
+                                    return `Active filters: ${activeFilters.join(", ")}. Try removing filters or selecting a different subject.`;
+                                  }
+                                  return "The subject may not exist in the database. Try selecting a different subject.";
+                                })()}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     )}
                   </div>
                   
@@ -2251,72 +2887,6 @@ export default function AnalyticsDashboard() {
                 </div>
               )}
 
-              {/* Student Dropdown - Show right after subject selection */}
-              {selectedSubjects.length === 1 && (
-                <div className="mt-4 p-4 bg-white/5 rounded-xl border border-white/10">
-                  <div className="mb-3">
-                    <label className="block text-sm font-semibold text-white/90 mb-2 flex items-center gap-2">
-                      <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                      </svg>
-                      Select Student:
-                    </label>
-                    
-                    {loadingStudents ? (
-                      <div className="flex items-center gap-3 p-3 bg-white/5 rounded-lg">
-                        <div className="w-4 h-4 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
-                        <span className="text-white/70 text-sm">Loading students...</span>
-                      </div>
-                    ) : subjectStudents.length > 0 ? (
-                      <div className="space-y-3">
-                        <select
-                          value={selectedStudentRegNo}
-                          onChange={(e) => setSelectedStudentRegNo(e.target.value)}
-                          className="w-full px-4 py-3 bg-white/5 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        >
-                          <option value="" className="text-gray-800">-- Select a student --</option>
-                          {subjectStudents.map((student) => (
-                            <option key={student.Reg_No} value={student.Reg_No} className="text-gray-800">
-                              {student.Reg_No} - {student.Name || "N/A"} ({student.Branch || "N/A"}) - Grade: {student.Grade || "N/A"}
-                            </option>
-                          ))}
-                        </select>
-                        {selectedStudentRegNo && (
-                          <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-                            <h4 className="text-xs font-semibold text-blue-300 mb-2">Selected Student Details:</h4>
-                            {(() => {
-                              const student = subjectStudents.find(s => s.Reg_No === selectedStudentRegNo);
-                              return student ? (
-                                <div className="space-y-1 text-xs text-white/80">
-                                  <p><span className="font-semibold">Reg No:</span> {student.Reg_No}</p>
-                                  <p><span className="font-semibold">Name:</span> {student.Name || "N/A"}</p>
-                                  <p><span className="font-semibold">Branch:</span> {student.Branch || "N/A"}</p>
-                                  <p><span className="font-semibold">Grade:</span> 
-                                    <span className={`ml-2 px-2 py-0.5 rounded text-xs font-semibold ${
-                                      ['A', 'A+', 'O'].includes(student.Grade?.toUpperCase()) 
-                                        ? 'bg-emerald-500/20 text-emerald-300' 
-                                        : ['F', 'E', 'D'].includes(student.Grade?.toUpperCase())
-                                        ? 'bg-red-500/20 text-red-300'
-                                        : 'bg-yellow-500/20 text-yellow-300'
-                                    }`}>
-                                      {student.Grade || "N/A"}
-                                    </span>
-                                  </p>
-                                  <p><span className="font-semibold">Semester:</span> {student.Sem || "N/A"}</p>
-                                </div>
-                              ) : null;
-                            })()}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="text-center py-4 text-white/50">
-                        <p className="text-sm text-white/70">No students found for this subject</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
 
             {selectedSubjects.length > 0 ? (
