@@ -1,8 +1,9 @@
 "use client";
 
 import AnalyticsDashboard from "@/components/AnalyticsDashboard";
+import { Suspense } from "react";
 
-export default function TeacherAnalyticsPage() {
+function TeacherAnalyticsPageContent() {
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_20%_30%,rgba(59,130,246,0.15),transparent_50%),radial-gradient(circle_at_80%_30%,rgba(16,185,129,0.12),transparent_50%),radial-gradient(circle_at_40%_70%,rgba(245,158,11,0.10),transparent_50%),radial-gradient(circle_at_60%_80%,rgba(139,92,246,0.12),transparent_50%),radial-gradient(circle_at_90%_10%,rgba(236,72,153,0.08),transparent_50%)]">
       {/* Progress bar */}
@@ -28,6 +29,21 @@ export default function TeacherAnalyticsPage() {
         @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
     </div>
+  );
+}
+
+export default function TeacherAnalyticsPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading analytics...</p>
+        </div>
+      </div>
+    }>
+      <TeacherAnalyticsPageContent />
+    </Suspense>
   );
 }
 
