@@ -57,6 +57,14 @@ export async function POST(req) {
     const db = client.db(dbName);
     const cutm = db.collection("result");
 
+    // Ensure indexes exist for optimal performance (creates only if not exist)
+    try {
+      await cutm.createIndex({ Grade: 1 });
+      await cutm.createIndex({ Reg_No: 1, Grade: 1 });
+    } catch (indexErr) {
+      // Index creation failures are non-fatal
+    }
+
     // Security check: Role-based access control
     if (userRole === 'user' || userRole === 'student') {
       // Students can only view their own backlog data
@@ -100,11 +108,59 @@ export async function POST(req) {
     }
 
     // Search for backlogs
-    const { registration, subject_code } = body;
-    let { branch, year, semesters = [], allowAll } = body;
+    const { registration, subject_code, registrations } = body;
+    let { branch, year, semesters = [], allowAll, bulkSummary } = body;
 
-    // Use unified parser
-    const { parseBTechRegistration } = await import('../parse-registration/route');
+    // Handle bulk summary request (optimized for admin dashboard)
+    if (bulkSummary && registrations && Array.isArray(registrations)) {
+      if (userRole !== 'admin' && userRole !== 'teacher') {
+        return NextResponse.json({ error: "Access denied - Bulk summary only for admins/teachers" }, { status: 403 });
+      }
+
+      // Limit to prevent abuse
+      const MAX_BULK_REGISTRATIONS = 5000;
+      const regNosToQuery = registrations.slice(0, MAX_BULK_REGISTRATIONS).map(r => r.toUpperCase());
+
+      // Single optimized query to get all backlogs for all students
+      const bulkQuery = {
+        Reg_No: { $in: regNosToQuery },
+        Grade: { $in: ["F", "M", "S", "I", "R"] }
+      };
+
+      // Use aggregation pipeline for better performance with large datasets
+      const allBacklogs = await cutm.aggregate([
+        { $match: bulkQuery },
+        { $project: { _id: 0, Reg_No: 1, Name: 1, Branch: 1 } },
+        { $limit: regNosToQuery.length * 50 } // Safety limit: max 50 backlogs per student
+      ]).toArray();
+
+      // Group by registration number and count
+      const summaryMap = new Map();
+      
+      // Initialize all students with 0 backlogs
+      regNosToQuery.forEach(regNo => {
+        summaryMap.set(regNo, { Reg_No: regNo, Name: "", Branch: "", TotalBacklogs: 0 });
+      });
+
+      // Count backlogs per student
+      allBacklogs.forEach(record => {
+        const regNo = record.Reg_No;
+        if (summaryMap.has(regNo)) {
+          const existing = summaryMap.get(regNo);
+          existing.TotalBacklogs += 1;
+          if (!existing.Name && record.Name) existing.Name = record.Name;
+          if (!existing.Branch && record.Branch) existing.Branch = record.Branch;
+        }
+      });
+
+      const summaries = Array.from(summaryMap.values());
+
+      return NextResponse.json({
+        summaries,
+        total: summaries.length,
+        school: 'SOET'
+      });
+    }
 
     const query = { Grade: { $in: ["F", "M", "S", "I", "R"] } };
 
@@ -139,18 +195,50 @@ export async function POST(req) {
       query.Reg_No = { $regex: `^${yy}` };
     }
 
-    // Removed console.log to reduce overhead
+    // Optimize branch filtering at database level when possible
+    if (branch && branch !== 'All' && !registration) {
+      // Map branch names to codes for database-level filtering
+      const branchCodeMap = {
+        'Civil Engineering': '110',
+        'Computer Science and Engineering': '120',
+        'Electronics and Communication Engineering': '130',
+        'Electrical and Electronics Engineering': '150',
+        'Mechanical Engineering': '160',
+        'AIML': '170',
+        'Civil': '110',
+        'CSE': '120',
+        'ECE': '130',
+        'EEE': '150',
+        'Mechanical': '160',
+        'ME': '160'
+      };
 
-    // Build cursor with projection and sort
-    let cursor = cutm.find(query).project({
-      _id: 0,
-      Reg_No: 1,
-      Name: 1,
-      Branch: 1,
-      Sem: 1,
-      Subject_Code: 1,
-      Subject_Name: 1,
-      Grade: 1
+      const branchCode = branchCodeMap[branch];
+      if (branchCode) {
+        // Add regex to match branch code at positions 5-7 for B.Tech
+        const existingRegex = query.Reg_No?.$regex;
+        if (existingRegex) {
+          // Combine with year filter
+          query.Reg_No = { $regex: `^${existingRegex.slice(1)}01${branchCode}` };
+        } else {
+          // Just branch filter
+          query.Reg_No = { $regex: `^\\d{4}01${branchCode}` };
+        }
+      }
+    }
+
+    // Build cursor with lean projection and sort
+    let cursor = cutm.find(query, {
+      projection: {
+        _id: 0,
+        Reg_No: 1,
+        Name: 1,
+        Branch: 1,
+        Sem: 1,
+        Subject_Code: 1,
+        Subject_Name: 1,
+        Grade: 1
+      }
     }).sort({ Sem: 1, Subject_Code: 1 });
 
     // For very broad "allowAll" admin queries, cap rows for performance
@@ -160,64 +248,44 @@ export async function POST(req) {
 
     const backlogs = await cursor.toArray();
 
-    // Parse and enrich records (B.Tech only)
-    const processedBacklogs = backlogs.map(record => {
-      const regNo = record.Reg_No || '';
-      const parsed = parseBTechRegistration(regNo);
+    // Quick validation: Filter B.Tech records by regex pattern (faster than parsing)
+    const btechPattern = /^\d{6}01\d{5}/; // YYMMDD-01-BBBXX where 01 = B.Tech
+    const validBacklogs = backlogs.filter(record => btechPattern.test(record.Reg_No || ''));
 
+    // Parse and enrich only valid records
+    const processedBacklogs = validBacklogs.map(record => {
+      const regNo = record.Reg_No || '';
+      
+      // Fast extraction without full parsing
       let batch = 'N/A';
       let branchName = record.Branch || 'N/A';
 
-      if (parsed && parsed.isValid && parsed.isBTech) {
-        batch = parsed.year; // "2023"
-        branchName = parsed.branch; // "Civil", "CSE", etc.
-      } else if (regNo.length >= 2) {
-        // Fallback
-        batch = `20${regNo.slice(0, 2)}`;
+      if (regNo.length >= 12) {
+        const yy = regNo.slice(0, 2);
+        batch = `20${yy}`;
+        
+        // Extract branch code (positions 5-7)
+        const branchCode = regNo.slice(6, 9);
+        const branchCodeMap = {
+          '110': 'Civil',
+          '120': 'CSE',
+          '130': 'ECE',
+          '150': 'EEE',
+          '160': 'Mechanical',
+          '170': 'AIML'
+        };
+        branchName = branchCodeMap[branchCode] || branchName;
       }
 
       return {
         ...record,
         Batch: batch,
-        Branch: branchName,
-        _parsed: parsed // Keep parsed object for filtering
+        Branch: branchName
       };
-    }).filter(item => {
-      // Filter out non-B.Tech records
-      return item._parsed && item._parsed.isValid && item._parsed.isBTech;
     });
 
-    // Apply strict Branch Filtering in JS (B.Tech branches only)
-    let filteredBacklogs = processedBacklogs;
-
-    if (branch && branch !== 'All') {
-      filteredBacklogs = filteredBacklogs.filter(item => {
-        const parsed = item._parsed;
-        if (!parsed || !parsed.isValid || !parsed.isBTech) return false;
-
-        // Handle B.Tech branches only
-        const branchMap = {
-          'Civil Engineering': 'Civil',
-          'Computer Science and Engineering': 'CSE',
-          'Electronics and Communication Engineering': 'ECE',
-          'Electrical and Electronics Engineering': 'EEE',
-          'Mechanical Engineering': 'Mechanical',
-          'AIML': 'AIML',
-          'Civil': 'Civil',
-          'CSE': 'CSE',
-          'ECE': 'ECE',
-          'EEE': 'EEE',
-          'Mechanical': 'Mechanical',
-          'ME': 'Mechanical'
-        };
-
-        const targetBranch = branchMap[branch] || branch;
-        return parsed.branch === targetBranch;
-      });
-    }
-
-    // Clean up internal _parsed property before returning
-    const finalBacklogs = filteredBacklogs.map(({ _parsed, ...rest }) => rest);
+    // Since we already filtered at DB level (if branch was provided), no need for additional JS filtering
+    const finalBacklogs = processedBacklogs;
 
     return NextResponse.json({
       backlogs: finalBacklogs,

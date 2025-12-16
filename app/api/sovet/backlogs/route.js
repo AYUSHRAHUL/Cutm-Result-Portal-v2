@@ -2,10 +2,10 @@ import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import { verifyToken } from "@/lib/auth";
 import { getCampusSchoolDatabase, getDatabaseFromRegistration } from "@/lib/campus";
+import { parseDiplomaRegistration } from "@/lib/parse-diploma-registration";
 
 // Hard safety cap for very broad admin queries
 const MAX_BACKLOG_ROWS = 2000;
-import { parseDiplomaRegistration } from "../parse-registration/route";
 
 /**
  * SOVET (School of Vocational Education & Training) Backlogs Route
@@ -60,6 +60,14 @@ export async function POST(req) {
     const db = client.db(dbName);
     const cutm = db.collection("result");
 
+    // Ensure indexes exist for optimal performance (creates only if not exist)
+    try {
+      await cutm.createIndex({ Grade: 1 });
+      await cutm.createIndex({ Reg_No: 1, Grade: 1 });
+    } catch (indexErr) {
+      // Index creation failures are non-fatal
+    }
+
     // Security check: Role-based access control
     if (userRole === 'user' || userRole === 'student') {
       // Students can only view their own backlog data
@@ -104,8 +112,59 @@ export async function POST(req) {
     }
 
     // Search for backlogs
-    const { registration, subject_code } = body;
-    let { branch, year, semesters = [], allowAll } = body;
+    const { registration, subject_code, registrations } = body;
+    let { branch, year, semesters = [], allowAll, bulkSummary } = body;
+
+    // Handle bulk summary request (optimized for admin dashboard)
+    if (bulkSummary && registrations && Array.isArray(registrations)) {
+      if (userRole !== 'admin' && userRole !== 'teacher') {
+        return NextResponse.json({ error: "Access denied - Bulk summary only for admins/teachers" }, { status: 403 });
+      }
+
+      // Limit to prevent abuse
+      const MAX_BULK_REGISTRATIONS = 5000;
+      const regNosToQuery = registrations.slice(0, MAX_BULK_REGISTRATIONS).map(r => r.toUpperCase());
+
+      // Single optimized query to get all backlogs for all students
+      const bulkQuery = {
+        Reg_No: { $in: regNosToQuery },
+        Grade: { $in: ["F", "M", "S", "I", "R"] }
+      };
+
+      // Use aggregation pipeline for better performance with large datasets
+      const allBacklogs = await cutm.aggregate([
+        { $match: bulkQuery },
+        { $project: { _id: 0, Reg_No: 1, Name: 1, Branch: 1 } },
+        { $limit: regNosToQuery.length * 50 } // Safety limit: max 50 backlogs per student
+      ]).toArray();
+
+      // Group by registration number and count
+      const summaryMap = new Map();
+      
+      // Initialize all students with 0 backlogs
+      regNosToQuery.forEach(regNo => {
+        summaryMap.set(regNo, { Reg_No: regNo, Name: "", Branch: "", TotalBacklogs: 0 });
+      });
+
+      // Count backlogs per student
+      allBacklogs.forEach(record => {
+        const regNo = record.Reg_No;
+        if (summaryMap.has(regNo)) {
+          const existing = summaryMap.get(regNo);
+          existing.TotalBacklogs += 1;
+          if (!existing.Name && record.Name) existing.Name = record.Name;
+          if (!existing.Branch && record.Branch) existing.Branch = record.Branch;
+        }
+      });
+
+      const summaries = Array.from(summaryMap.values());
+
+      return NextResponse.json({
+        summaries,
+        total: summaries.length,
+        school: 'SOVET'
+      });
+    }
 
     // Use unified parser
     // Already imported at top
@@ -143,18 +202,53 @@ export async function POST(req) {
       query.Reg_No = { $regex: `^${yy}` };
     }
 
-    // Removed console.log to reduce overhead
+    // Optimize branch filtering at database level for Diploma
+    if (branch && branch !== 'All' && !registration) {
+      // Map branch names to codes for Diploma (positions 5-7: 071XX)
+      const branchCodeMap = {
+        'Civil Engineering': '13',
+        'Civil': '13',
+        'Mechanical Engineering': '12',
+        'Mechanical': '12',
+        'ME': '12',
+        'Electrical Engineering': '11',
+        'Electrical': '11',
+        'EEE': '11',
+        'Computer Science Engineering': '(40|41|14|43)',
+        'CSE': '(40|41|14|43)',
+        'Automobile Engineering': '(15|44)',
+        'Automobile': '(15|44)',
+        'AE': '(15|44)',
+        'Mining Engineering': '(16|46)',
+        'Mining': '(16|46)',
+        'MiE': '(16|46)'
+      };
 
-    // Build cursor with projection and sort
-    let cursor = cutm.find(query).project({
-      _id: 0,
-      Reg_No: 1,
-      Name: 1,
-      Branch: 1,
-      Sem: 1,
-      Subject_Code: 1,
-      Subject_Name: 1,
-      Grade: 1
+      const branchCode = branchCodeMap[branch];
+      if (branchCode) {
+        const existingRegex = query.Reg_No?.$regex;
+        if (existingRegex) {
+          // Combine with year filter
+          query.Reg_No = { $regex: `^${existingRegex.slice(1)}071${branchCode}` };
+        } else {
+          // Just branch filter (071 = Diploma)
+          query.Reg_No = { $regex: `^\\d{4}071${branchCode}` };
+        }
+      }
+    }
+
+    // Build cursor with lean projection and sort
+    let cursor = cutm.find(query, {
+      projection: {
+        _id: 0,
+        Reg_No: 1,
+        Name: 1,
+        Branch: 1,
+        Sem: 1,
+        Subject_Code: 1,
+        Subject_Name: 1,
+        Grade: 1
+      }
     }).sort({ Sem: 1, Subject_Code: 1 });
 
     // For very broad "allowAll" admin queries, cap rows for performance

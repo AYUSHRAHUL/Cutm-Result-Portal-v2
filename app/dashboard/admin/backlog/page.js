@@ -81,8 +81,10 @@ function BacklogContent() {
   const [count, setCount] = useState(0);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [resultsRendered, setResultsRendered] = useState(false);
   const loadRegsControllerRef = useRef(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("Loading backlog data...");
   const [sortBy, setSortBy] = useState("");
   const [filterGrade, setFilterGrade] = useState("");
   const formRef = useRef(null);
@@ -737,11 +739,23 @@ function BacklogContent() {
   }
 
   async function search(e) {
-    e?.preventDefault();
-    setMessage(""); setError(""); setRows([]); setCount(0);
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
+    // Clear previous states in correct order
+    setError("");
+    setMessage("");
     setShowAllMode(false);
+    setRows([]);
+    setCount(0);
+    
+    // Set loading states
+    setLoadingMessage("Loading backlog data...");
+    setResultsRendered(false);
+    setLoading(true);
     try {
-      setLoading(true);
       const regValueRaw = regMode === "list" ? selectedReg : registration;
       const regValue = (regValueRaw || "").trim();
       const regValueUpper = regValue.toUpperCase();
@@ -816,25 +830,49 @@ function BacklogContent() {
           year: year || "",
           allowAll: isAll ? true : undefined
         };
-      // Use AbortController to cancel previous slow requests when typing quickly
+      // Use AbortController to cancel previous slow requests
       if (search.controller) {
-        try { search.controller.abort(); } catch { }
+        try { 
+          search.controller.abort();
+        } catch (err) {
+          // Ignore abort errors
+        }
       }
+      
       const reqId = Date.now();
       search.requestId = reqId;
       search.controller = new AbortController();
+      
       const backlogUrl = getSchoolApiUrl("backlogs");
-      const res = await fetch(backlogUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: search.controller.signal,
-        cache: "no-store",
-        body: JSON.stringify(body)
-      });
-      const data = await res.json();
-      if (search.requestId !== reqId) return; // ignore stale
+      let res, data;
+      
+      try {
+        res = await fetch(backlogUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: search.controller.signal,
+          cache: "no-store",
+          body: JSON.stringify(body)
+        });
+        
+        data = await res.json();
+      } catch (fetchErr) {
+        // Check if this was an abort
+        if (fetchErr.name === 'AbortError') {
+          setLoading(false);
+          return;
+        }
+        throw fetchErr;
+      }
+      
+      // Check if this request is still the latest
+      if (search.requestId !== reqId) {
+        setLoading(false);
+        return;
+      }
       if (!res.ok) throw new Error(data.error || "No backlog found");
       const list = data.backlogs || data.result || [];
+      
       setRows(list);
       setCount(list.length);
       setMessage(data.message || "Results loaded");
@@ -865,7 +903,8 @@ function BacklogContent() {
 
         // Branch override
         try {
-          const overrideRes = await fetch(`/api/branch-change?reg=${regValueUpper}`);
+          const overrideUrl = appendSchoolParams(`/api/branch-change?reg=${regValueUpper}`);
+          const overrideRes = await fetch(overrideUrl);
           if (overrideRes.ok) {
             const overrideData = await overrideRes.json();
             if (overrideData.override) {
@@ -916,14 +955,41 @@ function BacklogContent() {
           Batch: studentBatch || pickBatch(year, regValueUpper)
         });
       }
+      
+      // Note: Loading will be hidden by useEffect after results are rendered
     } catch (err) {
       setError(err.message);
-    } finally { setLoading(false); }
+      setLoading(false); // Hide loading on error immediately
+    }
   }
 
   useEffect(() => {
     formRef.current?.querySelector('input[name="registration"]')?.focus();
   }, []);
+
+  // Hide loading after results are rendered
+  useEffect(() => {
+    // Only proceed if loading is active and resultsRendered flag indicates new results
+    if (!loading || resultsRendered) return;
+    
+    if (rows.length > 0) {
+      // Results have been set, now wait for React to render them
+      const timeoutId = setTimeout(() => {
+        setLoading(false);
+        setResultsRendered(true);
+      }, 150);
+      
+      return () => clearTimeout(timeoutId);
+    } else if (message && rows.length === 0) {
+      // No results case or empty result with message - hide loading after message is set
+      const timeoutId = setTimeout(() => {
+        setLoading(false);
+        setResultsRendered(true);
+      }, 100);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [rows, message, resultsRendered, loading]);
 
   // Keep student info in sync when summary data arrives with better details
   useEffect(() => {
@@ -1017,28 +1083,34 @@ function BacklogContent() {
             return; // Skip reloading if summaries already exist
           }
 
+          // Show loading indicator for All Students Summary
+          if (!cancelled) {
+            setLoadingMessage("Loading All Students Summary...");
+            setLoading(true);
+          }
+
           // In Show All mode, build branch overrides and per-student backlog summary
-          // CRITICAL: Process in batches to prevent connection limit exhaustion
-          const BATCH_SIZE = 5; // Reduced to 5 to prevent MongoDB connection limit issues
-          const MAX_STUDENTS = 50; // Reduced limit to prevent overwhelming MongoDB (Atlas free tier has 50 max connections)
+          // OPTIMIZED: Use bulk API to get all backlog data in one request
+          const MAX_STUDENTS = 5000; // Can handle much more with bulk API
           const studentsToProcess = uniqueRegNos.slice(0, MAX_STUDENTS);
           
-          // Process branch overrides in batches
+          // Process branch overrides in batches (still needed for branch override data)
+          const OVERRIDE_BATCH_SIZE = 20; // Increased batch size since these are simple GET requests
           const overrideResults = [];
-          for (let i = 0; i < studentsToProcess.length; i += BATCH_SIZE) {
+          for (let i = 0; i < studentsToProcess.length; i += OVERRIDE_BATCH_SIZE) {
             if (cancelled) return;
-            const batch = studentsToProcess.slice(i, i + BATCH_SIZE);
+            const batch = studentsToProcess.slice(i, i + OVERRIDE_BATCH_SIZE);
             const batchPromises = batch.map(regNo =>
-              fetch(`/api/branch-change?reg=${regNo}`)
+              fetch(appendSchoolParams(`/api/branch-change?reg=${regNo}`))
                 .then(res => res.ok ? res.json() : null)
                 .then(data => data?.override ? { reg: regNo.toUpperCase(), branch: data.override } : null)
                 .catch(() => null)
             );
             const batchResults = await Promise.all(batchPromises);
             overrideResults.push(...batchResults);
-            // Small delay between batches to prevent overwhelming server
-            if (i + BATCH_SIZE < studentsToProcess.length) {
-              await new Promise(resolve => setTimeout(resolve, 100));
+            // Minimal delay between batches
+            if (i + OVERRIDE_BATCH_SIZE < studentsToProcess.length) {
+              await new Promise(resolve => setTimeout(resolve, 50));
             }
           }
           if (cancelled) return;
@@ -1050,82 +1122,102 @@ function BacklogContent() {
             }
           });
 
-          // Process backlog summaries in batches (sequential to prevent connection exhaustion)
-          const summaries = [];
-          for (let i = 0; i < studentsToProcess.length; i += BATCH_SIZE) {
+          // OPTIMIZED: Single bulk API call to get all backlog summaries
+          try {
+            const backlogUrl = getSchoolApiUrl("backlogs");
+            const bulkBacklogRes = await fetch(backlogUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ 
+                bulkSummary: true,
+                registrations: studentsToProcess 
+              })
+            });
+            
             if (cancelled) return;
-            const batch = studentsToProcess.slice(i, i + BATCH_SIZE);
-            const batchPromises = batch.map(async (regNo) => {
-              try {
-                const backlogUrl = getSchoolApiUrl("backlogs");
-                const backlogRes = await fetch(backlogUrl, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ registration: regNo })
-                });
-                const backlogData = await backlogRes.json();
-                const backlogs = backlogData.backlogs || backlogData.result || [];
+            
+            if (!bulkBacklogRes.ok) {
+              throw new Error("Bulk backlog request failed");
+            }
 
+            const bulkBacklogData = await bulkBacklogRes.json();
+            const backlogSummaries = bulkBacklogData.summaries || [];
+            
+            // Build summary map from bulk response
+            const backlogMap = new Map();
+            backlogSummaries.forEach(summary => {
+              backlogMap.set(summary.Reg_No, summary);
+            });
+
+            // Merge with student data
+            const summaries = studentsToProcess.map(regNo => {
+              const backlogInfo = backlogMap.get(regNo) || { TotalBacklogs: 0, Name: "", Branch: "" };
+              const studentInfo = students.find(s => (s.Reg_No || s.registration || "").toUpperCase() === regNo.toUpperCase());
+
+              let studentBranch = "";
+              if (branchOverrides.has(regNo.toUpperCase())) {
+                studentBranch = branchOverrides.get(regNo.toUpperCase());
+              } else if (studentInfo?.Branch) {
+                studentBranch = studentInfo.Branch;
+                if (studentBranch && studentBranch.length <= 5 && studentBranch !== "AIML") {
+                  studentBranch = getFullBranchName(studentBranch);
+                }
+              } else if (backlogInfo.Branch) {
+                studentBranch = backlogInfo.Branch;
+                if (studentBranch && studentBranch.length <= 5 && studentBranch !== "AIML") {
+                  studentBranch = getFullBranchName(studentBranch);
+                }
+              } else {
+                const shortBranch = getBranchFromRegNo(regNo);
+                if (shortBranch) {
+                  studentBranch = getFullBranchName(shortBranch);
+                }
+              }
+
+              if (!studentBranch && branch && branch !== "All") {
+                studentBranch = getFullBranchName(branch);
+              }
+
+              let studentName = studentInfo?.Name || backlogInfo.Name || "";
+
+              return {
+                Reg_No: regNo,
+                Name: studentName,
+                Branch: studentBranch,
+                Batch: studentInfo?.Batch || pickBatch(year, regNo),
+                TotalBacklogs: backlogInfo.TotalBacklogs || 0
+              };
+            });
+
+            if (!cancelled) {
+              setStudentSummary(summaries);
+              summariesLoadedRef.current = true;
+              
+              // Keep loading true briefly to allow React to render the summary table
+              setTimeout(() => {
+                setLoading(false);
+              }, 200);
+            }
+          } catch (error) {
+            // Fallback to empty summaries on error
+            if (!cancelled) {
+              const summaries = studentsToProcess.map(regNo => {
                 const studentInfo = students.find(s => (s.Reg_No || s.registration || "").toUpperCase() === regNo.toUpperCase());
-
-                let studentBranch = "";
-                if (branchOverrides.has(regNo.toUpperCase())) {
-                  studentBranch = branchOverrides.get(regNo.toUpperCase());
-                } else if (studentInfo?.Branch) {
-                  studentBranch = studentInfo.Branch;
-                  if (studentBranch && studentBranch.length <= 5 && studentBranch !== "AIML") {
-                    studentBranch = getFullBranchName(studentBranch);
-                  }
-                } else if (backlogs.length > 0 && backlogs[0]?.Branch) {
-                  studentBranch = backlogs[0].Branch;
-                  if (studentBranch && studentBranch.length <= 5 && studentBranch !== "AIML") {
-                    studentBranch = getFullBranchName(studentBranch);
-                  }
-                } else {
-                  const shortBranch = getBranchFromRegNo(regNo);
-                  if (shortBranch) {
-                    studentBranch = getFullBranchName(shortBranch);
-                  }
-                }
-
-                if (!studentBranch && branch && branch !== "All") {
-                  studentBranch = getFullBranchName(branch);
-                }
-
-                let studentName = studentInfo?.Name || "";
-                if (!studentName && backlogs.length > 0) {
-                  studentName = backlogs[0]?.Name || "";
-                }
-
-                return {
-                  Reg_No: regNo,
-                  Name: studentName,
-                  Branch: studentBranch,
-                  Batch: studentInfo?.Batch || pickBatch(year, regNo),
-                  TotalBacklogs: backlogs.length
-                };
-              } catch {
                 const shortBranch = getBranchFromRegNo(regNo);
                 const fallbackBranch = shortBranch ? getFullBranchName(shortBranch) : (branch && branch !== "All" ? getFullBranchName(branch) : "");
+                
                 return {
                   Reg_No: regNo,
-                  Name: "",
-                  Branch: fallbackBranch,
-                  Batch: year || "",
+                  Name: studentInfo?.Name || "",
+                  Branch: branchOverrides.get(regNo.toUpperCase()) || studentInfo?.Branch || fallbackBranch,
+                  Batch: studentInfo?.Batch || pickBatch(year, regNo),
                   TotalBacklogs: 0
                 };
-              }
-            });
-            // Await each batch before processing the next
-            const batchResults = await Promise.all(batchPromises);
-            summaries.push(...batchResults);
-            // Increased delay between batches to prevent overwhelming server and MongoDB
-            if (i + BATCH_SIZE < studentsToProcess.length) {
-              await new Promise(resolve => setTimeout(resolve, 300));
+              });
+              setStudentSummary(summaries);
+              summariesLoadedRef.current = true;
+              setLoading(false);
             }
-          }
-          if (!cancelled) {
-            setStudentSummary(summaries);
           }
         } else if (!cancelled) {
           setRegList([]);
@@ -1137,6 +1229,7 @@ function BacklogContent() {
         setRegList([]);
         setSelectedReg("");
         setStudentSummary([]);
+        setLoading(false); // Hide loading on error
       }
       }
     };
@@ -1149,6 +1242,18 @@ function BacklogContent() {
       }
     };
   }, [branch, year, regMode, showAllMode]);
+
+  // Reset summaries and results when branch or year changes to force reload
+  useEffect(() => {
+    summariesLoadedRef.current = false;
+    setStudentSummary([]);
+    // Clear current results when filters change
+    if (showAllMode) {
+      setRows([]);
+      setCount(0);
+      setMessage("");
+    }
+  }, [branch, year]);
 
   useEffect(() => {
     if (regMode === "list" && selectedReg) {
@@ -1446,11 +1551,11 @@ function BacklogContent() {
                     </select>
                     <button
                       type="submit"
+                      disabled={!selectedReg || loading}
                       className="w-full rounded-lg sm:rounded-xl text-white font-black px-4 sm:px-5 py-3 sm:py-3.5 transition-all duration-300 hover:shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base min-h-[44px]"
                       style={{
                         background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
                       }}
-                      disabled={!selectedReg || loading}
                     >
                       {loading ? 'Loading...' : (selectedReg ? "Search" : "Select First")}
                     </button>
@@ -2318,7 +2423,7 @@ function BacklogContent() {
                 }}
               >
                 <div className="w-5 h-5 sm:w-6 sm:h-6 border-3 border-white/30 border-t-white rounded-full animate-spin flex-shrink-0"></div>
-                <span className="text-white font-bold text-sm sm:text-base">Loading backlog data...</span>
+                <span className="text-white font-bold text-sm sm:text-base">{loadingMessage}</span>
               </div>
             </div>
           )}

@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
-import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
+import { appendSchoolParams, getSchoolAndCampus, getSchoolApiUrl } from "@/lib/api-helper";
 
 // Helpers
 const branchMapFull = {
@@ -14,92 +14,24 @@ const branchMapFull = {
   'EEE': 'Electrical & Electronics Engineering',
   'Mechanical': 'Mechanical Engineering',
   'Civil': 'Civil Engineering',
-  'AIML': 'AIML',
-  'EE': 'Electrical Engineering',
-  'Mining': 'Mining Engineering',
-  'Automobile': 'Automobile Engineering'
+  'AIML': 'AIML'
 };
 
-
+const shortBranchFromCode = {
+  '1': 'Civil', '2': 'CSE', '3': 'ECE', '4': 'ECE',
+  '5': 'EEE', '6': 'Mechanical', '7': 'AIML',
+  '8': 'CSE', '9': 'Civil'
+};
 
 function getFullBranchName(shortBranch) {
   return branchMapFull[shortBranch] || shortBranch || "";
 }
 
-function getBatchYear(regNo = "") {
-  if (!regNo || regNo.length < 2) return "";
-  const yy = regNo.slice(0, 2);
-  return `20${yy}`;
-}
-
-function pickBatch(preferredYear = "", regNo = "") {
-  if (preferredYear && preferredYear !== "All") return preferredYear;
-  return getBatchYear(regNo) || "";
-}
-
-function deriveBatchFromReg(regNo = "") {
-  if (!regNo || regNo.length < 2) return "";
-  const yy = regNo.slice(0, 2);
-  return `20${yy}`;
-}
-
-// Helper function to get short branch code from registration number (returns short code like "CSE", "ECE", etc.)
 function getBranchFromRegNo(regNo = "") {
   if (!regNo || regNo.length < 8) return "";
-
-  const regStr = String(regNo).trim().toUpperCase();
   
-  // Check program code to determine if it's Diploma (07) or B.Tech
-  const programCode = regStr.length >= 6 ? regStr.slice(4, 6) : "";
-  const branchCode = regStr.slice(5, 8); // Index 5-7
-
-  // For Diploma (SOVET) - program code 07
-  if (programCode === '07') {
-    const diplomaBranchMap = {
-      '711': 'Electrical',
-      '712': 'Mechanical',
-      '713': 'Civil',
-      '714': 'CSE',
-      '715': 'Automobile',
-      '716': 'Mining'
-    };
-    return diplomaBranchMap[branchCode] || "";
-  }
-
-  // For B.Tech (SOET)
-  const btechBranchMap = {
-    '111': 'Civil',
-    '112': 'CSE',
-    '113': 'ECE',
-    '115': 'EEE',
-    '116': 'Mechanical',
-    '117': 'AIML'
-  };
-  return btechBranchMap[branchCode] || "";
-}
-
-// Helper function to get branch from registration number
-function getBranchFromRegistration(regNo = "", department = null) {
-  if (!regNo || regNo.length < 8) return department || "";
-  
-  // For Diploma (SOVET), use index 5-7
-  if (regNo.length >= 8) {
-    const branchCode = regNo.slice(5, 8); // Index 5-7
-    const diplomaBranchMap = {
-      '711': 'Electrical',
-      '712': 'Mechanical',
-      '713': 'Civil',
-      '714': 'CSE',
-      '715': 'Automobile',
-      '716': 'Mining'
-    };
-    const branchName = diplomaBranchMap[branchCode];
-    if (branchName) {
-      return getFullBranchName(branchName);
-    }
-  }
-  
-  // For B.Tech (SOET), use index 5-7
+  // For SOET (B.Tech), use index 5-7 (positions 5, 6, 7)
+  // Branch codes: 111=Civil, 112=CSE, 113=ECE, 115=EEE, 116=Mechanical, 117=CSE AIML
   if (regNo.length >= 8) {
     const branchCode = regNo.slice(5, 8); // Index 5-7
     const btechBranchMap = {
@@ -110,24 +42,31 @@ function getBranchFromRegistration(regNo = "", department = null) {
       '116': 'Mechanical',
       '117': 'CSE AIML'
     };
-    const branchName = btechBranchMap[branchCode];
-    if (branchName) {
-      return getFullBranchName(branchName);
+    const shortBranch = btechBranchMap[branchCode];
+    if (shortBranch) {
+      return getFullBranchName(shortBranch);
     }
   }
   
-  return department || "";
+  // Fallback to old method (position 7) for backward compatibility
+  const code = regNo.charAt(7);
+  const short = shortBranchFromCode[code] || "";
+  return short ? getFullBranchName(short) : "";
 }
 
-function TeacherBacklogPageContent() {
+function deriveBatchFromReg(regNo = "") {
+  if (!regNo || regNo.length < 2) return "";
+  const yy = regNo.slice(0, 2);
+  return `20${yy}`;
+}
+
+function pickBatch(preferredYear = "", regNo = "") {
+  if (preferredYear && preferredYear !== "All") return preferredYear;
+  return deriveBatchFromReg(regNo);
+}
+
+function BacklogContent() {
   const searchParams = useSearchParams();
-  const school = searchParams.get('school');
-  const isDiploma = school?.toUpperCase() === 'SOVET' || school?.toUpperCase()?.includes('VOCATIONAL');
-
-  const btechBranches = ["Civil", "CSE", "ECE", "EEE", "Mechanical", "AIML"];
-  const diplomaBranches = ["Civil", "CSE", "EE", "Mechanical", "Mining", "Automobile"];
-  const branchList = isDiploma ? diplomaBranches : btechBranches;
-
   const [registration, setRegistration] = useState("");
   const [subjectCode, setSubjectCode] = useState("");
   const [branch, setBranch] = useState("");
@@ -142,8 +81,10 @@ function TeacherBacklogPageContent() {
   const [count, setCount] = useState(0);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [resultsRendered, setResultsRendered] = useState(false);
   const loadRegsControllerRef = useRef(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("Loading backlog data...");
   const [sortBy, setSortBy] = useState("");
   const [filterGrade, setFilterGrade] = useState("");
   const formRef = useRef(null);
@@ -153,6 +94,61 @@ function TeacherBacklogPageContent() {
   const lastRegSearchedRef = useRef("");
   const [lastRegValue, setLastRegValue] = useState("");
   const summariesLoadedRef = useRef(false); // Track if summaries are already loaded to prevent re-loading
+
+  // Dynamic Metadata for Diploma (SOVET)
+  const [dynamicBatches, setDynamicBatches] = useState([]);
+  const [dynamicBranches, setDynamicBranches] = useState([]);
+  const [isSovet, setIsSovet] = useState(false);
+
+  // Load Metadata for SOVET
+  // Load Metadata for SOVET
+  useEffect(() => {
+    const { school: lsSchool } = getSchoolAndCampus();
+    const urlSchool = searchParams.get('school');
+    const school = urlSchool || lsSchool;
+
+    /* Check if school is SOVET (case-insensitive) */
+    if (school && school.toUpperCase() === 'SOVET') {
+      setIsSovet(true);
+      fetchMetadata(school);
+    } else {
+      setIsSovet(false);
+      setDynamicBatches([]);
+      setDynamicBranches([]);
+    }
+  }, [searchParams]);
+
+  async function fetchMetadata(schoolOverride) {
+    try {
+      const campus = searchParams.get('campus');
+      let query = "";
+      if (schoolOverride) {
+        query = `?school=${schoolOverride}`;
+        if (campus) query += `&campus=${campus}`;
+      } else {
+        query = "";
+      }
+
+      // If query is constructed manually, use it. Otherwise use appendSchoolParams helper.
+      const batchUrl = query ? `/api/metadata/batches${query}` : appendSchoolParams("/api/metadata/batches");
+      const branchUrl = query ? `/api/metadata/departments${query}` : appendSchoolParams("/api/metadata/departments");
+
+      // Batches
+      const batchRes = await fetch(batchUrl);
+      if (batchRes.ok) {
+        const data = await batchRes.json();
+        setDynamicBatches(data.batches || []);
+      }
+
+      // Branches
+      const branchRes = await fetch(branchUrl);
+      if (branchRes.ok) {
+        const data = await branchRes.json();
+        setDynamicBranches(data.departments || []);
+      }
+    } catch (e) {
+    }
+  }
 
   // CSV Export Function
   function exportCSV() {
@@ -551,7 +547,7 @@ function TeacherBacklogPageContent() {
 
     try {
       const excelData = filteredRows.map((row, idx) => {
-        const branchName = getBranchFromRegistration(row.Reg_No || row.registration || "", row.Branch) || "Unknown";
+        const branchName = row.Branch || getBranchFromRegNo(row.Reg_No || row.registration || "") || "Unknown";
         const fullBranchName = branchName.length <= 5 && branchName !== "AIML"
           ? getFullBranchName(branchName)
           : branchName;
@@ -644,7 +640,7 @@ function TeacherBacklogPageContent() {
 
       // Prepare table data - ensure all values are strings
       const tableData = filteredRows.map((row, idx) => {
-        const branchName = getBranchFromRegistration(row.Reg_No || row.registration || "", row.Branch) || "Unknown";
+        const branchName = row.Branch || getBranchFromRegNo(row.Reg_No || row.registration || "") || "Unknown";
         const fullBranchName = branchName.length <= 5 && branchName !== "AIML"
           ? getFullBranchName(branchName)
           : branchName;
@@ -743,11 +739,23 @@ function TeacherBacklogPageContent() {
   }
 
   async function search(e) {
-    e?.preventDefault();
-    setMessage(""); setError(""); setRows([]); setCount(0);
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
+    // Clear previous states in correct order
+    setError("");
+    setMessage("");
     setShowAllMode(false);
+    setRows([]);
+    setCount(0);
+    
+    // Set loading states
+    setLoadingMessage("Loading backlog data...");
+    setResultsRendered(false);
+    setLoading(true);
     try {
-      setLoading(true);
       const regValueRaw = regMode === "list" ? selectedReg : registration;
       const regValue = (regValueRaw || "").trim();
       const regValueUpper = regValue.toUpperCase();
@@ -794,7 +802,7 @@ function TeacherBacklogPageContent() {
           // Try to extract branch from registration number if not found
           let extractedBranch = "";
           if (regValueUpper.length >= 8) {
-            extractedBranch = getBranchFromRegistration(regValueUpper);
+            extractedBranch = getBranchFromRegNo(regValueUpper);
           }
           if (!extractedBranch && branch && branch !== "All") {
             extractedBranch = getFullBranchName(branch);
@@ -822,25 +830,49 @@ function TeacherBacklogPageContent() {
           year: year || "",
           allowAll: isAll ? true : undefined
         };
-      // Use AbortController to cancel previous slow requests when typing quickly
+      // Use AbortController to cancel previous slow requests
       if (search.controller) {
-        try { search.controller.abort(); } catch { }
+        try { 
+          search.controller.abort();
+        } catch (err) {
+          // Ignore abort errors
+        }
       }
+      
       const reqId = Date.now();
       search.requestId = reqId;
       search.controller = new AbortController();
-      const url = getSchoolApiUrl("backlogs");
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: search.controller.signal,
-        cache: "no-store",
-        body: JSON.stringify(body)
-      });
-      const data = await res.json();
-      if (search.requestId !== reqId) return; // ignore stale
+      
+      const backlogUrl = getSchoolApiUrl("backlogs");
+      let res, data;
+      
+      try {
+        res = await fetch(backlogUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: search.controller.signal,
+          cache: "no-store",
+          body: JSON.stringify(body)
+        });
+        
+        data = await res.json();
+      } catch (fetchErr) {
+        // Check if this was an abort
+        if (fetchErr.name === 'AbortError') {
+          setLoading(false);
+          return;
+        }
+        throw fetchErr;
+      }
+      
+      // Check if this request is still the latest
+      if (search.requestId !== reqId) {
+        setLoading(false);
+        return;
+      }
       if (!res.ok) throw new Error(data.error || "No backlog found");
       const list = data.backlogs || data.result || [];
+      
       setRows(list);
       setCount(list.length);
       setMessage(data.message || "Results loaded");
@@ -894,8 +926,8 @@ function TeacherBacklogPageContent() {
         // If name or batch missing, fetch student record
         if (!studentName || !studentBatch) {
           try {
-            const studentUrl = getSchoolApiUrl("students");
-            const studentRes = await fetch(studentUrl, {
+            const studentsUrl = getSchoolApiUrl("students");
+            const studentRes = await fetch(studentsUrl, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ registration: regValueUpper })
@@ -923,14 +955,41 @@ function TeacherBacklogPageContent() {
           Batch: studentBatch || pickBatch(year, regValueUpper)
         });
       }
+      
+      // Note: Loading will be hidden by useEffect after results are rendered
     } catch (err) {
       setError(err.message);
-    } finally { setLoading(false); }
+      setLoading(false); // Hide loading on error immediately
+    }
   }
 
   useEffect(() => {
     formRef.current?.querySelector('input[name="registration"]')?.focus();
   }, []);
+
+  // Hide loading after results are rendered
+  useEffect(() => {
+    // Only proceed if loading is active and resultsRendered flag indicates new results
+    if (!loading || resultsRendered) return;
+    
+    if (rows.length > 0) {
+      // Results have been set, now wait for React to render them
+      const timeoutId = setTimeout(() => {
+        setLoading(false);
+        setResultsRendered(true);
+      }, 150);
+      
+      return () => clearTimeout(timeoutId);
+    } else if (message && rows.length === 0) {
+      // No results case or empty result with message - hide loading after message is set
+      const timeoutId = setTimeout(() => {
+        setLoading(false);
+        setResultsRendered(true);
+      }, 100);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [rows, message, resultsRendered, loading]);
 
   // Keep student info in sync when summary data arrives with better details
   useEffect(() => {
@@ -968,17 +1027,17 @@ function TeacherBacklogPageContent() {
       try {
         if (regMode !== "list") {
           if (!cancelled) {
-            setRegList([]);
-            setSelectedReg("");
-            setStudentSummary([]);
+          setRegList([]);
+          setSelectedReg("");
+          setStudentSummary([]);
           }
           return;
         }
         if (!branch && !year) {
           if (!cancelled) {
-            setRegList([]);
-            setSelectedReg("");
-            setStudentSummary([]);
+          setRegList([]);
+          setSelectedReg("");
+          setStudentSummary([]);
           }
           return;
         }
@@ -1006,15 +1065,11 @@ function TeacherBacklogPageContent() {
             .filter(Boolean)
             .sort();
           const uniqueRegNos = Array.from(new Set(list));
-          if (!cancelled) {
-            setRegList(uniqueRegNos);
-            setSelectedReg("");
-          }
+          setRegList(uniqueRegNos);
+          setSelectedReg("");
 
-          // CRITICAL FIX: Only process summaries if explicitly requested AND not already loaded
-          // Don't auto-process on every branch/year change when showAllMode is true
-          // This prevents excessive MongoDB connections
-          if (!showAllMode || uniqueRegNos.length === 0) {
+          // If not in "Show All" mode, stop here so registration list loads instantly
+          if (!showAllMode) {
             if (!cancelled) {
               setStudentSummary([]);
               summariesLoadedRef.current = false;
@@ -1028,17 +1083,23 @@ function TeacherBacklogPageContent() {
             return; // Skip reloading if summaries already exist
           }
 
+          // Show loading indicator for All Students Summary
+          if (!cancelled) {
+            setLoadingMessage("Loading All Students Summary...");
+            setLoading(true);
+          }
+
           // In Show All mode, build branch overrides and per-student backlog summary
-          // CRITICAL: Process in batches to prevent connection limit exhaustion
-          const BATCH_SIZE = 5; // Reduced to 5 to prevent MongoDB connection limit issues
-          const MAX_STUDENTS = 50; // Reduced limit to prevent overwhelming MongoDB (Atlas free tier has 50 max connections)
+          // OPTIMIZED: Use bulk API to get all backlog data in one request
+          const MAX_STUDENTS = 5000; // Can handle much more with bulk API
           const studentsToProcess = uniqueRegNos.slice(0, MAX_STUDENTS);
           
-          // Process branch overrides in batches
+          // Process branch overrides in batches (still needed for branch override data)
+          const OVERRIDE_BATCH_SIZE = 20; // Increased batch size since these are simple GET requests
           const overrideResults = [];
-          for (let i = 0; i < studentsToProcess.length; i += BATCH_SIZE) {
+          for (let i = 0; i < studentsToProcess.length; i += OVERRIDE_BATCH_SIZE) {
             if (cancelled) return;
-            const batch = studentsToProcess.slice(i, i + BATCH_SIZE);
+            const batch = studentsToProcess.slice(i, i + OVERRIDE_BATCH_SIZE);
             const batchPromises = batch.map(regNo =>
               fetch(appendSchoolParams(`/api/branch-change?reg=${regNo}`))
                 .then(res => res.ok ? res.json() : null)
@@ -1047,9 +1108,9 @@ function TeacherBacklogPageContent() {
             );
             const batchResults = await Promise.all(batchPromises);
             overrideResults.push(...batchResults);
-            // Increased delay between batches to prevent overwhelming server and MongoDB
-            if (i + BATCH_SIZE < studentsToProcess.length) {
-              await new Promise(resolve => setTimeout(resolve, 200));
+            // Minimal delay between batches
+            if (i + OVERRIDE_BATCH_SIZE < studentsToProcess.length) {
+              await new Promise(resolve => setTimeout(resolve, 50));
             }
           }
           if (cancelled) return;
@@ -1061,83 +1122,102 @@ function TeacherBacklogPageContent() {
             }
           });
 
-          // Fetch backlog counts for each student in batches (sequential to prevent connection exhaustion)
-          const summaries = [];
-          for (let i = 0; i < studentsToProcess.length; i += BATCH_SIZE) {
+          // OPTIMIZED: Single bulk API call to get all backlog summaries
+          try {
+            const backlogUrl = getSchoolApiUrl("backlogs");
+            const bulkBacklogRes = await fetch(backlogUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ 
+                bulkSummary: true,
+                registrations: studentsToProcess 
+              })
+            });
+            
             if (cancelled) return;
-            const batch = studentsToProcess.slice(i, i + BATCH_SIZE);
-            const batchPromises = batch.map(async (regNo) => {
-              try {
-                const backlogUrl = getSchoolApiUrl("backlogs");
-                const backlogRes = await fetch(backlogUrl, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ registration: regNo })
-                });
-                const backlogData = await backlogRes.json();
-                const backlogs = backlogData.backlogs || backlogData.result || [];
+            
+            if (!bulkBacklogRes.ok) {
+              throw new Error("Bulk backlog request failed");
+            }
 
+            const bulkBacklogData = await bulkBacklogRes.json();
+            const backlogSummaries = bulkBacklogData.summaries || [];
+            
+            // Build summary map from bulk response
+            const backlogMap = new Map();
+            backlogSummaries.forEach(summary => {
+              backlogMap.set(summary.Reg_No, summary);
+            });
+
+            // Merge with student data
+            const summaries = studentsToProcess.map(regNo => {
+              const backlogInfo = backlogMap.get(regNo) || { TotalBacklogs: 0, Name: "", Branch: "" };
+              const studentInfo = students.find(s => (s.Reg_No || s.registration || "").toUpperCase() === regNo.toUpperCase());
+
+              let studentBranch = "";
+              if (branchOverrides.has(regNo.toUpperCase())) {
+                studentBranch = branchOverrides.get(regNo.toUpperCase());
+              } else if (studentInfo?.Branch) {
+                studentBranch = studentInfo.Branch;
+                if (studentBranch && studentBranch.length <= 5 && studentBranch !== "AIML") {
+                  studentBranch = getFullBranchName(studentBranch);
+                }
+              } else if (backlogInfo.Branch) {
+                studentBranch = backlogInfo.Branch;
+                if (studentBranch && studentBranch.length <= 5 && studentBranch !== "AIML") {
+                  studentBranch = getFullBranchName(studentBranch);
+                }
+              } else {
+                const shortBranch = getBranchFromRegNo(regNo);
+                if (shortBranch) {
+                  studentBranch = getFullBranchName(shortBranch);
+                }
+              }
+
+              if (!studentBranch && branch && branch !== "All") {
+                studentBranch = getFullBranchName(branch);
+              }
+
+              let studentName = studentInfo?.Name || backlogInfo.Name || "";
+
+              return {
+                Reg_No: regNo,
+                Name: studentName,
+                Branch: studentBranch,
+                Batch: studentInfo?.Batch || pickBatch(year, regNo),
+                TotalBacklogs: backlogInfo.TotalBacklogs || 0
+              };
+            });
+
+            if (!cancelled) {
+              setStudentSummary(summaries);
+              summariesLoadedRef.current = true;
+              
+              // Keep loading true briefly to allow React to render the summary table
+              setTimeout(() => {
+                setLoading(false);
+              }, 200);
+            }
+          } catch (error) {
+            // Fallback to empty summaries on error
+            if (!cancelled) {
+              const summaries = studentsToProcess.map(regNo => {
                 const studentInfo = students.find(s => (s.Reg_No || s.registration || "").toUpperCase() === regNo.toUpperCase());
-
-                let studentBranch = "";
-                if (branchOverrides.has(regNo.toUpperCase())) {
-                  studentBranch = branchOverrides.get(regNo.toUpperCase());
-                } else if (studentInfo?.Branch) {
-                  studentBranch = studentInfo.Branch;
-                  if (studentBranch && studentBranch.length <= 5 && studentBranch !== "AIML") {
-                    studentBranch = getFullBranchName(studentBranch);
-                  }
-                } else if (backlogs.length > 0 && backlogs[0]?.Branch) {
-                  studentBranch = backlogs[0].Branch;
-                  if (studentBranch && studentBranch.length <= 5 && studentBranch !== "AIML") {
-                    studentBranch = getFullBranchName(studentBranch);
-                  }
-                } else {
-                  const shortBranch = getBranchFromRegNo(regNo);
-                  if (shortBranch) {
-                    studentBranch = getFullBranchName(shortBranch);
-                  }
-                }
-
-                if (!studentBranch && branch && branch !== "All") {
-                  studentBranch = getFullBranchName(branch);
-                }
-
-                let studentName = studentInfo?.Name || "";
-                if (!studentName && backlogs.length > 0) {
-                  studentName = backlogs[0]?.Name || "";
-                }
-
-                return {
-                  Reg_No: regNo,
-                  Name: studentName,
-                  Branch: studentBranch,
-                  Batch: studentInfo?.Batch || pickBatch(year, regNo),
-                  TotalBacklogs: backlogs.length
-                };
-              } catch {
                 const shortBranch = getBranchFromRegNo(regNo);
                 const fallbackBranch = shortBranch ? getFullBranchName(shortBranch) : (branch && branch !== "All" ? getFullBranchName(branch) : "");
+                
                 return {
                   Reg_No: regNo,
-                  Name: "",
-                  Branch: fallbackBranch,
-                  Batch: year || "",
+                  Name: studentInfo?.Name || "",
+                  Branch: branchOverrides.get(regNo.toUpperCase()) || studentInfo?.Branch || fallbackBranch,
+                  Batch: studentInfo?.Batch || pickBatch(year, regNo),
                   TotalBacklogs: 0
                 };
-              }
-            });
-            // Await each batch before processing the next
-            const batchResults = await Promise.all(batchPromises);
-            summaries.push(...batchResults);
-            // Increased delay between batches to prevent overwhelming server and MongoDB
-            if (i + BATCH_SIZE < studentsToProcess.length) {
-              await new Promise(resolve => setTimeout(resolve, 300));
+              });
+              setStudentSummary(summaries);
+              summariesLoadedRef.current = true;
+              setLoading(false);
             }
-          }
-          if (!cancelled) {
-            setStudentSummary(summaries);
-            summariesLoadedRef.current = true; // Mark as loaded to prevent re-loading
           }
         } else if (!cancelled) {
           setRegList([]);
@@ -1146,10 +1226,11 @@ function TeacherBacklogPageContent() {
         }
       } catch {
         if (!cancelled) {
-          setRegList([]);
-          setSelectedReg("");
-          setStudentSummary([]);
-        }
+        setRegList([]);
+        setSelectedReg("");
+        setStudentSummary([]);
+        setLoading(false); // Hide loading on error
+      }
       }
     };
 
@@ -1160,9 +1241,19 @@ function TeacherBacklogPageContent() {
         try { loadRegsControllerRef.current.abort(); } catch { }
       }
     };
-    // CRITICAL: Removed showAllMode from dependencies to prevent re-triggering on mode change
-    // showAllMode is handled separately via user action, not auto-triggered
-  }, [branch, year, regMode]);
+  }, [branch, year, regMode, showAllMode]);
+
+  // Reset summaries and results when branch or year changes to force reload
+  useEffect(() => {
+    summariesLoadedRef.current = false;
+    setStudentSummary([]);
+    // Clear current results when filters change
+    if (showAllMode) {
+      setRows([]);
+      setCount(0);
+      setMessage("");
+    }
+  }, [branch, year]);
 
   useEffect(() => {
     if (regMode === "list" && selectedReg) {
@@ -1174,10 +1265,7 @@ function TeacherBacklogPageContent() {
     let cancelled = false;
     const load = async () => {
       try {
-        if (subjectMode !== "list") {
-          if (!cancelled) setSubjectList([]);
-          return;
-        }
+        if (subjectMode !== "list") { if (!cancelled) setSubjectList([]); return; }
         const params = new URLSearchParams();
         if (branch) params.set("branch", branch);
         params.set("limit", "0");
@@ -1190,26 +1278,19 @@ function TeacherBacklogPageContent() {
           const items = data.items || [];
           const list = items.map(it => ({ code: it["Subject Code"] || it.SubjectCode, name: it.Subject_name || it.Subject_Name || "" })).filter(s => s.code);
           const uniq = Array.from(new Map(list.map(s => [s.code, s])).values());
-          if (!cancelled) {
-            setSubjectList(uniq);
-          }
-        } else if (!cancelled) {
+          setSubjectList(uniq);
+        } else {
           setSubjectList([]);
         }
       } catch {
-        if (!cancelled) {
-          setSubjectList([]);
-        }
+        if (!cancelled) setSubjectList([]);
       }
     };
-
     load();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [subjectMode, branch]);
 
-  const filteredRows = useMemo(() => {
+  const getFilteredRows = () => {
     let filtered = [...rows];
     if (filterGrade) {
       filtered = filtered.filter(b => b.Grade === filterGrade);
@@ -1220,9 +1301,10 @@ function TeacherBacklogPageContent() {
       filtered.sort((a, b) => (a.Reg_No || a.registration || '').localeCompare(b.Reg_No || b.registration || ''));
     }
     return filtered;
-  }, [rows, filterGrade, sortBy]);
+  };
 
-  const uniqueGrades = useMemo(() => Array.from(new Set(rows.map(r => r.Grade).filter(Boolean))), [rows]);
+  const filteredRows = getFilteredRows();
+  const uniqueGrades = Array.from(new Set(rows.map(r => r.Grade).filter(Boolean)));
 
   // Determine if this is a subject search (not registration search)
   const isSubjectSearch = !selectedReg && !registration && (selectedSubject || subjectCode);
@@ -1412,7 +1494,7 @@ function TeacherBacklogPageContent() {
                     >
                       <option value="">Batch (Year)</option>
                       <option value="All">All</option>
-                      {["2020", "2021", "2022", "2023", "2024", "2025"].map(y => <option key={y} value={y}>{y}</option>)}
+                      {["2022", "2023", "2024", "2025"].map(y => <option key={y} value={y}>{y}</option>)}
                     </select>
                     <select
                       className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
@@ -1422,9 +1504,25 @@ function TeacherBacklogPageContent() {
                     >
                       <option value="">Branch</option>
                       <option value="All">All</option>
-                      {branchList.map(b => (
-                        <option key={b} value={b}>{b}</option>
-                      ))}
+                      {isSovet ? (
+                        <>
+                          <option value="CSE">Computer Science Engineering</option>
+                          <option value="Electrical Engineering (Diploma)">Electrical Engineering</option>
+                          <option value="Mechanical">Mechanical Engineering</option>
+                          <option value="Civil">Civil Engineering</option>
+                          <option value="ME">Mining Engineering</option>
+                          <option value="Automobile Engineering">Automobile Engineering</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="Civil">Civil</option>
+                          <option value="CSE">CSE</option>
+                          <option value="ECE">ECE</option>
+                          <option value="EEE">EEE</option>
+                          <option value="Mechanical">Mechanical</option>
+                          <option value="AIML">AIML</option>
+                        </>
+                      )}
                     </select>
                   </div>
                   <div className="flex flex-col gap-2 sm:gap-3">
@@ -1453,11 +1551,11 @@ function TeacherBacklogPageContent() {
                     </select>
                     <button
                       type="submit"
+                      disabled={!selectedReg || loading}
                       className="w-full rounded-lg sm:rounded-xl text-white font-black px-4 sm:px-5 py-3 sm:py-3.5 transition-all duration-300 hover:shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base min-h-[44px]"
                       style={{
                         background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
                       }}
-                      disabled={!selectedReg || loading}
                     >
                       {loading ? 'Loading...' : (selectedReg ? "Search" : "Select First")}
                     </button>
@@ -1511,9 +1609,18 @@ function TeacherBacklogPageContent() {
                   >
                     <option value="">All Branches</option>
                     <option value="All">All</option>
-                    {branchList.map(b => (
-                      <option key={b} value={b}>{b}</option>
-                    ))}
+                    {isSovet ? (
+                      dynamicBranches.map(b => <option key={b} value={b}>{b}</option>)
+                    ) : (
+                      <>
+                        <option value="Civil">Civil</option>
+                        <option value="CSE">CSE</option>
+                        <option value="ECE">ECE</option>
+                        <option value="EEE">EEE</option>
+                        <option value="Mechanical">Mechanical</option>
+                        <option value="AIML">AIML</option>
+                      </>
+                    )}
                   </select>
                   <select
                     className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
@@ -1523,7 +1630,11 @@ function TeacherBacklogPageContent() {
                   >
                     <option value="">All Batches</option>
                     <option value="All">All</option>
-                    {["2020", "2021", "2022", "2023", "2024", "2025"].map(y => <option key={y} value={y}>{y}</option>)}
+                    {isSovet ? (
+                      dynamicBatches.map(y => <option key={y} value={y}>{y}</option>)
+                    ) : (
+                      ["2020", "2021", "2022", "2023", "2024", "2025"].map(y => <option key={y} value={y}>{y}</option>)
+                    )}
                   </select>
                 </div>
                 <button
@@ -1770,25 +1881,34 @@ function TeacherBacklogPageContent() {
                     onClick={() => {
                       // Create table without Actions column
                       const tableRows = studentSummary.map((student, idx) => `
-                    <tr>
-                      <td>${idx + 1}</td>
-                      <td>${student.Name || "-"}</td>
-                      <td>${student.Reg_No || "-"}</td>
-                      <td>${student.Branch || "-"}</td>
-                      <td>${student.Batch || "-"}</td>
-                      <td style="text-align: center;">${student.TotalBacklogs || 0}</td>
-                    </tr>
-                  `).join('');
+                      <tr>
+                        <td>${idx + 1}</td>
+                        <td>${student.Name || "-"}</td>
+                        <td>${student.Reg_No || "-"}</td>
+                        <td>${student.Branch || "-"}</td>
+                        <td>${student.Batch || "-"}</td>
+                        <td style="text-align: center;">${student.TotalBacklogs || 0}</td>
+                      </tr>
+                    `).join('');
 
                       const printWindow = window.open('', '_blank');
                       printWindow.document.write(`
-                    <html>
-                      <head>
-                        <title>All Students Summary</title>
-                        <style>
-                          @media print {
-                            @page { margin: 15mm; }
-                            body { font-family: Arial, sans-serif; }
+                      <html>
+                        <head>
+                          <title>All Students Summary</title>
+                          <style>
+                            @media print {
+                              @page { margin: 15mm; }
+                              body { font-family: Arial, sans-serif; }
+                              table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                              th { background-color: #05A3C7; color: white; padding: 10px; text-align: left; font-weight: bold; }
+                              td { padding: 8px; border: 1px solid #ddd; }
+                              tr:nth-child(even) { background-color: #f5f5f5; }
+                              .header { text-align: center; margin-bottom: 20px; }
+                              .header h1 { color: #05A3C7; margin: 0; }
+                              .header p { color: #666; margin: 5px 0; }
+                            }
+                            body { font-family: Arial, sans-serif; padding: 20px; }
                             table { width: 100%; border-collapse: collapse; margin-top: 20px; }
                             th { background-color: #05A3C7; color: white; padding: 10px; text-align: left; font-weight: bold; }
                             td { padding: 8px; border: 1px solid #ddd; }
@@ -1796,43 +1916,34 @@ function TeacherBacklogPageContent() {
                             .header { text-align: center; margin-bottom: 20px; }
                             .header h1 { color: #05A3C7; margin: 0; }
                             .header p { color: #666; margin: 5px 0; }
-                          }
-                          body { font-family: Arial, sans-serif; padding: 20px; }
-                          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                          th { background-color: #05A3C7; color: white; padding: 10px; text-align: left; font-weight: bold; }
-                          td { padding: 8px; border: 1px solid #ddd; }
-                          tr:nth-child(even) { background-color: #f5f5f5; }
-                          .header { text-align: center; margin-bottom: 20px; }
-                          .header h1 { color: #05A3C7; margin: 0; }
-                          .header p { color: #666; margin: 5px 0; }
-                        </style>
-                      </head>
-                      <body>
-                        <div class="header">
-                          <h1>All Students Summary</h1>
-                          <p>Total Students: ${studentSummary.length}</p>
-                          <p>Generated on: ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
-                          ${branch && branch !== "All" ? `<p>Branch: ${branch}</p>` : ''}
-                          ${year && year !== "All" ? `<p>Batch: ${year}</p>` : ''}
-                        </div>
-                        <table>
-                          <thead>
-                            <tr>
-                              <th>S.No</th>
-                              <th>Name</th>
-                              <th>Registration No</th>
-                              <th>Branch</th>
-                              <th>Batch</th>
-                              <th style="text-align: center;">Total Backlogs</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            ${tableRows}
-                          </tbody>
-                        </table>
-                      </body>
-                    </html>
-                  `);
+                          </style>
+                        </head>
+                        <body>
+                          <div class="header">
+                            <h1>All Students Summary</h1>
+                            <p>Total Students: ${studentSummary.length}</p>
+                            <p>Generated on: ${new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                            ${branch && branch !== "All" ? `<p>Branch: ${branch}</p>` : ''}
+                            ${year && year !== "All" ? `<p>Batch: ${year}</p>` : ''}
+            </div>
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>S.No</th>
+                                <th>Name</th>
+                                <th>Registration No</th>
+                                <th>Branch</th>
+                                <th>Batch</th>
+                                <th style="text-align: center;">Total Backlogs</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              ${tableRows}
+                            </tbody>
+                          </table>
+                        </body>
+                      </html>
+                    `);
                       printWindow.document.close();
                       setTimeout(() => {
                         printWindow.print();
@@ -2312,7 +2423,7 @@ function TeacherBacklogPageContent() {
                 }}
               >
                 <div className="w-5 h-5 sm:w-6 sm:h-6 border-3 border-white/30 border-t-white rounded-full animate-spin flex-shrink-0"></div>
-                <span className="text-white font-bold text-sm sm:text-base">Loading backlog data...</span>
+                <span className="text-white font-bold text-sm sm:text-base">{loadingMessage}</span>
               </div>
             </div>
           )}
@@ -2322,17 +2433,10 @@ function TeacherBacklogPageContent() {
   );
 }
 
-export default function TeacherBacklogPage() {
+export default function AdminBacklogPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading backlog...</p>
-        </div>
-      </div>
-    }>
-      <TeacherBacklogPageContent />
+    <Suspense fallback={<div className="p-4 text-sm text-gray-500">Loading backlog...</div>}>
+      <BacklogContent />
     </Suspense>
   );
 }
