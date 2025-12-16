@@ -958,31 +958,35 @@ function TeacherBacklogPageContent() {
     }
   }, [registration, regMode]);
 
-  // Debounced dynamic list loading to feel faster
   useEffect(() => {
-    const t = setTimeout(async () => {
+    let cancelled = false;
+
+    const load = async () => {
       try {
         if (regMode !== "list") {
-          setRegList([]);
-          setSelectedReg("");
-          setStudentSummary([]);
+          if (!cancelled) {
+            setRegList([]);
+            setSelectedReg("");
+            setStudentSummary([]);
+          }
           return;
         }
         if (!branch && !year) {
-          setRegList([]);
-          setSelectedReg("");
-          setStudentSummary([]);
+          if (!cancelled) {
+            setRegList([]);
+            setSelectedReg("");
+            setStudentSummary([]);
+          }
           return;
         }
 
-        // Use backend that includes branch_overrides for accurate lists
         if (loadRegsControllerRef.current) {
           try { loadRegsControllerRef.current.abort(); } catch { }
         }
         loadRegsControllerRef.current = new AbortController();
         const baseBatchUrl = getSchoolApiUrl("batch");
-        const url = baseBatchUrl.includes('?') ? `${baseBatchUrl}&mode=list` : `${baseBatchUrl}?mode=list`;
-        const res = await fetch(url, {
+        const batchUrl = baseBatchUrl.includes('?') ? `${baseBatchUrl}&mode=list` : `${baseBatchUrl}?mode=list`;
+        const res = await fetch(batchUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: loadRegsControllerRef.current.signal,
@@ -990,6 +994,8 @@ function TeacherBacklogPageContent() {
           body: JSON.stringify({ branch, batch: year })
         });
         const data = await res.json();
+        if (cancelled) return;
+
         if (res.ok) {
           const students = data.records || [];
           const list = students
@@ -997,12 +1003,16 @@ function TeacherBacklogPageContent() {
             .filter(Boolean)
             .sort();
           const uniqueRegNos = Array.from(new Set(list));
-          setRegList(uniqueRegNos);
-          setSelectedReg("");
+          if (!cancelled) {
+            setRegList(uniqueRegNos);
+            setSelectedReg("");
+          }
 
           // If not in "Show All" mode, stop here so registration list loads instantly
           if (!showAllMode) {
-            setStudentSummary([]);
+            if (!cancelled) {
+              setStudentSummary([]);
+            }
             return;
           }
 
@@ -1015,6 +1025,8 @@ function TeacherBacklogPageContent() {
           );
 
           const overrideResults = await Promise.all(overridePromises);
+          if (cancelled) return;
+
           const branchOverrides = new Map();
           overrideResults.forEach(ov => {
             if (ov && ov.reg && ov.branch) {
@@ -1034,45 +1046,32 @@ function TeacherBacklogPageContent() {
               const backlogData = await backlogRes.json();
               const backlogs = backlogData.backlogs || backlogData.result || [];
 
-              // Find student info from batch data
               const studentInfo = students.find(s => (s.Reg_No || s.registration || "").toUpperCase() === regNo.toUpperCase());
 
-              // Get branch in priority order: override > student info > backlog data > reg number > filter
               let studentBranch = "";
-
-              // 1. Check branch overrides first
               if (branchOverrides.has(regNo.toUpperCase())) {
                 studentBranch = branchOverrides.get(regNo.toUpperCase());
-              }
-              // 2. Check student info from batch data
-              else if (studentInfo?.Branch) {
+              } else if (studentInfo?.Branch) {
                 studentBranch = studentInfo.Branch;
-                // Convert short form to full name if needed
                 if (studentBranch && studentBranch.length <= 5 && studentBranch !== "AIML") {
                   studentBranch = getFullBranchName(studentBranch);
                 }
-              }
-              // 3. Check backlog data
-              else if (backlogs.length > 0 && backlogs[0]?.Branch) {
+              } else if (backlogs.length > 0 && backlogs[0]?.Branch) {
                 studentBranch = backlogs[0].Branch;
-                // Convert short form to full name if needed
                 if (studentBranch && studentBranch.length <= 5 && studentBranch !== "AIML") {
                   studentBranch = getFullBranchName(studentBranch);
                 }
-              }
-              // 4. Extract from registration number and convert to full name
-              else {
+              } else {
                 const shortBranch = getBranchFromRegNo(regNo);
                 if (shortBranch) {
                   studentBranch = getFullBranchName(shortBranch);
                 }
               }
-              // 5. Fallback to selected branch filter
+
               if (!studentBranch && branch && branch !== "All") {
                 studentBranch = getFullBranchName(branch);
               }
 
-              // Get name from student info or backlog data
               let studentName = studentInfo?.Name || "";
               if (!studentName && backlogs.length > 0) {
                 studentName = backlogs[0]?.Name || "";
@@ -1086,7 +1085,6 @@ function TeacherBacklogPageContent() {
                 TotalBacklogs: backlogs.length
               };
             } catch {
-              // Fallback: try to get branch from reg number and convert to full name
               const shortBranch = getBranchFromRegNo(regNo);
               const fallbackBranch = shortBranch ? getFullBranchName(shortBranch) : (branch && branch !== "All" ? getFullBranchName(branch) : "");
               return {
@@ -1100,19 +1098,30 @@ function TeacherBacklogPageContent() {
           });
 
           const summaries = await Promise.all(summaryPromises);
-          setStudentSummary(summaries);
-        } else {
+          if (!cancelled) {
+            setStudentSummary(summaries);
+          }
+        } else if (!cancelled) {
           setRegList([]);
           setSelectedReg("");
           setStudentSummary([]);
         }
-      } catch (err) {
-        setRegList([]);
-        setSelectedReg("");
-        setStudentSummary([]);
+      } catch {
+        if (!cancelled) {
+          setRegList([]);
+          setSelectedReg("");
+          setStudentSummary([]);
+        }
       }
-    }, 100);
-    return () => clearTimeout(t);
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+      if (loadRegsControllerRef.current) {
+        try { loadRegsControllerRef.current.abort(); } catch { }
+      }
+    };
   }, [branch, year, regMode, showAllMode]);
 
   useEffect(() => {
@@ -1122,30 +1131,42 @@ function TeacherBacklogPageContent() {
   }, [selectedReg, regMode]);
 
   useEffect(() => {
-    const t = setTimeout(async () => {
+    let cancelled = false;
+    const load = async () => {
       try {
-        if (subjectMode !== "list") { setSubjectList([]); return; }
+        if (subjectMode !== "list") {
+          if (!cancelled) setSubjectList([]);
+          return;
+        }
         const params = new URLSearchParams();
         if (branch) params.set("branch", branch);
         params.set("limit", "0");
         const baseUrl = getSchoolApiUrl("cbcs");
         const separator = baseUrl.includes('?') ? '&' : '?';
-        const url = baseUrl + separator + params.toString();
-        const res = await fetch(url);
+        const res = await fetch(baseUrl + separator + params.toString());
         const data = await res.json();
+        if (cancelled) return;
         if (res.ok) {
           const items = data.items || [];
           const list = items.map(it => ({ code: it["Subject Code"] || it.SubjectCode, name: it.Subject_name || it.Subject_Name || "" })).filter(s => s.code);
           const uniq = Array.from(new Map(list.map(s => [s.code, s])).values());
-          setSubjectList(uniq);
-        } else {
+          if (!cancelled) {
+            setSubjectList(uniq);
+          }
+        } else if (!cancelled) {
           setSubjectList([]);
         }
       } catch {
-        setSubjectList([]);
+        if (!cancelled) {
+          setSubjectList([]);
+        }
       }
-    }, 100);
-    return () => clearTimeout(t);
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
   }, [subjectMode, branch]);
 
   const filteredRows = useMemo(() => {
