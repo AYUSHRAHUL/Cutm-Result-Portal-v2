@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
 
-export default function TeacherBatchPage() {
+function TeacherBatchPageContent() {
   const searchParams = useSearchParams();
   const school = searchParams.get('school');
   const isDiploma = school?.toUpperCase() === 'SOVET' || school?.toUpperCase()?.includes('VOCATIONAL');
@@ -366,6 +366,21 @@ export default function TeacherBatchPage() {
         }
       `}</style>
     </div>
+  );
+}
+
+export default function TeacherBatchPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading batch data...</p>
+        </div>
+      </div>
+    }>
+      <TeacherBatchPageContent />
+    </Suspense>
   );
 }
 

@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
 
-export default function AdminCBCSBasketPage() {
+function AdminCBCSBasketPageContent() {
   const searchParams = useSearchParams();
   const school = searchParams.get('school');
   const isDiploma = school?.toUpperCase() === 'SOVET' || school?.toUpperCase()?.includes('VOCATIONAL');
@@ -568,6 +568,21 @@ export default function AdminCBCSBasketPage() {
         @media (max-width: 768px) { .filter-row { grid-template-columns: 1fr; } }
       `}</style>
     </div>
+  );
+}
+
+export default function AdminCBCSBasketPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading basket data...</p>
+        </div>
+      </div>
+    }>
+      <AdminCBCSBasketPageContent />
+    </Suspense>
   );
 }
 

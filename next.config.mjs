@@ -2,6 +2,10 @@
 const nextConfig = {
   // Enable standalone output for Docker
   output: 'standalone',
+  // Skip ESLint during production builds (handled separately)
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   
   // External packages for server components
   serverExternalPackages: ['mongodb', 'ioredis'],

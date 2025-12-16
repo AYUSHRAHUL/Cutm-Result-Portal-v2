@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
@@ -78,7 +78,7 @@ function getBranchFromRegistration(regNo = "", department = null) {
   return department || "";
 }
 
-export default function TeacherBacklogPage() {
+function TeacherBacklogPageContent() {
   const searchParams = useSearchParams();
   const school = searchParams.get('school');
   const isDiploma = school?.toUpperCase() === 'SOVET' || school?.toUpperCase()?.includes('VOCATIONAL');
@@ -2202,5 +2202,20 @@ export default function TeacherBacklogPage() {
         </div>
       </div>
     </>
+  );
+}
+
+export default function TeacherBacklogPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading backlog...</p>
+        </div>
+      </div>
+    }>
+      <TeacherBacklogPageContent />
+    </Suspense>
   );
 }
