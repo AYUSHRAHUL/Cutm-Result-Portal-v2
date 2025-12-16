@@ -152,6 +152,7 @@ function TeacherBacklogPageContent() {
   const [selectedStudentInfo, setSelectedStudentInfo] = useState(null);
   const lastRegSearchedRef = useRef("");
   const [lastRegValue, setLastRegValue] = useState("");
+  const summariesLoadedRef = useRef(false); // Track if summaries are already loaded to prevent re-loading
 
   // CSV Export Function
   function exportCSV() {
@@ -774,8 +775,10 @@ function TeacherBacklogPageContent() {
       if (regMode === "list" && selectedReg === "ALL") {
         isAll = true;
         setShowAllMode(true);
+        summariesLoadedRef.current = false; // Reset flag when explicitly selecting "ALL" to allow reload
       } else if (regValue) {
         setShowAllMode(false);
+        summariesLoadedRef.current = false; // Reset flag when selecting specific student
 
         // Find student info for selected registration
         const studentInfo = studentSummary.find(s => (s.Reg_No || "").toUpperCase() === regValueUpper);
@@ -1008,23 +1011,47 @@ function TeacherBacklogPageContent() {
             setSelectedReg("");
           }
 
-          // If not in "Show All" mode, stop here so registration list loads instantly
-          if (!showAllMode) {
+          // CRITICAL FIX: Only process summaries if explicitly requested AND not already loaded
+          // Don't auto-process on every branch/year change when showAllMode is true
+          // This prevents excessive MongoDB connections
+          if (!showAllMode || uniqueRegNos.length === 0) {
             if (!cancelled) {
               setStudentSummary([]);
+              summariesLoadedRef.current = false;
             }
             return;
           }
 
-          // In Show All mode, build branch overrides and per-student backlog summary
-          const overridePromises = uniqueRegNos.map(regNo =>
-            fetch(appendSchoolParams(`/api/branch-change?reg=${regNo}`))
-              .then(res => res.ok ? res.json() : null)
-              .then(data => data?.override ? { reg: regNo.toUpperCase(), branch: data.override } : null)
-              .catch(() => null)
-          );
+          // Prevent re-loading summaries if already loaded (only reload if branch/year/regMode actually changed)
+          // This is critical to prevent excessive MongoDB connections
+          if (summariesLoadedRef.current && studentSummary.length > 0) {
+            return; // Skip reloading if summaries already exist
+          }
 
-          const overrideResults = await Promise.all(overridePromises);
+          // In Show All mode, build branch overrides and per-student backlog summary
+          // CRITICAL: Process in batches to prevent connection limit exhaustion
+          const BATCH_SIZE = 5; // Reduced to 5 to prevent MongoDB connection limit issues
+          const MAX_STUDENTS = 50; // Reduced limit to prevent overwhelming MongoDB (Atlas free tier has 50 max connections)
+          const studentsToProcess = uniqueRegNos.slice(0, MAX_STUDENTS);
+          
+          // Process branch overrides in batches
+          const overrideResults = [];
+          for (let i = 0; i < studentsToProcess.length; i += BATCH_SIZE) {
+            if (cancelled) return;
+            const batch = studentsToProcess.slice(i, i + BATCH_SIZE);
+            const batchPromises = batch.map(regNo =>
+              fetch(appendSchoolParams(`/api/branch-change?reg=${regNo}`))
+                .then(res => res.ok ? res.json() : null)
+                .then(data => data?.override ? { reg: regNo.toUpperCase(), branch: data.override } : null)
+                .catch(() => null)
+            );
+            const batchResults = await Promise.all(batchPromises);
+            overrideResults.push(...batchResults);
+            // Increased delay between batches to prevent overwhelming server and MongoDB
+            if (i + BATCH_SIZE < studentsToProcess.length) {
+              await new Promise(resolve => setTimeout(resolve, 200));
+            }
+          }
           if (cancelled) return;
 
           const branchOverrides = new Map();
@@ -1034,72 +1061,83 @@ function TeacherBacklogPageContent() {
             }
           });
 
-          // Fetch backlog counts for each student
-          const summaryPromises = uniqueRegNos.map(async (regNo) => {
-            try {
-              const backlogUrl = getSchoolApiUrl("backlogs");
-              const backlogRes = await fetch(backlogUrl, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ registration: regNo })
-              });
-              const backlogData = await backlogRes.json();
-              const backlogs = backlogData.backlogs || backlogData.result || [];
+          // Fetch backlog counts for each student in batches (sequential to prevent connection exhaustion)
+          const summaries = [];
+          for (let i = 0; i < studentsToProcess.length; i += BATCH_SIZE) {
+            if (cancelled) return;
+            const batch = studentsToProcess.slice(i, i + BATCH_SIZE);
+            const batchPromises = batch.map(async (regNo) => {
+              try {
+                const backlogUrl = getSchoolApiUrl("backlogs");
+                const backlogRes = await fetch(backlogUrl, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ registration: regNo })
+                });
+                const backlogData = await backlogRes.json();
+                const backlogs = backlogData.backlogs || backlogData.result || [];
 
-              const studentInfo = students.find(s => (s.Reg_No || s.registration || "").toUpperCase() === regNo.toUpperCase());
+                const studentInfo = students.find(s => (s.Reg_No || s.registration || "").toUpperCase() === regNo.toUpperCase());
 
-              let studentBranch = "";
-              if (branchOverrides.has(regNo.toUpperCase())) {
-                studentBranch = branchOverrides.get(regNo.toUpperCase());
-              } else if (studentInfo?.Branch) {
-                studentBranch = studentInfo.Branch;
-                if (studentBranch && studentBranch.length <= 5 && studentBranch !== "AIML") {
-                  studentBranch = getFullBranchName(studentBranch);
+                let studentBranch = "";
+                if (branchOverrides.has(regNo.toUpperCase())) {
+                  studentBranch = branchOverrides.get(regNo.toUpperCase());
+                } else if (studentInfo?.Branch) {
+                  studentBranch = studentInfo.Branch;
+                  if (studentBranch && studentBranch.length <= 5 && studentBranch !== "AIML") {
+                    studentBranch = getFullBranchName(studentBranch);
+                  }
+                } else if (backlogs.length > 0 && backlogs[0]?.Branch) {
+                  studentBranch = backlogs[0].Branch;
+                  if (studentBranch && studentBranch.length <= 5 && studentBranch !== "AIML") {
+                    studentBranch = getFullBranchName(studentBranch);
+                  }
+                } else {
+                  const shortBranch = getBranchFromRegNo(regNo);
+                  if (shortBranch) {
+                    studentBranch = getFullBranchName(shortBranch);
+                  }
                 }
-              } else if (backlogs.length > 0 && backlogs[0]?.Branch) {
-                studentBranch = backlogs[0].Branch;
-                if (studentBranch && studentBranch.length <= 5 && studentBranch !== "AIML") {
-                  studentBranch = getFullBranchName(studentBranch);
+
+                if (!studentBranch && branch && branch !== "All") {
+                  studentBranch = getFullBranchName(branch);
                 }
-              } else {
+
+                let studentName = studentInfo?.Name || "";
+                if (!studentName && backlogs.length > 0) {
+                  studentName = backlogs[0]?.Name || "";
+                }
+
+                return {
+                  Reg_No: regNo,
+                  Name: studentName,
+                  Branch: studentBranch,
+                  Batch: studentInfo?.Batch || pickBatch(year, regNo),
+                  TotalBacklogs: backlogs.length
+                };
+              } catch {
                 const shortBranch = getBranchFromRegNo(regNo);
-                if (shortBranch) {
-                  studentBranch = getFullBranchName(shortBranch);
-                }
+                const fallbackBranch = shortBranch ? getFullBranchName(shortBranch) : (branch && branch !== "All" ? getFullBranchName(branch) : "");
+                return {
+                  Reg_No: regNo,
+                  Name: "",
+                  Branch: fallbackBranch,
+                  Batch: year || "",
+                  TotalBacklogs: 0
+                };
               }
-
-              if (!studentBranch && branch && branch !== "All") {
-                studentBranch = getFullBranchName(branch);
-              }
-
-              let studentName = studentInfo?.Name || "";
-              if (!studentName && backlogs.length > 0) {
-                studentName = backlogs[0]?.Name || "";
-              }
-
-              return {
-                Reg_No: regNo,
-                Name: studentName,
-                Branch: studentBranch,
-                Batch: studentInfo?.Batch || pickBatch(year, regNo),
-                TotalBacklogs: backlogs.length
-              };
-            } catch {
-              const shortBranch = getBranchFromRegNo(regNo);
-              const fallbackBranch = shortBranch ? getFullBranchName(shortBranch) : (branch && branch !== "All" ? getFullBranchName(branch) : "");
-              return {
-                Reg_No: regNo,
-                Name: "",
-                Branch: fallbackBranch,
-                Batch: year || "",
-                TotalBacklogs: 0
-              };
+            });
+            // Await each batch before processing the next
+            const batchResults = await Promise.all(batchPromises);
+            summaries.push(...batchResults);
+            // Increased delay between batches to prevent overwhelming server and MongoDB
+            if (i + BATCH_SIZE < studentsToProcess.length) {
+              await new Promise(resolve => setTimeout(resolve, 300));
             }
-          });
-
-          const summaries = await Promise.all(summaryPromises);
+          }
           if (!cancelled) {
             setStudentSummary(summaries);
+            summariesLoadedRef.current = true; // Mark as loaded to prevent re-loading
           }
         } else if (!cancelled) {
           setRegList([]);
@@ -1122,7 +1160,9 @@ function TeacherBacklogPageContent() {
         try { loadRegsControllerRef.current.abort(); } catch { }
       }
     };
-  }, [branch, year, regMode, showAllMode]);
+    // CRITICAL: Removed showAllMode from dependencies to prevent re-triggering on mode change
+    // showAllMode is handled separately via user action, not auto-triggered
+  }, [branch, year, regMode]);
 
   useEffect(() => {
     if (regMode === "list" && selectedReg) {

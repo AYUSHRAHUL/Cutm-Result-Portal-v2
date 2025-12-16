@@ -616,17 +616,17 @@ Please check if the department name matches exactly with the available departmen
     return students;
   }, [allStudentsData, searchTerm, filterStatus, sortBy, sortOrder]);
 
-  // Auto-refresh functionality
-  useEffect(() => {
-    if (autoRefresh && searchPerformed && !loading) {
-      const interval = setInterval(() => {
-        onSubmit({ preventDefault: () => { } });
-        addNotification('info', 'Data refreshed automatically');
-      }, 30000); // Refresh every 30 seconds
-
-      return () => clearInterval(interval);
-    }
-  }, [autoRefresh, searchPerformed, loading, onSubmit, addNotification]);
+  // DISABLED: Auto-refresh functionality to prevent excessive MongoDB connections
+  // useEffect(() => {
+  //   if (autoRefresh && searchPerformed && !loading) {
+  //     const interval = setInterval(() => {
+  //       onSubmit({ preventDefault: () => { } });
+  //       addNotification('info', 'Data refreshed automatically');
+  //     }, 30000); // Refresh every 30 seconds
+  //
+  //     return () => clearInterval(interval);
+  //   }
+  // }, [autoRefresh, searchPerformed, loading, onSubmit, addNotification]);
 
   // Function to handle basket click and show detailed subjects
   function handleBasketClick(basketName, basketInfo) {
