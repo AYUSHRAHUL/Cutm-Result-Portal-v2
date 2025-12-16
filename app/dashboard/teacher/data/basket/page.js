@@ -1,9 +1,32 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
 
 export default function TeacherCBCSBasketPage() {
+  const searchParams = useSearchParams();
+  const school = searchParams.get('school');
+  const isDiploma = school?.toUpperCase() === 'SOVET' || school?.toUpperCase()?.includes('VOCATIONAL');
+
+  const btechBranches = [
+    { value: "CIVIL", label: "CIVIL" },
+    { value: "EEE", label: "EEE" },
+    { value: "ECE", label: "ECE" },
+    { value: "MECHANICAL", label: "MECHANICAL" },
+    { value: "CSE", label: "CSE" },
+    { value: "AIML", label: "AIML" }
+  ];
+  const diplomaBranches = [
+    { value: "CIVIL", label: "CIVIL" },
+    { value: "EE", label: "EE" },
+    { value: "MECHANICAL", label: "MECHANICAL" },
+    { value: "CSE", label: "CSE" },
+    { value: "MINING", label: "MINING" },
+    { value: "AUTOMOBILE", label: "AUTOMOBILE" }
+  ];
+  const branchOptions = isDiploma ? diplomaBranches : btechBranches;
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -23,7 +46,10 @@ export default function TeacherCBCSBasketPage() {
     try {
       setLoading(true);
       const qs = new URLSearchParams({ branch, basket, search, limit: "0" }).toString();
-      const res = await fetch(`/api/cbcs?${qs}`);
+      const baseUrl = getSchoolApiUrl("cbcs");
+      const separator = baseUrl.includes('?') ? '&' : '?';
+      const url = baseUrl + separator + qs;
+      const res = await fetch(url);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load");
       setItems(data.items || []);
@@ -33,13 +59,13 @@ export default function TeacherCBCSBasketPage() {
   }
 
   useEffect(() => { fetchItems(); }, []);
-  
+
   // Trigger search when search term changes
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       fetchItems();
     }, 300); // Debounce search by 300ms
-    
+
     return () => clearTimeout(timeoutId);
   }, [search, branch, basket]);
 
@@ -53,12 +79,12 @@ export default function TeacherCBCSBasketPage() {
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-light text-[#2c3e50]">Basket</span>
+            <span className="text-2xl font-light text-[#2c3e50]">{isDiploma ? 'Diploma' : 'Basket'}</span>
             <h1 className="text-2xl md:text-3xl font-light text-[#2c3e50]">Subject Management</h1>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link href="/dashboard/teacher" className="btn-secondary">← Back to Teacher</Link>
-            <Link href="/dashboard/teacher/data/baskettrack" className="btn-info">Track Progress</Link>
+            <Link href={appendSchoolParams("/dashboard/teacher")} className="btn-secondary">← Back to Teacher</Link>
+            <Link href={appendSchoolParams("/dashboard/teacher/data/baskettrack")} className="btn-info">Track Progress</Link>
           </div>
         </div>
 
@@ -83,12 +109,9 @@ export default function TeacherCBCSBasketPage() {
                 <label>Branch</label>
                 <select value={branch} onChange={e => setBranch(e.target.value)} className="form-control">
                   <option value="">All Branches</option>
-                  <option value="CIVIL">CIVIL</option>
-                  <option value="EEE">EEE</option>
-                  <option value="ECE">ECE</option>
-                  <option value="MECHANICAL">MECHANICAL</option>
-                  <option value="CSE">CSE</option>
-                  <option value="AIML">AIML</option>
+                  {branchOptions.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
                 </select>
               </div>
               <div className="form-group">

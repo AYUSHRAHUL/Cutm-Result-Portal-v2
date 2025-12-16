@@ -1,8 +1,32 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
 
 export default function TeacherBatchPage() {
+  const searchParams = useSearchParams();
+  const school = searchParams.get('school');
+  const isDiploma = school?.toUpperCase() === 'SOVET' || school?.toUpperCase()?.includes('VOCATIONAL');
+
+  const btechBranches = [
+    { value: "Civil", label: "Civil Engineering" },
+    { value: "CSE", label: "Computer Science Engineering" },
+    { value: "ECE", label: "Electronics & Communication Engineering" },
+    { value: "EEE", label: "Electrical & Electronics Engineering" },
+    { value: "Mechanical", label: "Mechanical Engineering" },
+    { value: "AIML", label: "AIML" }
+  ];
+  const diplomaBranches = [
+    { value: "Civil", label: "Civil Engineering" },
+    { value: "CSE", label: "Computer Science Engineering" },
+    { value: "EE", label: "Electrical Engineering" },
+    { value: "Mechanical", label: "Mechanical Engineering" },
+    { value: "Mining", label: "Mining Engineering" },
+    { value: "Automobile", label: "Automobile Engineering" }
+  ];
+
+  const branchOptions = isDiploma ? diplomaBranches : btechBranches;
   const [branch, setBranch] = useState("");
   const [batch, setBatch] = useState("");
   const [rows, setRows] = useState([]);
@@ -18,7 +42,8 @@ export default function TeacherBatchPage() {
     setExpandedStudents(new Set());
     try {
       setLoading(true);
-      const res = await fetch("/api/batch", {
+      const url = getSchoolApiUrl("batch");
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ branch, batch })
@@ -71,7 +96,7 @@ export default function TeacherBatchPage() {
 
   function exportCSV() {
     if (rows.length === 0) return;
-    const keys = ["Reg_No","Name","Sem","Subject_Code","Subject_Name","Credits","Grade"];
+    const keys = ["Reg_No", "Name", "Sem", "Subject_Code", "Subject_Name", "Credits", "Grade"];
     const csv = [keys.join(",")]
       .concat(rows.map(r => {
         const record = { ...r, Credits: computeCreditsSum(r.Credits) };
@@ -83,9 +108,9 @@ export default function TeacherBatchPage() {
 
   function exportExcel() {
     if (rows.length === 0) return;
-    const header = ["Reg No","Name","Semester","Subject Code","Subject Name","Credits","Grade"];
-    const table = [header].concat(rows.map(r => [r.Reg_No,r.Name,r.Sem,r.Subject_Code,r.Subject_Name,computeCreditsSum(r.Credits),r.Grade]));
-    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body><table>${table.map(row => `<tr>${row.map(c => `<td>${String(c ?? "").toString().replace(/&/g,'&amp;').replace(/</g,'&lt;')}</td>`).join("")}</tr>`).join("")}</table></body></html>`;
+    const header = ["Reg No", "Name", "Semester", "Subject Code", "Subject Name", "Credits", "Grade"];
+    const table = [header].concat(rows.map(r => [r.Reg_No, r.Name, r.Sem, r.Subject_Code, r.Subject_Name, computeCreditsSum(r.Credits), r.Grade]));
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body><table>${table.map(row => `<tr>${row.map(c => `<td>${String(c ?? "").toString().replace(/&/g, '&amp;').replace(/</g, '&lt;')}</td>`).join("")}</tr>`).join("")}</table></body></html>`;
     downloadBlob(html, `batch_${branch || "all"}_${batch || "all"}.xls`, "application/vnd.ms-excel");
   }
 
@@ -101,7 +126,7 @@ export default function TeacherBatchPage() {
   }
 
   return (
-    <div 
+    <div
       className="min-h-screen pb-8 sm:pb-12"
       style={{
         background: "linear-gradient(to bottom, #F5F8FA 0%, #E8F4F8 50%, #D1E9F6 100%)",
@@ -110,7 +135,7 @@ export default function TeacherBatchPage() {
       <div className="max-w-6xl mx-auto px-3 sm:px-4 lg:px-6 pt-6 sm:pt-8 lg:pt-12">
         {/* Header */}
         <div className="mb-4 sm:mb-6 text-center">
-          <h1 
+          <h1
             className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black inline-flex items-center justify-center gap-2 sm:gap-3"
             style={{
               background: "linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)",
@@ -126,7 +151,7 @@ export default function TeacherBatchPage() {
         {/* Main Card */}
         <div className="rounded-xl sm:rounded-2xl overflow-hidden shadow-xl bg-white border-2" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
           {/* Card Header */}
-          <div 
+          <div
             className="p-4 sm:p-6 text-white"
             style={{
               background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
@@ -135,7 +160,7 @@ export default function TeacherBatchPage() {
             <h2 className="text-lg sm:text-xl font-black">Search Student Records</h2>
             <p className="opacity-90 text-xs sm:text-sm mt-1">View student data by branch and batch</p>
           </div>
-          
+
           {/* Content */}
           <div className="p-4 sm:p-6">
             {/* Search Form */}
@@ -145,38 +170,37 @@ export default function TeacherBatchPage() {
                   <label className="block font-bold mb-1.5 sm:mb-2 text-sm sm:text-base text-[#1A1F29]">
                     Branch
                   </label>
-                  <select 
-                    className="w-full border-2 rounded-xl bg-white px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]" 
+                  <select
+                    className="w-full border-2 rounded-xl bg-white px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
                     style={{ borderColor: "rgba(5,163,199,0.3)" }}
-                    value={branch} 
+                    value={branch}
                     onChange={e => setBranch(e.target.value)}
                   >
                     <option value="">Select Branch</option>
-                    <option value="Civil">Civil Engineering</option>
-                    <option value="CSE">Computer Science Engineering</option>
-                    <option value="ECE">Electronics & Communication Engineering</option>
-                    <option value="EEE">Electrical & Electronics Engineering</option>
-                    <option value="Mechanical">Mechanical Engineering</option>
-                    <option value="AIML">AIML</option>
+                    {branchOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
                   <label className="block font-bold mb-1.5 sm:mb-2 text-sm sm:text-base text-[#1A1F29]">
                     Batch (Year)
                   </label>
-                  <input 
-                    className="w-full border-2 rounded-xl bg-white px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]" 
+                  <input
+                    className="w-full border-2 rounded-xl bg-white px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
                     style={{ borderColor: "rgba(5,163,199,0.3)" }}
-                    placeholder="e.g., 2021 or 21" 
-                    value={batch} 
-                    onChange={e => setBatch(e.target.value)} 
+                    placeholder="e.g., 2021 or 21"
+                    value={batch}
+                    onChange={e => setBatch(e.target.value)}
                   />
                 </div>
               </div>
               <div className="text-center">
-                <button 
+                <button
                   type="submit"
-                  className="inline-flex items-center justify-center gap-2 px-6 sm:px-8 py-3 sm:py-3.5 rounded-xl text-white font-black hover:shadow-lg active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed transition-all duration-300 text-sm sm:text-base min-h-[44px] w-full sm:w-auto" 
+                  className="inline-flex items-center justify-center gap-2 px-6 sm:px-8 py-3 sm:py-3.5 rounded-xl text-white font-black hover:shadow-lg active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed transition-all duration-300 text-sm sm:text-base min-h-[44px] w-full sm:w-auto"
                   style={{
                     background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
                   }}
@@ -255,8 +279,8 @@ export default function TeacherBatchPage() {
                     <tbody>
                       {studentSummary.map((student, i) => (
                         <React.Fragment key={student.Reg_No}>
-                          <tr 
-                            className="border-b-2 hover:bg-[#05A3C7]/5 transition-colors cursor-pointer" 
+                          <tr
+                            className="border-b-2 hover:bg-[#05A3C7]/5 transition-colors cursor-pointer"
                             style={{ borderColor: "rgba(5,163,199,0.1)" }}
                             onClick={() => toggleExpand(student.Reg_No)}
                           >
@@ -323,7 +347,7 @@ export default function TeacherBatchPage() {
         {/* Loading Overlay */}
         {loading && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-            <div 
+            <div
               className="rounded-xl sm:rounded-2xl p-4 sm:p-6 flex items-center gap-3 shadow-2xl max-w-sm w-full"
               style={{
                 background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
@@ -335,7 +359,7 @@ export default function TeacherBatchPage() {
           </div>
         )}
       </div>
-      
+
       <style jsx global>{`
         @media print {
           a[href], button { display: none !important; }
@@ -360,7 +384,7 @@ function computeCreditsSum(credits) {
 
 function escapeCsv(val) {
   const s = String(val ?? "");
-  if (/[",\n]/.test(s)) return '"' + s.replace(/"/g,'""') + '"';
+  if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
   return s;
 }
 

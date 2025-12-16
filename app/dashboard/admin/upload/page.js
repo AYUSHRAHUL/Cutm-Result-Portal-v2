@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
 
 export default function AdminUploadPage() {
   const [files, setFiles] = useState([]);
@@ -48,7 +49,8 @@ export default function AdminUploadPage() {
       let pct = 0;
       const timer = setInterval(() => { pct = Math.min(90, pct + Math.random() * 15); setProgress(Math.floor(pct)); setStatus("Uploading..."); }, 180);
 
-      const res = await fetch("/api/upload", { method: "POST", body: form });
+      const uploadUrl = getSchoolApiUrl("upload");
+      const res = await fetch(uploadUrl, { method: "POST", body: form });
       const data = await res.json().catch(() => ({}));
       clearInterval(timer);
       setProgress(100);

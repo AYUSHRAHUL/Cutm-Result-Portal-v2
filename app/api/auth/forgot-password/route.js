@@ -26,7 +26,7 @@ export async function POST(req) {
     }
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    const db = client.db("USER");
     
     // Check if user exists
     const user = await db.collection("users").findOne({ email });
@@ -111,7 +111,7 @@ export async function PUT(req) {
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    const db = client.db("USER");
     
     await db.collection("users").updateOne(
       { email },

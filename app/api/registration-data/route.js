@@ -4,6 +4,30 @@ import { jwtVerify } from "jose";
 import { ObjectId } from "mongodb";
 import { generateOTP, storeOTP, verifyOTP, removeOTP } from "@/lib/otpStore";
 import { sendOTPEmail } from "@/lib/email";
+// Helper function to get branch from registration
+async function getBranchFromRegistration(registration, department = null) {
+  if (!registration) return department || 'Unknown';
+  
+  // Try SOET B.Tech first
+  try {
+    const { parseBTechRegistration } = await import('../soet/parse-registration/route');
+    const parsed = parseBTechRegistration(registration);
+    if (parsed && parsed.isValid && parsed.isBTech) {
+      return parsed.branch || department || 'Unknown';
+    }
+  } catch {}
+  
+  // Try SOVET Diploma
+  try {
+    const { parseDiplomaRegistration } = await import('../sovet/parse-registration/route');
+    const parsed = parseDiplomaRegistration(registration);
+    if (parsed && parsed.isValid && parsed.isDiploma) {
+      return parsed.branch || department || 'Unknown';
+    }
+  } catch {}
+  
+  return department || 'Unknown';
+}
 
 // JWT verification helper
 async function verifyToken(token) {
@@ -38,7 +62,15 @@ export async function GET(req) {
     }
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    // Get campus and school from query params (priority) or payload
+    const { searchParams } = new URL(req.url);
+    const campusParam = searchParams.get('campus');
+    const schoolParam = searchParams.get('school');
+    const campus = campusParam || payload.campus || null;
+    const school = schoolParam || payload.school || null;
+    const { getCampusSchoolDatabase } = await import("@/lib/campus");
+    const dbName = getCampusSchoolDatabase(campus, school);
+    const db = client.db(dbName);
     const collection = db.collection("RegistrationData");
 
     // Get all registration data
@@ -49,20 +81,13 @@ export async function GET(req) {
       totalRecords: data.length,
       uniqueStudents: new Set(data.map(item => item.Reg_No)).size,
       semesters: [...new Set(data.map(item => item.Sem))].sort(),
-      departments: [...new Set(data.map(item => {
-        if (item.Reg_No && item.Reg_No.length >= 8) {
-          const deptCode = item.Reg_No.charAt(7);
-          const deptMap = {
-            '1': 'Civil Engineering',
-            '2': 'Computer Science',
-            '3': 'Electronics & Communication',
-            '5': 'Electrical & Electronics',
-            '6': 'Mechanical Engineering'
-          };
-          return deptMap[deptCode] || 'Unknown';
+      departments: [...new Set(await Promise.all(data.map(async (item) => {
+        if (item.Reg_No) {
+          const branch = await getBranchFromRegistration(item.Reg_No);
+          return branch !== 'Unknown' ? branch : 'Unknown';
         }
         return 'Unknown';
-      }))].sort()
+      })))].sort()
     };
 
     return NextResponse.json({
@@ -108,7 +133,15 @@ export async function PUT(req) {
     }
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    // Get campus and school from query params (priority) or payload
+    const { searchParams } = new URL(req.url);
+    const campusParam = searchParams.get('campus');
+    const schoolParam = searchParams.get('school');
+    const campus = campusParam || payload.campus || null;
+    const school = schoolParam || payload.school || null;
+    const { getCampusSchoolDatabase } = await import("@/lib/campus");
+    const dbName = getCampusSchoolDatabase(campus, school);
+    const db = client.db(dbName);
     const collection = db.collection("RegistrationData");
 
     // Convert recordId to ObjectId
@@ -166,7 +199,15 @@ export async function DELETE(req) {
     }
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    // Get campus and school from query params (priority) or payload
+    const { searchParams } = new URL(req.url);
+    const campusParam = searchParams.get('campus');
+    const schoolParam = searchParams.get('school');
+    const campus = campusParam || payload.campus || null;
+    const school = schoolParam || payload.school || null;
+    const { getCampusSchoolDatabase } = await import("@/lib/campus");
+    const dbName = getCampusSchoolDatabase(campus, school);
+    const db = client.db(dbName);
     const collection = db.collection("RegistrationData");
 
     // Check if specific record IDs are provided
@@ -267,7 +308,27 @@ export async function POST(req) {
       }
 
       const client = await clientPromise;
-      const db = client.db("cutm1");
+      // Get campus and school from request
+      const token = req.cookies.get("token")?.value;
+      let campus = null;
+      let school = null;
+      if (token) {
+        try {
+          const { jwtVerify } = await import("jose");
+          const secret = new TextEncoder().encode(process.env.JWT_SECRET || "dev-secret");
+          const { payload } = await jwtVerify(token, secret);
+          campus = payload?.campus || null;
+          school = payload?.school || null;
+        } catch {}
+      }
+      const { searchParams } = new URL(req.url);
+      const campusParam = searchParams.get('campus');
+      const schoolParam = searchParams.get('school');
+      campus = campusParam || campus || null;
+      school = schoolParam || school || null;
+      const { getCampusSchoolDatabase } = await import("@/lib/campus");
+      const dbName = getCampusSchoolDatabase(campus, school);
+      const db = client.db(dbName);
       const collection = db.collection("RegistrationData");
       const deleteResult = await collection.deleteMany({ Type: 'Registration' });
 

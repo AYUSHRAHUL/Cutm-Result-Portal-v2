@@ -1,6 +1,30 @@
 import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import { verifyToken } from "@/lib/auth";
+// Helper function to get branch from registration
+async function getBranchFromRegistration(registration, department = null) {
+  if (!registration) return department || 'Unknown';
+  
+  // Try SOET B.Tech first
+  try {
+    const { parseBTechRegistration } = await import('../../soet/parse-registration/route');
+    const parsed = parseBTechRegistration(registration);
+    if (parsed && parsed.isValid && parsed.isBTech) {
+      return parsed.branch || department || 'Unknown';
+    }
+  } catch {}
+  
+  // Try SOVET Diploma
+  try {
+    const { parseDiplomaRegistration } = await import('../../sovet/parse-registration/route');
+    const parsed = parseDiplomaRegistration(registration);
+    if (parsed && parsed.isValid && parsed.isDiploma) {
+      return parsed.branch || department || 'Unknown';
+    }
+  } catch {}
+  
+  return department || 'Unknown';
+}
 
 // Grade to points mapping
 const GRADE_MAP = {
@@ -21,7 +45,7 @@ async function calculateCGPA(db, registration) {
   const reg = registration.toUpperCase();
   
   // Get results ONLY from CUTM1
-  const resultsCUTM1 = await db.collection("CUTM1")
+  const resultsCUTM1 = await db.collection("result")
     .find({ Reg_No: reg })
     .project({ _id: 0, Subject_Code: 1, Credits: 1, Grade: 1 })
     .toArray();
@@ -58,18 +82,11 @@ async function calculateCGPA(db, registration) {
   return parseFloat(cgpa.toFixed(2));
 }
 
-// Get department from registration number
+// Get department from registration number (handles both B.Tech and Diploma)
 function getDepartmentFromRegNo(regNo) {
-  if (!regNo || regNo.length < 8) return "Unknown";
-  const deptCode = regNo.charAt(7);
-  const deptMap = {
-    '1': 'Civil Engineering',
-    '2': 'Computer Science Engineering',
-    '3': 'Electronics & Communication Engineering',
-    '5': 'Electrical & Electronics Engineering',
-    '6': 'Mechanical Engineering'
-  };
-  return deptMap[deptCode] || "Unknown";
+  if (!regNo) return "Unknown";
+  const branch = await getBranchFromRegistration(String(regNo));
+  return branch !== 'Unknown' ? branch : "Unknown";
 }
 
 // Check if subject belongs to same branch
@@ -130,7 +147,7 @@ async function checkBasket4(db, registration, studentBranch) {
   const reg = registration.toUpperCase();
   
   // Get all results for the student from CUTM1
-  const resultsCUTM1 = await db.collection("CUTM1")
+  const resultsCUTM1 = await db.collection("result")
     .find({ Reg_No: reg })
     .project({ _id: 0, Reg_No: 1, Subject_Code: 1, Subject_Name: 1, Credits: 1, Grade: 1, Sem: 1 })
     .toArray();
@@ -314,7 +331,7 @@ async function checkHonoursSubjects(db, registration) {
   const reg = registration.toUpperCase();
   
   // Get all results for the student from CUTM1
-  const resultsCUTM1 = await db.collection("CUTM1")
+  const resultsCUTM1 = await db.collection("result")
     .find({ Reg_No: reg })
     .project({ _id: 0, Reg_No: 1, Subject_Code: 1, Subject_Name: 1, Credits: 1, Grade: 1 })
     .toArray();
@@ -440,7 +457,7 @@ async function checkBasket5(db, registration) {
   const reg = registration.toUpperCase();
   
   // Get all results for the student from CUTM1
-  const resultsCUTM1 = await db.collection("CUTM1")
+  const resultsCUTM1 = await db.collection("result")
     .find({ Reg_No: reg })
     .project({ _id: 0, Reg_No: 1, Subject_Code: 1, Subject_Name: 1, Credits: 1, Grade: 1, Sem: 1 })
     .toArray();
@@ -715,7 +732,9 @@ export async function POST(req) {
     }
     
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    const { getDatabaseFromRequest } = await import("@/lib/db-helper");
+    const dbName = await getDatabaseFromRequest(req);
+    const db = client.db(dbName);
 
     // Build query for students from both collections
     let queryCUTM1 = {};
@@ -917,7 +936,7 @@ export async function POST(req) {
         });
         pipeline.push({ $project: { _id: 0, Reg_No: 1, Name: 1, Branch: 1 } });
         
-        studentsCUTM1 = await db.collection("CUTM1")
+        studentsCUTM1 = await db.collection("result")
           .aggregate(pipeline)
       .toArray();
         console.log(`[Query] CUTM1 found ${studentsCUTM1.length} students`);
@@ -926,7 +945,7 @@ export async function POST(req) {
         console.error("Query was:", JSON.stringify(queryCUTM1, null, 2));
         // Try simpler query as fallback
         try {
-          studentsCUTM1 = await db.collection("CUTM1")
+          studentsCUTM1 = await db.collection("result")
             .find(queryCUTM1)
             .limit(1000)
             .toArray();
@@ -1057,39 +1076,40 @@ export async function POST(req) {
     const studentMap = new Map();
     
     // Add students from CUTM1 first
-    studentsCUTM1.forEach(student => {
+    for (const student of studentsCUTM1) {
       const reg = String(student.Reg_No).toUpperCase();
       if (reg) {
-      studentMap.set(reg, {
-        Reg_No: reg,
-        Name: student.Name || "",
-        Branch: student.Branch || getDepartmentFromRegNo(reg),
-        source: 'CUTM1'
-      });
+        const branch = await getDepartmentFromRegNo(reg);
+        studentMap.set(reg, {
+          Reg_No: reg,
+          Name: student.Name || "",
+          Branch: student.Branch || branch,
+          source: 'CUTM1'
+        });
       }
-    });
+    }
     
     // Add students from RegistrationData (include all, even if in CUTM1, to ensure we check both)
-    studentsRegData.forEach(student => {
+    for (const student of studentsRegData) {
       const reg = String(student.Reg_No).toUpperCase();
       if (reg) {
         // Use Branch, Department, or extract from Reg_No
-        const branch = student.Branch || student.Department || getDepartmentFromRegNo(reg);
+        const branch = student.Branch || student.Department || await getDepartmentFromRegNo(reg);
         // If already exists from CUTM1, keep CUTM1 data but mark as having RegistrationData too
         if (studentMap.has(reg)) {
           studentMap.get(reg).hasRegistrationData = true;
         } else {
           // New student from RegistrationData only
-        studentMap.set(reg, {
-          Reg_No: reg,
-          Name: student.Name || "",
-          Branch: branch,
+          studentMap.set(reg, {
+            Reg_No: reg,
+            Name: student.Name || "",
+            Branch: branch,
             source: 'RegistrationData',
             hasRegistrationData: true
-        });
+          });
         }
       }
-    });
+    }
 
     const students = Array.from(studentMap.values());
     
@@ -1129,7 +1149,7 @@ export async function POST(req) {
         }
       
       // Get student branch
-      let studentBranch = student.Branch || getDepartmentFromRegNo(reg);
+      let studentBranch = student.Branch || await getDepartmentFromRegNo(reg);
       
       // Calculate CGPA (ONLY from CUTM1)
       const cgpa = await calculateCGPA(db, reg);
@@ -1279,4 +1299,5 @@ export async function POST(req) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
 

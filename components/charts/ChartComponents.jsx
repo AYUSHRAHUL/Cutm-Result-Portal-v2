@@ -55,12 +55,20 @@ const commonOptions = {
 
 // Department Distribution Chart
 export function DepartmentChart({ data }) {
+  if (!data || !Array.isArray(data) || data.length === 0) {
+    return (
+      <div className="h-80 flex items-center justify-center text-white/60">
+        No department data available
+      </div>
+    );
+  }
+
   const chartData = {
     labels: data.map(item => item.name),
     datasets: [
       {
-        label: 'Students',
-        data: data.map(item => item.count),
+        label: 'Number of Students',
+        data: data.map(item => item.students || item.count || item.total || 0),
         backgroundColor: [
           'rgba(59, 130, 246, 0.8)',
           'rgba(16, 185, 129, 0.8)',
@@ -112,12 +120,20 @@ export function DepartmentChart({ data }) {
 
 // Semester Distribution Chart
 export function SemesterChart({ data }) {
+  if (!data || !Array.isArray(data) || data.length === 0) {
+    return (
+      <div className="h-80 flex items-center justify-center text-white/60">
+        No semester data available
+      </div>
+    );
+  }
+
   const chartData = {
     labels: data.map(item => item.semester),
     datasets: [
       {
         label: 'Records',
-        data: data.map(item => item.count),
+        data: data.map(item => item.count || item.total || 0),
         backgroundColor: 'rgba(16, 185, 129, 0.8)',
         borderColor: 'rgba(16, 185, 129, 1)',
         borderWidth: 2,
@@ -157,6 +173,14 @@ export function SemesterChart({ data }) {
 
 // Grade Distribution Chart
 export function GradeChart({ data }) {
+  if (!data || !Array.isArray(data) || data.length === 0) {
+    return (
+      <div className="h-80 flex items-center justify-center text-white/60">
+        No grade data available
+      </div>
+    );
+  }
+
   const chartData = {
     labels: data.map(item => item.grade),
     datasets: [
@@ -214,19 +238,74 @@ export function GradeChart({ data }) {
 
 // Data Source Distribution Chart
 export function DataSourceChart({ data }) {
+  // Handle both object format { resultRecords, registrationRecords } and array format
+  if (!data) {
+    return (
+      <div className="h-80 flex items-center justify-center text-white/60">
+        No data source information available
+      </div>
+    );
+  }
+
+  // If it's an array (old format), convert it
+  let resultRecords = 0;
+  let registrationRecords = 0;
+
+  if (Array.isArray(data)) {
+    // Old format: [{ name, count, percentage }]
+    const resultData = data.find(item => item.name && item.name.includes('Result'));
+    const regData = data.find(item => item.name && item.name.includes('Registration'));
+    resultRecords = resultData?.count || resultData?.total || 0;
+    registrationRecords = regData?.count || regData?.total || 0;
+  } else {
+    // New format: { resultRecords, registrationRecords }
+    resultRecords = data.resultRecords || 0;
+    registrationRecords = data.registrationRecords || 0;
+  }
+
+  // Show message only if resultRecords is 0 (registrationRecords can be 0)
+  if (resultRecords === 0) {
+    console.log('[DataSourceChart] resultRecords is 0, showing no data message');
+    return (
+      <div className="h-80 flex items-center justify-center text-white/60">
+        No data source information available
+      </div>
+    );
+  }
+  
+  console.log('[DataSourceChart] Rendering chart with:', { resultRecords, registrationRecords });
+
+  // If registrationRecords is 0, analytics is using only the main Result database.
+  // In that case, show a single slice so the chart isn't misleading.
+  const labels = registrationRecords > 0
+    ? ['Result Database', 'Registration Data']
+    : ['Result Database'];
+
+  const dataValues = registrationRecords > 0
+    ? [resultRecords, registrationRecords]
+    : [resultRecords];
+
+  const backgroundColors = registrationRecords > 0
+    ? [
+        'rgba(59, 130, 246, 0.8)',
+        'rgba(16, 185, 129, 0.8)',
+      ]
+    : ['rgba(59, 130, 246, 0.8)'];
+
+  const borderColors = registrationRecords > 0
+    ? [
+        'rgba(59, 130, 246, 1)',
+        'rgba(16, 185, 129, 1)',
+      ]
+    : ['rgba(59, 130, 246, 1)'];
+
   const chartData = {
-    labels: ['CUTM1 Database', 'Registration Data'],
+    labels,
     datasets: [
       {
-        data: [data.cutm1Records, data.registrationRecords],
-        backgroundColor: [
-          'rgba(59, 130, 246, 0.8)',
-          'rgba(16, 185, 129, 0.8)',
-        ],
-        borderColor: [
-          'rgba(59, 130, 246, 1)',
-          'rgba(16, 185, 129, 1)',
-        ],
+        data: dataValues,
+        backgroundColor: backgroundColors,
+        borderColor: borderColors,
         borderWidth: 2,
       },
     ],
@@ -264,8 +343,8 @@ export function BatchChart({ data }) {
     labels: data.map(item => item.batch),
     datasets: [
       {
-        label: 'Unique Students',
-        data: data.map(item => item.count),
+        label: 'Number of Students',
+        data: data.map(item => item.students || item.count || item.total || 0),
         backgroundColor: data.map((_, index) => {
           const colors = [
             'rgba(139, 92, 246, 0.8)', // Purple
@@ -302,7 +381,7 @@ export function BatchChart({ data }) {
       tooltip: {
         ...commonOptions.plugins.tooltip,
         callbacks: {
-          label: function(context) {
+          label: function (context) {
             return `Students: ${context.parsed.y}`;
           }
         }
@@ -323,7 +402,7 @@ export function BatchChart({ data }) {
         ticks: {
           color: '#ffffff',
           stepSize: 1,
-          callback: function(value) {
+          callback: function (value) {
             return value;
           }
         },
@@ -407,11 +486,19 @@ export function MonthlyTrendsChart({ data }) {
 
 // Performance Metrics Chart
 export function PerformanceChart({ data }) {
+  if (!data || (data.passedRecords === undefined && data.failedRecords === undefined)) {
+    return (
+      <div className="h-80 flex items-center justify-center text-white/60">
+        No performance data available
+      </div>
+    );
+  }
+
   const chartData = {
     labels: ['Passed', 'Failed'],
     datasets: [
       {
-        data: [data.passedRecords, data.failedRecords],
+        data: [data.passedRecords || 0, data.failedRecords || 0],
         backgroundColor: [
           'rgba(34, 197, 94, 0.8)',
           'rgba(239, 68, 68, 0.8)',
@@ -503,7 +590,7 @@ export function GradeCreditCorrelationChart({ data }) {
       ...commonOptions.plugins,
       tooltip: {
         callbacks: {
-          label: function(context) {
+          label: function (context) {
             return context.raw.label;
           }
         }
@@ -530,7 +617,7 @@ export function DepartmentPerformanceHeatmap({ data }) {
 
   const departments = data.map(item => item.department);
   const semesters = [...new Set(data.flatMap(item => item.semesters.map(s => s.semester)))].sort();
-  
+
   const heatmapData = {
     labels: semesters,
     datasets: departments.map((dept, index) => {
@@ -543,7 +630,7 @@ export function DepartmentPerformanceHeatmap({ data }) {
         'rgba(239, 68, 68, 0.8)',
         'rgba(168, 85, 247, 0.8)',
       ];
-      
+
       return {
         label: dept,
         data: semesters.map(sem => {
@@ -732,12 +819,20 @@ export function SubjectDifficultyChart({ data }) {
 
 // Grade Trends Over Time
 export function GradeTrendsOverTimeChart({ data }) {
+  if (!data || !Array.isArray(data) || data.length === 0) {
+    return (
+      <div className="h-80 flex items-center justify-center text-white/60">
+        No grade trends data available
+      </div>
+    );
+  }
+
   const chartData = {
     labels: data.map(item => item.semester),
     datasets: [
       {
         label: 'Average Grade Points',
-        data: data.map(item => parseFloat(item.average)),
+        data: data.map(item => parseFloat(item.average || 0)),
         borderColor: 'rgba(59, 130, 246, 1)',
         backgroundColor: 'rgba(59, 130, 246, 0.2)',
         borderWidth: 3,
@@ -806,7 +901,7 @@ export function TopPerformingStudentsTable({ data }) {
             const avg = parseFloat(student.average);
             let performanceColor = 'text-red-400';
             let performanceText = 'Below Average';
-            
+
             if (avg >= 9) {
               performanceColor = 'text-green-400';
               performanceText = 'Excellent';
@@ -817,7 +912,7 @@ export function TopPerformingStudentsTable({ data }) {
               performanceColor = 'text-yellow-400';
               performanceText = 'Average';
             }
-            
+
             return (
               <tr key={student.regNo} className="border-b border-white/10 hover:bg-white/5 transition-colors">
                 <td className="py-3 px-4">

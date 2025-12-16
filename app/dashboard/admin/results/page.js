@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
 
 export default function AdminResultsPage() {
   const [registration, setRegistration] = useState("");
@@ -57,7 +58,8 @@ export default function AdminResultsPage() {
   async function loadSemesters(reg) {
     setError(""); setSemesters([]); setSemester(""); setAllResults([]); setSubjects([]); setSgpa(null); setCgpa(null);
     try {
-      const res = await fetch("/api/semesters", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ registration: reg }) });
+      const semestersUrl = getSchoolApiUrl("semesters");
+      const res = await fetch(semestersUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ registration: reg }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "No semesters found");
       setSemesters(data.semesters || []);

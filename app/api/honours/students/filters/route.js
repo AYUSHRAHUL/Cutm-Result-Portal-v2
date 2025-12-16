@@ -1,24 +1,36 @@
 import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import { verifyToken } from "@/lib/auth";
+// Helper function to get branch from registration
+async function getBranchFromRegistration(registration, department = null) {
+  if (!registration) return department || 'Unknown';
+  
+  // Try SOET B.Tech first
+  try {
+    const { parseBTechRegistration } = await import('../../soet/parse-registration/route');
+    const parsed = parseBTechRegistration(registration);
+    if (parsed && parsed.isValid && parsed.isBTech) {
+      return parsed.branch || department || 'Unknown';
+    }
+  } catch {}
+  
+  // Try SOVET Diploma
+  try {
+    const { parseDiplomaRegistration } = await import('../../sovet/parse-registration/route');
+    const parsed = parseDiplomaRegistration(registration);
+    if (parsed && parsed.isValid && parsed.isDiploma) {
+      return parsed.branch || department || 'Unknown';
+    }
+  } catch {}
+  
+  return department || 'Unknown';
+}
 
-// Get department from registration number
-function getDepartmentFromRegNo(regNo) {
-  if (!regNo || String(regNo).length < 8) return "Unknown";
-  const regStr = String(regNo);
-  const deptCode = regStr.charAt(7);
-  const deptMap = {
-    '1': 'Civil Engineering',
-    '2': 'Computer Science Engineering',
-    '3': 'Electronics & Communication Engineering',
-    '4': 'Electronics & Communication Engineering',
-    '5': 'Electrical & Electronics Engineering',
-    '6': 'Mechanical Engineering',
-    '7': 'AIML',
-    '8': 'Computer Science Engineering',
-    '9': 'Civil Engineering'
-  };
-  return deptMap[deptCode] || "Unknown";
+// Get department from registration number (handles both B.Tech and Diploma)
+async function getDepartmentFromRegNo(regNo) {
+  if (!regNo) return "Unknown";
+  const branch = await getBranchFromRegistration(String(regNo));
+  return branch !== 'Unknown' ? branch : "Unknown";
 }
 
 // Normalize branch names to full names
@@ -99,10 +111,10 @@ export async function GET(req) {
     }
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    const db = await (async () => { const { getDatabaseFromRequest } = await import("@/lib/db-helper"); const dbName = await getDatabaseFromRequest(req); return client.db(dbName); })();
 
     // Get distinct branches from CUTM1
-    const branchesCUTM1Raw = await db.collection("CUTM1")
+    const branchesCUTM1Raw = await db.collection("result")
       .distinct("Branch")
       .then(branches => branches.filter(Boolean));
 
@@ -125,7 +137,7 @@ export async function GET(req) {
     regDataStudents.forEach(student => {
       if (student.Reg_No) {
         const regNo = String(student.Reg_No);
-        const branch = getDepartmentFromRegNo(regNo);
+        const branch = await getDepartmentFromRegNo(regNo);
         if (branch && branch !== "Unknown") {
           branchesFromRegNo.add(branch);
         }
@@ -163,7 +175,7 @@ export async function GET(req) {
     const branches = Array.from(branchSet).filter(Boolean).sort();
 
     // Get distinct batches from CUTM1 registration numbers
-    const studentsCUTM1 = await db.collection("CUTM1")
+    const studentsCUTM1 = await db.collection("result")
       .find({}, { projection: { Reg_No: 1 } })
       .toArray();
 
@@ -217,4 +229,5 @@ export async function GET(req) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
 

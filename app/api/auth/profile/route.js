@@ -25,7 +25,7 @@ export async function PUT(req) {
     }
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    const db = client.db("USER");
     const res = await db.collection("users").findOneAndUpdate(
       { email: payload.email },
       { $set: { name, updatedAt: new Date() } },

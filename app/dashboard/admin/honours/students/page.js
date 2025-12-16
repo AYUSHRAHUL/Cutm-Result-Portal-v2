@@ -1,4 +1,5 @@
 "use client";
+import { appendSchoolParams } from "@/lib/api-helper";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
@@ -80,7 +81,8 @@ export default function HonoursStudentsPage() {
   const fetchFilters = useCallback(async () => {
     try {
       setLoadingFilters(true);
-      const res = await fetch("/api/honours/students/filters");
+      const url = appendSchoolParams("/api/honours/students/filters");
+      const res = await fetch(url);
       const data = await res.json();
       
       console.log("Filters API response:", data); // Debug log
@@ -170,7 +172,8 @@ export default function HonoursStudentsPage() {
     
     try {
       setChecking(true);
-      const res = await fetch("/api/honours/students/check", {
+      const url = appendSchoolParams("/api/honours/students/check");
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
@@ -300,7 +303,8 @@ export default function HonoursStudentsPage() {
   const addToHonours = useCallback(async (student) => {
     setError("");
     try {
-      const res = await fetch("/api/honours/students", {
+      const url = appendSchoolParams("/api/honours/students");
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -789,8 +793,8 @@ export default function HonoursStudentsPage() {
             Eligibility Criteria
           </h3>
           <ul className="text-sm text-[#5A6C7D] space-y-2 list-disc list-inside ml-2">
-            <li><strong>CGPA:</strong> Must be {">="} 8.0 (calculated from CUTM1 only)</li>
-            <li><strong>Basket 5 (Before 2024):</strong> 2 complete domains (all subjects from those domains) - checked from both CUTM1 and RegistrationData</li>
+            <li><strong>CGPA:</strong> Must be {">="} 8.0 (calculated from result only)</li>
+            <li><strong>Basket 5 (Before 2024):</strong> 2 complete domains (all subjects from those domains) - checked from both result and RegistrationData</li>
             <li><strong>Basket 5 (2024 onwards):</strong> 66 credits from Basket 5 + 2 complete domains</li>
           </ul>
         </div>

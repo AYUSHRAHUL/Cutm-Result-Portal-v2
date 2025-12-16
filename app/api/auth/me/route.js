@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 import { clientPromise } from "@/lib/mongodb";
+import { detectCampus } from "@/lib/campus";
 
 async function decode(token) {
   try {
@@ -15,18 +16,40 @@ async function decode(token) {
 export async function GET(req) {
   try {
     const token = req.cookies.get("token")?.value;
-    if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    console.log('[AUTH/ME] Token present:', !!token);
+    
+    if (!token) {
+      console.warn('[AUTH/ME] No token found');
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const payload = await decode(token);
-    if (!payload?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    console.log('[AUTH/ME] JWT Payload:', payload);
+    
+    if (!payload?.email) {
+      console.warn('[AUTH/ME] No email in JWT payload');
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    const db = client.db("USER");
     const user = await db.collection("users").findOne({ email: payload.email }, { projection: { password: 0 } });
-    if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
+    
+    console.log('[AUTH/ME] User found:', {
+      email: user?.email,
+      role: user?.role,
+      employeeId: user?.employeeId,
+      campus: user?.campus
+    });
+    
+    if (!user) {
+      console.warn('[AUTH/ME] User not found in database');
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
 
     // Check if user is blocked
     if (user.isBlocked === true) {
+      console.warn('[AUTH/ME] User is blocked');
       // Clear the token cookie
       const response = NextResponse.json({ error: "Your account has been blocked. Please contact administrator." }, { status: 403 });
       response.cookies.set("token", "", {
@@ -39,8 +62,37 @@ export async function GET(req) {
       return response;
     }
 
-    return NextResponse.json({ success: true, user });
+    // Ensure campus is set for teachers based on employee ID
+    let campus = payload.campus || user.campus || null;
+    const userRole = String(user.role || '').toLowerCase();
+    
+    console.log('[AUTH/ME] Initial campus detection:', {
+      fromPayload: payload.campus,
+      fromUser: user.campus,
+      userRole: userRole,
+      employeeId: user.employeeId
+    });
+    
+    // For teachers, detect campus if not already set
+    if (!campus && userRole === 'teacher' && user.employeeId) {
+      console.log('[AUTH/ME] Detecting campus for teacher...');
+      campus = detectCampus(user.employeeId);
+      console.log('[AUTH/ME] Detected campus:', campus);
+    }
+    
+    console.log('[AUTH/ME] Final response campus:', campus);
+
+    // Return user with campus information
+    return NextResponse.json({ 
+      success: true, 
+      user: {
+        ...user,
+        campus: campus,
+        role: user.role
+      }
+    });
   } catch (err) {
+    console.error('[AUTH/ME] Error:', err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

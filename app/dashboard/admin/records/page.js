@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useMemo } from "react";
 import Link from "next/link";
+import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
 
 export default function AdminRecordsPage() {
   const [registration, setRegistration] = useState("");
@@ -55,7 +56,8 @@ export default function AdminRecordsPage() {
     
     try {
       setLoading(true);
-      const res = await fetch("/api/students", {
+      const studentsUrl = getSchoolApiUrl("students");
+      const res = await fetch(studentsUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ registration: reg })
@@ -85,7 +87,8 @@ export default function AdminRecordsPage() {
     try {
       setLoading(true); setError(""); setMessage("");
       const payload = { ...row, Grade: grade };
-      const res = await fetch("/api/students", {
+      let studentsUrl = getSchoolApiUrl("students");
+      const res = await fetch(studentsUrl, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)

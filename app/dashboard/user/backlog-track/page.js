@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { getSchoolApiUrl } from "@/lib/api-helper";
+import { getSchoolFromRegistration } from "@/lib/campus";
 
 export default function UserBacklogTrack() {
   const [user, setUser] = useState(null);
@@ -53,7 +55,15 @@ export default function UserBacklogTrack() {
       
       console.log("User backlog search request:", requestBody);
       
-      const res = await fetch("/api/backlogs", {
+      // For user panel, determine school from registration number
+      const regNum = registration.trim().toUpperCase();
+      const school = getSchoolFromRegistration(regNum);
+      // Default to SOET if school cannot be determined from registration
+      const apiUrl = school === 'SOVET' ? '/api/sovet/backlogs' : '/api/soet/backlogs';
+      
+      console.log("Determined school from registration:", school, "API URL:", apiUrl);
+      
+      const res = await fetch(apiUrl, {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",

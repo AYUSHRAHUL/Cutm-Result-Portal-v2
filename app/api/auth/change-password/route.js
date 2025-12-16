@@ -39,7 +39,7 @@ export async function POST(req) {
 
     // Get user from database
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    const db = client.db("USER");
     const user = await db.collection("users").findOne({ email: payload.email });
 
     if (!user) {

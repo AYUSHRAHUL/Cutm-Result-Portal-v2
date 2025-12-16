@@ -28,8 +28,16 @@ export async function POST(request) {
     }
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
-    const collection = db.collection("CUTM1");
+    const { getCampusSchoolDatabase, getSchoolFromRequest, getCampusFromRequest } = await import("@/lib/campus");
+    const { searchParams } = new URL(request.url);
+    const campusParam = searchParams.get('campus');
+    const schoolParam = searchParams.get('school');
+    const campus = campusParam || payload.campus || await getCampusFromRequest(request);
+    const school = schoolParam || payload.school || await getSchoolFromRequest(request);
+    const dbName = getCampusSchoolDatabase(campus, school);
+    console.log(`[Cleanup Delete] Database selection: campus=${campus}, school=${school}, dbName=${dbName}`);
+    const db = client.db(dbName);
+    const collection = db.collection("result");
 
     let deletedCount = 0;
     for (const group of duplicates) {
@@ -53,5 +61,6 @@ export async function POST(request) {
     return NextResponse.json({ error: "Failed to delete duplicates", details: err.message }, { status: 500 });
   }
 }
+
 
 

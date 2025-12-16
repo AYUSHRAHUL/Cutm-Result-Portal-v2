@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import { jwtVerify } from "jose";
+import { getCampusDatabase, getCampusSchoolDatabase, getDatabaseFromRegistration, getSchoolFromRegistration } from "@/lib/campus";
+// Import diploma helpers from SOVET parse-registration API
+async function getDiplomaHelpers() {
+  const { isDiplomaStudent, isDiplomaLateralEntry, getDiplomaBranchName, getBranchFromRegistration } = await import('../../sovet/parse-registration/route');
+  return { isDiplomaStudent, isDiplomaLateralEntry, getDiplomaBranchName, getBranchFromRegistration };
+}
 
 // JWT verification helper
 async function verifyToken(token) {
@@ -41,6 +47,24 @@ const LATERAL_ENTRY_CREDITS = {
   "Basket V": 32,
 };
 
+// Diploma Regular students credit requirements (120 credits total)
+const DIPLOMA_REGULAR_CREDITS = {
+  "Basket I": 12,  // Foundations in Sciences
+  "Basket II": 13, // Lived in Learning
+  "Basket III": 20, // Smart Stack
+  "Basket IV": 26, // Core Engineering Courses (branch-specific)
+  "Basket V": 49,  // Job Roles / Skill Courses
+};
+
+// Diploma Lateral Entry students credit requirements (80 credits total)
+const DIPLOMA_LATERAL_ENTRY_CREDITS = {
+  "Basket I": 0,   // Foundations in Sciences (exempted)
+  "Basket II": 5,  // Lived in Learning
+  "Basket III": 12, // Smart Stack
+  "Basket IV": 26, // Core Engineering Courses (branch-specific)
+  "Basket V": 37,  // Job Roles / Skill Courses
+};
+
 function parseCredits(creditStr) {
   if (!creditStr) return 0;
   const parts = creditStr
@@ -73,9 +97,46 @@ function isLateralEntryStudent(registration) {
   return registration && registration.length >= 9 && registration.charAt(8) === '1';
 }
 
+// Function to check if a student is diploma
+async function isDiplomaStudent(registration, department = null, school = null) {
+  if (school === 'SOVET') return true;
+  if (!registration) return false;
+
+  // Check registration number pattern first (most reliable)
+  const { isDiplomaStudent: checkDiploma } = await getDiplomaHelpers();
+  if (await checkDiploma(registration)) {
+    return true;
+  }
+
+  // Fallback: Check if department name contains "Diploma" (case-insensitive)
+  if (department && typeof department === 'string') {
+    const deptLower = department.toLowerCase();
+    if (deptLower.includes('diploma')) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 // Function to get required credits based on student type and batch year
-function getRequiredCreditsForStudent(registration) {
-  if (isLateralEntryStudent(registration)) return LATERAL_ENTRY_CREDITS;
+async function getRequiredCreditsForStudent(registration, department = null, school = null) {
+  const isDiploma = await isDiplomaStudent(registration, department, school);
+  const isLateral = isLateralEntryStudent(registration);
+
+  // Diploma students have priority
+  if (isDiploma) {
+    if (isLateral) {
+      return DIPLOMA_LATERAL_ENTRY_CREDITS;
+    }
+    return DIPLOMA_REGULAR_CREDITS;
+  }
+
+  // Regular B.Tech students
+  if (isLateral) {
+    return LATERAL_ENTRY_CREDITS;
+  }
+
   // Extract first two digits of registration as batch year suffix: e.g., "24" => 2024
   const batchSuffix = (registration || "").slice(0, 2);
   const batchNum = parseInt(batchSuffix, 10);
@@ -110,10 +171,10 @@ export async function POST(req) {
 
     // FIXED: Extract request data first
     const { department, batch, registration, semesters = [], basket } = await req.json();
-    
+
     // Get user role for access control
     const userRole = payload.role?.toLowerCase();
-    
+
     // Security check: Role-based access control
     if (userRole === 'user' || userRole === 'student') {
       // Students can only view their own progress
@@ -121,8 +182,8 @@ export async function POST(req) {
       if (userEmail && userEmail.includes('@cutm.ac.in')) {
         const userRegNumber = userEmail.split('@')[0];
         if (registration && registration !== userRegNumber) {
-          return NextResponse.json({ 
-            error: "Access denied - Students can only view their own progress" 
+          return NextResponse.json({
+            error: "Access denied - Students can only view their own progress"
           }, { status: 403 });
         }
       }
@@ -130,29 +191,52 @@ export async function POST(req) {
       // Teachers and admins can view any student's progress
       console.log(`Access granted to ${userRole}: ${payload.email} accessing progress for ${registration}`);
     } else {
-      return NextResponse.json({ 
-        error: "Access denied - Invalid user role" 
+      return NextResponse.json({
+        error: "Access denied - Invalid user role"
       }, { status: 403 });
     }
     const reg = String(registration || "").toUpperCase().trim();
     if (!reg) return NextResponse.json({ error: "Registration is required" }, { status: 400 });
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    
+    // For user role, determine database and school from registration number
+    // For admin/teacher, use campus/school from params or JWT
+    let dbName;
+    let school = null;
+    if (userRole === 'user' || userRole === 'student') {
+      dbName = getDatabaseFromRegistration(reg);
+      school = getSchoolFromRegistration(reg);
+    } else {
+      // Get campus database based on teacher's/admin's campus
+      const { searchParams } = new URL(req.url);
+      const campusParam = searchParams.get('campus');
+      const schoolParam = searchParams.get('school');
+      const campus = campusParam || payload.campus || null;
+      school = schoolParam || payload.school || null;
+      dbName = getCampusSchoolDatabase(campus, school);
+    }
+    
+    const db = client.db(dbName);
+
+    // Prepare robust query for both string and number formats
+    const regAsInt = parseInt(reg);
+    const useOrQuery = !isNaN(regAsInt) && String(regAsInt) === reg;
+    const lookupQuery = useOrQuery ? { $or: [{ Reg_No: reg }, { Reg_No: regAsInt }] } : { Reg_No: reg };
 
     // First, get student info to validate department and batch
     // Check both CUTM1 collection and RegistrationData collection
     let studentInfo = await db
-      .collection("CUTM1")
-      .findOne({ Reg_No: reg }, { projection: { _id: 0, Name: 1, Reg_No: 1, Branch: 1 } });
-    
+      .collection("result")
+      .findOne(lookupQuery, { projection: { _id: 0, Name: 1, Reg_No: 1, Branch: 1 } });
+
     // If not found in CUTM1, check RegistrationData collection
     if (!studentInfo) {
       console.log(`Student not found in CUTM1, checking RegistrationData: ${reg}`);
       const regData = await db
         .collection("RegistrationData")
-        .findOne({ Reg_No: reg }, { projection: { _id: 0, Name: 1, Reg_No: 1, Sem: 1 } });
-      
+        .findOne(lookupQuery, { projection: { _id: 0, Name: 1, Reg_No: 1, Sem: 1 } });
+
       if (regData) {
         studentInfo = {
           Name: regData.Name,
@@ -163,55 +247,61 @@ export async function POST(req) {
         console.log(`Found student in RegistrationData: ${regData.Name}`);
       }
     }
-    
+
     if (!studentInfo) {
       // FIXED: Enhanced error message with debugging info
       console.log(`Student not found in both collections: ${reg}`);
-      
+
       // Check if there are similar registration numbers in both collections
       const similarRegsCUTM1 = await db
-        .collection("CUTM1")
+        .collection("result")
         .find({ Reg_No: { $regex: `^${reg.slice(0, 6)}` } })
         .project({ _id: 0, Reg_No: 1, Name: 1 })
         .limit(3)
         .toArray();
-        
+
       const similarRegsRegData = await db
         .collection("RegistrationData")
         .find({ Reg_No: { $regex: `^${reg.slice(0, 6)}` } })
         .project({ _id: 0, Reg_No: 1, Name: 1 })
         .limit(3)
         .toArray();
-      
+
       const allSimilar = [...similarRegsCUTM1, ...similarRegsRegData];
-      const suggestions = allSimilar.length > 0 
+      const suggestions = allSimilar.length > 0
         ? ` Similar registrations found: ${allSimilar.map(r => r.Reg_No).join(', ')}`
         : '';
-      
-      return NextResponse.json({ 
-        error: `Student not found with registration number: ${reg}.${suggestions} Please verify the registration number or upload registration data first.` 
+
+      return NextResponse.json({
+        error: `Student not found with registration number: ${reg}.${suggestions} Please verify the registration number or upload registration data first.`
       }, { status: 404 });
     }
 
     // Extract batch from registration (first 2 digits)
     const regBatch = reg.slice(0, 2);
     const actualBatch = `20${regBatch}`;
-    
-    // Extract department from registration number (8th character is department code)
-    const deptCode = reg.charAt(7); // 8th character (0-indexed)
-    const deptMap = {
-      '1': 'Civil Engineering',
-      '2': 'Computer Science Engineering', 
-      '3': 'Electronics & Communication Engineering',
-      '5': 'Electrical & Electronics Engineering',
-      '6': 'Mechanical Engineering',
-      '7': 'AIML', // AIML
-      '8': 'Computer Science Engineering', // Alternative code for CSE
-      '9': 'Civil Engineering' // Alternative code for Civil
-    };
-    
-    // If department code is not found, try to get from student info
-    let actualDepartment = deptMap[deptCode];
+
+    // Extract department from registration number
+    // For diploma: branch code is at positions 6-7
+    // For B.Tech: branch code is at position 7 (8th character)
+    const { getBranchFromRegistration: getBranch } = await getDiplomaHelpers();
+    let actualDepartment = await getBranch(reg, studentInfo?.Branch);
+
+    // If not found from registration pattern, try B.Tech mapping
+    if (!actualDepartment || actualDepartment === 'Unknown') {
+      const deptCode = reg.charAt(7); // 8th character (0-indexed) for B.Tech
+      const deptMap = {
+        '1': 'Civil Engineering',
+        '2': 'Computer Science Engineering',
+        '3': 'Electronics & Communication Engineering',
+        '5': 'Electrical & Electronics Engineering',
+        '6': 'Mechanical Engineering',
+        '7': 'AIML',
+        '8': 'Computer Science Engineering',
+        '9': 'Civil Engineering'
+      };
+      actualDepartment = deptMap[deptCode];
+    }
 
     // Override branch if admin set one
     try {
@@ -219,8 +309,8 @@ export async function POST(req) {
       if (ov?.branch) {
         actualDepartment = ov.branch;
       }
-    } catch {}
-    
+    } catch { }
+
     if (!actualDepartment) {
       // Try to get department from student info if available
       if (studentInfo && studentInfo.Branch) {
@@ -241,20 +331,45 @@ export async function POST(req) {
         actualDepartment = "Unknown";
       }
     }
-    
-    console.log(`Department mapping for ${reg}: code=${deptCode}, mapped=${actualDepartment}, studentInfo.Branch=${studentInfo?.Branch}`);
 
-    // Validate department if provided
-    if (department && department !== "All" && department !== actualDepartment) {
-      return NextResponse.json({ 
-        error: `Registration ${reg} belongs to department "${actualDepartment}", but you selected department "${department}". Please select the correct department.` 
-      }, { status: 400 });
+    console.log(`Department mapping for ${reg}: mapped=${actualDepartment}, studentInfo.Branch=${studentInfo?.Branch}`);
+
+    // Validate department if provided (with flexible matching for Diploma suffix)
+    if (department && department !== "All") {
+      // Normalize both department names for comparison
+      const normalizeDept = (dept) => {
+        if (!dept) return '';
+        return String(dept)
+          .replace(/\s*\(Diploma\)\s*/gi, '') // Remove "(Diploma)" suffix
+          .toLowerCase()
+          .trim();
+      };
+      
+      const normalizedSelected = normalizeDept(department);
+      const normalizedActual = normalizeDept(actualDepartment);
+      
+      // Also check for partial matches (e.g., "Civil Engineering" matches "Civil Engineering (Diploma)")
+      const selectedKeywords = normalizedSelected.split(/\s+/).filter(w => w.length > 2);
+      const actualKeywords = normalizedActual.split(/\s+/).filter(w => w.length > 2);
+      const hasKeywordMatch = selectedKeywords.length > 0 && 
+        selectedKeywords.every(kw => actualKeywords.includes(kw));
+      
+      const matches = normalizedSelected === normalizedActual || 
+                      normalizedActual.includes(normalizedSelected) ||
+                      normalizedSelected.includes(normalizedActual) ||
+                      hasKeywordMatch;
+      
+      if (!matches) {
+        return NextResponse.json({
+          error: `Registration ${reg} belongs to department "${actualDepartment}", but you selected department "${department}". Please select the correct department. Check the browser console for more details or try different filters.`
+        }, { status: 400 });
+      }
     }
 
     // Validate batch if provided
     if (batch && batch !== "All" && batch !== regBatch) {
-      return NextResponse.json({ 
-        error: `Registration ${reg} belongs to batch ${actualBatch}, but you selected batch ${batch === "20" ? "2020" : batch === "21" ? "2021" : batch === "22" ? "2022" : batch === "23" ? "2023" : batch === "24" ? "2024" : batch === "25" ? "2025" : batch}. Please select the correct batch.` 
+      return NextResponse.json({
+        error: `Registration ${reg} belongs to batch ${actualBatch}, but you selected batch ${batch === "20" ? "2020" : batch === "21" ? "2021" : batch === "22" ? "2022" : batch === "23" ? "2023" : batch === "24" ? "2024" : batch === "25" ? "2025" : batch}. Please select the correct batch.`
       }, { status: 400 });
     }
 
@@ -267,70 +382,70 @@ export async function POST(req) {
     } else {
       console.log(`No semester filter applied for ${reg} - getting all semesters`);
     }
-    
+
     console.log(`Querying results for ${reg} with query:`, JSON.stringify(resultQuery));
     console.log(`Registration number being searched: "${reg}"`);
-    
+
     // Get results from CUTM1 collection
     const resultsCUTM1 = await db
-      .collection("CUTM1")
+      .collection("result")
       .find(resultQuery)
       .project({ _id: 0, Reg_No: 1, Name: 1, Subject_Code: 1, Subject_Name: 1, Credits: 1, Grade: 1, Sem: 1, Type: 1 })
       .toArray();
-    
+
     // Get results from RegistrationData collection
     // Try both string and number for Reg_No since it might be stored as either
     const regAsNumber = parseInt(reg);
-    const regDataQuery = { 
+    const regDataQuery = {
       $or: [
         { Reg_No: reg },
         { Reg_No: regAsNumber }
       ]
     };
-    
+
     // Add semester filter if present
     if (resultQuery.Sem) {
       regDataQuery.Sem = resultQuery.Sem;
     }
-    
+
     const resultsRegData = await db
       .collection("RegistrationData")
       .find(regDataQuery)
       .project({ _id: 0, Reg_No: 1, Name: 1, Subject_Code: 1, Subject_Name: 1, Credits: 1, Grade: 1, Sem: 1, Type: 1 })
       .toArray();
-    
+
     // Combine results from both collections
     const results = [...resultsCUTM1, ...resultsRegData];
-    
+
     console.log(`Found ${resultsCUTM1.length} records from CUTM1 and ${resultsRegData.length} records from RegistrationData for ${reg}`);
     console.log(`Combined total: ${results.length} records for basket calculation`);
 
     if (results.length === 0) {
       // FIXED: Enhanced error message with debugging info
       console.log(`No academic records found for ${reg}`);
-      
+
       // Check if student exists but has no results in both collections
       const studentExistsCUTM1 = await db
-        .collection("CUTM1")
+        .collection("result")
         .findOne({ Reg_No: reg }, { projection: { _id: 0, Reg_No: 1, Name: 1 } });
-        
+
       const studentExistsRegData = await db
         .collection("RegistrationData")
         .findOne({ Reg_No: reg }, { projection: { _id: 0, Reg_No: 1, Name: 1 } });
-      
+
       if (studentExistsCUTM1 || studentExistsRegData) {
         const studentName = studentExistsCUTM1?.Name || studentExistsRegData?.Name || "Unknown";
-        return NextResponse.json({ 
+        return NextResponse.json({
           error: `Student ${studentName} (${reg}) found but has no academic records. This could mean:
           1. No results have been uploaded for this student
           2. The semester filter is too restrictive
           3. Results are stored under a different registration format
           
-          Try removing semester filters or contact the administrator.` 
+          Try removing semester filters or contact the administrator.`
         }, { status: 404 });
       } else {
-        return NextResponse.json({ 
-          error: `No academic records found for registration ${reg}. Please verify the registration number or upload registration data first.` 
+        return NextResponse.json({
+          error: `No academic records found for registration ${reg}. Please verify the registration number or upload registration data first.`
         }, { status: 404 });
       }
     }
@@ -420,7 +535,7 @@ export async function POST(req) {
       const studentBranchCode = normalizeBranchCode(studentDepartment);
       return !!(studentBranchCode && subjectBranchCodes.includes(studentBranchCode));
     }
-    
+
     // Helper function to convert department name to branch code
     function getBranchFromDepartment(dept) {
       if (!dept) return null;
@@ -435,26 +550,31 @@ export async function POST(req) {
     }
 
     // Initialize baskets with appropriate credit requirements
-    const requiredCredits = getRequiredCreditsForStudent(reg);
+    // Force diploma if school detected as SOVET
+    const isDiplomaSchool = (String(school || '').toUpperCase() === 'SOVET');
+    const requiredCredits = await getRequiredCreditsForStudent(reg, actualDepartment, isDiplomaSchool ? 'SOVET' : school);
     const basketNames = Object.keys(requiredCredits);
     const basketProgress = Object.fromEntries(
       basketNames.map((name) => [name, buildBasketState(requiredCredits[name])])
     );
-    
-    // Add lateral entry indicator to student info
-    const isLateralEntry = isLateralEntryStudent(reg);
+
+    // Add lateral entry and diploma indicators to student info
+    const { isDiplomaLateralEntry: checkLateral } = await getDiplomaHelpers();
+    const isDiploma = isDiplomaSchool ? true : await isDiplomaStudent(reg, actualDepartment, school);
+    // For diploma, use diploma-specific lateral entry check
+    const isLateralEntry = isDiploma ? await checkLateral(reg) : isLateralEntryStudent(reg);
 
     // Assign subjects to baskets. Earn credits only for completed attempts
     results.forEach((r) => {
       const code = String(r.Subject_Code || "").toUpperCase().trim();
       const credits = parseCredits(r.Credits);
       const grade = String(r.Grade || "").toUpperCase().trim();
-      
+
       // For registration data (Type: 'Registration'), treat empty grades as registered subjects
       // For CUTM1 data, use normal grade logic
       const isRegistrationData = r.Type === 'Registration';
       const isFailed = isRegistrationData ? false : FAIL_OR_INCOMPLETE_GRADES.has(grade);
-      
+
       // Special handling for CUTM1057 and CUTM1046 based on branch
       let targetBasket = codeMap.get(code) || "Basket V"; // default assignment
       if (code === "CUTM1057") {
@@ -472,7 +592,7 @@ export async function POST(req) {
           targetBasket = "Basket IV"; // Default to Basket IV for other departments
         }
       }
-      
+
       // Cross-branch course detection with bidirectional correction
       const courseBelongsToDifferentBranch = checkIfCourseBelongsToDifferentBranch(code, actualDepartment);
       const courseMatchesStudentBranch = subjectMatchesStudentBranch(code, actualDepartment);
@@ -483,7 +603,7 @@ export async function POST(req) {
         targetBasket = "Basket IV";
         console.log(`Branch-aligned subject: ${code} moved from Basket V to Basket IV for ${actualDepartment} student`);
       }
-      
+
       if (!basketProgress[targetBasket]) {
         // ensure presence even if mapping contains unexpected basket name
         basketProgress[targetBasket] = buildBasketState(0);
@@ -491,7 +611,7 @@ export async function POST(req) {
       // Determine if subject is completed
       // If result is not published, it should not be marked as completed
       const isCompleted = isRegistrationData ? false : !isFailed;
-      
+
       // Determine status based on completion state
       let status = "Not Completed";
       if (isCompleted) {
@@ -499,7 +619,7 @@ export async function POST(req) {
       } else if (isFailed && !isRegistrationData) {
         status = "Failed";
       }
-      
+
       const subjectEntry = {
         code,
         name: r.Subject_Name || "",
@@ -537,15 +657,33 @@ export async function POST(req) {
     const totalEarned = Object.values(filteredProgress).reduce((s, b) => s + (Number(b.earned_credits) || 0), 0);
     const totalFailed = Object.values(filteredProgress).reduce((s, b) => s + (Number(b.failed_credits) || 0), 0);
     const totalCredits = totalEarned + totalFailed; // Include both earned and failed
-    const totalRequired = Object.values(filteredProgress).reduce((s, b) => s + (Number(b.required_credits) || 0), 0) || (isLateralEntry ? 120 : 160);
+    // Calculate total required credits based on student type
+    let defaultTotalRequired = 160; // Default for B.Tech Regular
+    if (isDiploma) {
+      defaultTotalRequired = isLateralEntry ? 80 : 120; // Diploma: 80 (lateral) or 120 (regular)
+    } else if (isLateralEntry) {
+      defaultTotalRequired = 120; // B.Tech Lateral Entry
+    }
+
+    const totalRequired = Object.values(filteredProgress).reduce((s, b) => s + (Number(b.required_credits) || 0), 0) || defaultTotalRequired;
     const percentage = totalRequired > 0 ? Math.min(100, Math.round((totalEarned / totalRequired) * 100)) : 0;
+
+    // Determine student type string
+    let studentTypeStr = "Regular";
+    if (isDiploma) {
+      studentTypeStr = isLateralEntry ? "Diploma Lateral Entry" : "Diploma Regular";
+    } else if (isLateralEntry) {
+      studentTypeStr = "Lateral Entry";
+    }
+
     const student = {
       name: studentInfo.Name || results[0]?.Name || `Student ${reg.slice(-4)}`,
       registration: reg,
       department: actualDepartment,
       actual_batch: actualBatch,
       is_lateral_entry: isLateralEntry,
-      student_type: isLateralEntry ? "Lateral Entry" : "Regular",
+      is_diploma: isDiploma,
+      student_type: studentTypeStr,
       overall_stats: {
         overall_status: (() => {
           const basketsCompleted = Object.values(filteredProgress).filter((b) => b.is_completed).length;
@@ -563,22 +701,31 @@ export async function POST(req) {
       },
     };
 
-    return NextResponse.json({ 
-      student, 
+    return NextResponse.json({
+      student,
       basketProgress: filteredProgress,
       dataSources: {
-        cutm1Records: resultsCUTM1.length,
+        resultRecords: resultsCUTM1.length,
         registrationDataRecords: resultsRegData.length,
         totalRecords: results.length,
         sources: {
-          cutm1: resultsCUTM1.length > 0,
+          result: resultsCUTM1.length > 0,
           registrationData: resultsRegData.length > 0
         }
       }
     });
   } catch (err) {
     console.error("/api/cbcs/track error", err);
-    return NextResponse.json({ error: "Unable to load progress" }, { status: 500 });
+    console.error("Error stack:", err.stack);
+    console.error("Error details:", {
+      message: err.message,
+      name: err.name,
+      registration: registration || 'unknown'
+    });
+    return NextResponse.json({ 
+      error: "Unable to load progress",
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    }, { status: 500 });
   }
 }
 

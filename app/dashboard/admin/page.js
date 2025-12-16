@@ -9,10 +9,20 @@ export default function AdminDashboard() {
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [animatedOnce, setAnimatedOnce] = useState(false);
   const [counters, setCounters] = useState({ students: 0, records: 0, backlogs: 0, health: 0 });
-  
+  const [selectedCampus, setSelectedCampus] = useState(null);
+  const [selectedSchool, setSelectedSchool] = useState(null);
+
   // Loading states
   const [isLoading, setIsLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState('Loading Admin Dashboard...');
+
+  // Load selected campus and school from localStorage on mount
+  useEffect(() => {
+    const savedCampus = localStorage.getItem('selectedCampus');
+    const savedSchool = localStorage.getItem('selectedSchool');
+    if (savedCampus) setSelectedCampus(savedCampus);
+    if (savedSchool) setSelectedSchool(savedSchool);
+  }, []);
 
   const targetCounts = useMemo(() => ({ students: 2847, records: 156, backlogs: 23, health: 98 }), []);
 
@@ -25,7 +35,7 @@ export default function AdminDashboard() {
       'Almost Ready...',
       'Welcome Back!'
     ];
-    
+
     let messageIndex = 0;
     const messageInterval = setInterval(() => {
       if (messageIndex < messages.length) {
@@ -91,7 +101,7 @@ export default function AdminDashboard() {
   // Loading Screen
   if (isLoading) {
     return (
-      <div 
+      <div
         className="fixed inset-0 flex flex-col items-center justify-center z-50"
         style={{
           background: 'linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)',
@@ -102,21 +112,21 @@ export default function AdminDashboard() {
         {/* Spinner Container */}
         <div className="relative flex items-center justify-center mb-8">
           <div className="w-28 h-28 sm:w-32 sm:h-32 lg:w-36 lg:h-36">
-            <img 
+            <img
               className="w-full h-full rounded-full object-cover p-2 backdrop-blur-lg"
               style={{
                 border: '4px solid rgba(255, 255, 255, 0.4)',
                 boxShadow: '0 0 60px rgba(255, 255, 255, 0.6)',
                 animation: 'logoSpin 3s ease-in-out infinite'
               }}
-              src="/spinner.jpg"  
-              alt="CUTM Logo Loading" 
+              src="/spinner.jpg"
+              alt="CUTM Logo Loading"
             />
           </div>
         </div>
 
         {/* Loading Text */}
-        <div 
+        <div
           className="text-white text-xl sm:text-2xl lg:text-3xl font-black text-center mb-6 px-4"
           style={{
             textShadow: '0 0 20px rgba(255, 255, 255, 0.8)',
@@ -125,10 +135,10 @@ export default function AdminDashboard() {
         >
           {loadingMessage}
         </div>
-        
+
         {/* Progress Bar */}
         <div className="w-56 sm:w-64 lg:w-72 h-1.5 sm:h-2 bg-white/20 rounded-full overflow-hidden mb-4">
-          <div 
+          <div
             className="h-full rounded-full"
             style={{
               background: 'linear-gradient(90deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.5) 100%)',
@@ -136,7 +146,7 @@ export default function AdminDashboard() {
             }}
           ></div>
         </div>
-        
+
         {/* Status */}
         <div className="text-white/90 text-sm sm:text-base text-center px-4 font-semibold">
           🔐 Secure Admin Access
@@ -163,33 +173,33 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div 
+    <div
       className="min-h-screen pb-10"
       style={{
         background: "linear-gradient(to bottom, #F5F8FA 0%, #E8F4F8 50%, #D1E9F6 100%)",
       }}
     >
       {/* Progress bar */}
-      <div 
-        className="fixed top-0 left-0 h-1 sm:h-1.5 z-50 animate-pulse" 
-        style={{ 
-          width: "100%", 
+      <div
+        className="fixed top-0 left-0 h-1 sm:h-1.5 z-50 animate-pulse"
+        style={{
+          width: "100%",
           background: "linear-gradient(90deg, #05A3C7 0%, #04748F 50%, #05A3C7 100%)",
-          opacity: 0.6 
-        }} 
+          opacity: 0.6
+        }}
       />
 
       {/* Welcome Header */}
       <section className="pt-12 sm:pt-16 pb-6 sm:pb-8 text-center px-3 sm:px-6">
         <div className="mx-auto max-w-5xl">
-          <div 
+          <div
             className="w-20 h-20 sm:w-24 sm:h-24 lg:w-28 lg:h-28 rounded-full mx-auto mb-4 sm:mb-6 flex items-center justify-center text-white text-3xl sm:text-4xl shadow-lg relative overflow-hidden hover:scale-105 transition-transform duration-300"
             style={{
               background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
               boxShadow: "0 0 40px rgba(5,163,199,0.4)"
             }}
           >
-            <div 
+            <div
               className="absolute inset-0 rounded-full opacity-30 animate-[spin_4s_linear_infinite]"
               style={{
                 background: "conic-gradient(from 0deg, transparent, rgba(255,255,255,0.3), transparent)"
@@ -197,7 +207,7 @@ export default function AdminDashboard() {
             />
             <span className="relative animate-bounce">🛡️</span>
           </div>
-          <h1 
+          <h1
             className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight mb-2 sm:mb-3"
             style={{
               background: "linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)",
@@ -213,93 +223,58 @@ export default function AdminDashboard() {
           </p>
         </div>
       </section>
- 
 
-      {/* Modules Section */}
-      <section className="py-6 sm:py-12 px-3 sm:px-6">
+      {/* Campus Selection Section */}
+      <section className="py-6 sm:py-8 px-3 sm:px-6">
         <div className="mx-auto max-w-6xl">
-      
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-6">
-            <ModuleCard 
-              title="Result Data Upload " 
-              icon="☁️" 
-              onClick={() => go("/dashboard/admin/upload")}
-              features={["CSV/XLSX Support", "Batch Processing", "Data Validation"]}
+          <h2 className="text-xl sm:text-2xl font-black text-center mb-4 sm:mb-6 text-[#1A1F29]">
+            Select Campus
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mb-8 sm:mb-12">
+            <CampusCard
+              title="PKD Campus"
+              subtitle="Paralakhemundi Campus"
+              icon="🏛️"
+              isSelected={selectedCampus === 'pkd'}
+              onClick={() => {
+                setSelectedCampus('pkd');
+                localStorage.setItem('selectedCampus', 'pkd');
+                localStorage.removeItem('selectedSchool');
+                router.push('/dashboard/admin/pkd');
+              }}
+              gradient="from-blue-500 to-cyan-600"
+            />
+            <CampusCard
+              title="BBSR Campus"
+              subtitle="Bhubaneswar Campus"
+              icon="🏛️"
+              isSelected={selectedCampus === 'bbsr'}
+              onClick={() => {
+                setSelectedCampus('bbsr');
+                localStorage.setItem('selectedCampus', 'bbsr');
+                localStorage.removeItem('selectedSchool');
+                router.push('/dashboard/admin/bbsr');
+              }}
+              gradient="from-purple-500 to-pink-600"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className="py-6 sm:py-8 px-3 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          <h2 className="text-xl sm:text-2xl font-black text-center mb-4 sm:mb-6 text-[#1A1F29]">
+            Global Management
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 justify-center">
+            <ModuleCard
+              title="User Management"
+              icon="👥"
+              onClick={() => go("/dashboard/admin/users")}
+              features={["User Blocking", "Role Management", "Access Control"]}
             >
-              Upload student results data via CSV/XLSX with validation and batch processing.
+              Block, edit, and manage registered users with role-based access control.
             </ModuleCard>
-            <ModuleCard 
-              title="Data Management" 
-              icon="👁️" 
-              onClick={() => go("/dashboard/admin/records")}
-              features={["View & Edit Records", "Advanced Filtering", "Bulk Operations"]}
-            >
-              View, edit, and manage all student records with filtering and bulk operations.
-            </ModuleCard>
-            <ModuleCard 
-              title="Backlog Management" 
-              icon="🕓" 
-              onClick={() => go("/dashboard/admin/backlog")}
-              features={["Track Backlogs", "Export Reports", "Branch-wise Analysis"]}
-            >
-              Monitor and manage student backlogs with tracking and reporting.
-            </ModuleCard>
-            <ModuleCard 
-              title="Branch/Batch Portal" 
-              icon="🗂️" 
-              onClick={() => go("/dashboard/admin/batch")}
-              features={["Branch Analytics", "Batch Insights", "Data Visualization"]}
-            >
-              Track and analyze branch and batch datasets with insights.
-            </ModuleCard>
-            <ModuleCard 
-              title="CBCS Management" 
-              icon="📚" 
-              onClick={() => go("/dashboard/admin/data")}
-              features={["Subject Management", "Basket Mapping", "CBCS Tracking"]}
-            >
-              Manage CBCS subjects, baskets and mappings for academic records.
-            </ModuleCard>
-            <ModuleCard 
-              title="Results Portal" 
-              icon="📝" 
-              onClick={() => go("/dashboard/admin/results")}
-              features={["Search Results", "Update Entries", "Export Data"]}
-            >
-              Search, update and export result entries with auditability.
-            </ModuleCard>
-            <ModuleCard 
-              title="Analytics Dashboard" 
-              icon="📊" 
-              onClick={() => go("/dashboard/admin/analytics")}
-              features={["Data Visualization", "Chart.js Integration", "Real-time Insights"]}
-            >
-              Comprehensive data visualization and insights with Chart.js integration.
-            </ModuleCard>
-          <ModuleCard 
-            title="Branch & Batch Change" 
-            icon="🔁" 
-            onClick={() => go("/dashboard/admin/branch-change")}
-            features={["Override Branch", "Batch Updates", "Apply to All Panels"]}
-          >
-            Override a student's branch by Reg_No; applies across all panels.
-          </ModuleCard>
-          <ModuleCard 
-            title="Honours Degree" 
-            icon="🎓" 
-            onClick={() => go("/dashboard/admin/honours")}
-            features={["Domain Subjects", "Student List", "Honours Management"]}
-          >
-            Manage honours degree domain subjects and honours student list.
-          </ModuleCard>
-          <ModuleCard 
-            title="User Management" 
-            icon="👥" 
-            onClick={() => go("/dashboard/admin/users")}
-            features={["User Blocking", "Role Management", "Access Control"]}
-          >
-            Block, edit, and manage registered users with role-based access control.
-          </ModuleCard>
           </div>
         </div>
       </section>
@@ -327,41 +302,41 @@ export default function AdminDashboard() {
 
 function StatCard({ icon, label, value, trend, trendUp }) {
   return (
-    <div 
+    <div
       className="group relative overflow-hidden rounded-xl sm:rounded-2xl border-2 bg-white p-4 sm:p-5 lg:p-6 text-center transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
       style={{ borderColor: "rgba(5,163,199,0.2)" }}
     >
-      <div 
+      <div
         className="absolute inset-x-0 top-0 h-1 scale-x-0 origin-left group-hover:scale-x-100 transition-transform duration-500"
         style={{
           background: "linear-gradient(90deg, #05A3C7 0%, #04748F 100%)",
         }}
       />
-      
+
       <div className="text-3xl sm:text-4xl mb-3 sm:mb-4 group-hover:scale-110 transition-transform duration-300">
         {icon}
       </div>
-      
-      <div 
+
+      <div
         className="text-3xl sm:text-4xl font-black mb-1 sm:mb-2"
         style={{ color: "#05A3C7" }}
       >
         {value}
       </div>
-      
+
       <div className="text-[10px] sm:text-xs uppercase tracking-wide text-[#5A6C7D] font-bold">
         {label}
       </div>
-      
-      <div 
+
+      <div
         className={`mt-3 sm:mt-4 pt-2 sm:pt-3 border-t text-xs sm:text-sm font-bold flex items-center justify-center gap-1 ${trendUp ? "text-green-600" : "text-red-600"}`}
         style={{ borderColor: "rgba(5,163,199,0.1)" }}
       >
-        <span className="group-hover:animate-pulse">{trendUp ? "▲" : "▼"}</span> 
+        <span className="group-hover:animate-pulse">{trendUp ? "▲" : "▼"}</span>
         <span>{trend}</span>
       </div>
-      
-      <div 
+
+      <div
         className="absolute inset-0 opacity-0 group-hover:opacity-5 transition-opacity duration-300 -z-10 rounded-2xl"
         style={{
           background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
@@ -371,21 +346,77 @@ function StatCard({ icon, label, value, trend, trendUp }) {
   );
 }
 
+function CampusCard({ title, subtitle, icon, onClick, gradient, isSelected }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`group relative overflow-hidden rounded-xl sm:rounded-2xl bg-gradient-to-br ${gradient} p-8 sm:p-10 text-white transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl focus:outline-none focus:ring-4 focus:ring-white/30 ${isSelected ? 'ring-4 ring-white/50 scale-105' : ''}`}
+    >
+      <div className="absolute inset-0 bg-black/10 group-hover:bg-black/20 transition-colors" />
+      {isSelected && (
+        <div className="absolute top-4 right-4 bg-white text-blue-600 px-3 py-1 rounded-full text-sm font-bold">
+          Selected
+        </div>
+      )}
+      <div className="relative z-10">
+        <div className="text-5xl sm:text-6xl mb-4 sm:mb-5 group-hover:scale-110 transition-transform duration-300">
+          {icon}
+        </div>
+        <h3 className="text-3xl sm:text-4xl font-black mb-3">{title}</h3>
+        <p className="text-base sm:text-lg opacity-90 font-medium mb-6">{subtitle}</p>
+        <div className="flex items-center gap-2 text-base font-bold">
+          <span>Select Campus</span>
+          <span className="group-hover:translate-x-1 transition-transform">→</span>
+        </div>
+      </div>
+      <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -mr-20 -mt-20 group-hover:scale-150 transition-transform duration-500" />
+    </button>
+  );
+}
+
+function SchoolCard({ title, subtitle, icon, onClick, gradient, isSelected }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`group relative overflow-hidden rounded-xl sm:rounded-2xl bg-gradient-to-br ${gradient} p-6 sm:p-8 text-white transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl focus:outline-none focus:ring-4 focus:ring-white/30 ${isSelected ? 'ring-4 ring-white/50 scale-105' : ''}`}
+    >
+      <div className="absolute inset-0 bg-black/10 group-hover:bg-black/20 transition-colors" />
+      {isSelected && (
+        <div className="absolute top-4 right-4 bg-white text-blue-600 px-3 py-1 rounded-full text-sm font-bold">
+          Selected
+        </div>
+      )}
+      <div className="relative z-10">
+        <div className="text-4xl sm:text-5xl mb-3 sm:mb-4 group-hover:scale-110 transition-transform duration-300">
+          {icon}
+        </div>
+        <h3 className="text-2xl sm:text-3xl font-black mb-2">{title}</h3>
+        <p className="text-sm sm:text-base opacity-90 font-medium">{subtitle}</p>
+        <div className="mt-4 sm:mt-6 flex items-center gap-2 text-sm font-bold">
+          <span>Select School</span>
+          <span className="group-hover:translate-x-1 transition-transform">→</span>
+        </div>
+      </div>
+      <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-500" />
+    </button>
+  );
+}
+
 function ModuleCard({ title, icon, children, onClick, features = [] }) {
   return (
-    <button 
-      onClick={onClick} 
+    <button
+      onClick={onClick}
       className="group text-left rounded-xl sm:rounded-2xl border-2 bg-white p-4 sm:p-5 lg:p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-[#05A3C7]/20 relative overflow-hidden"
       style={{ borderColor: "rgba(5,163,199,0.2)" }}
     >
-      <div 
+      <div
         className="absolute inset-x-0 top-0 h-1 scale-x-0 origin-left group-hover:scale-x-100 transition-transform duration-500"
         style={{
           background: "linear-gradient(90deg, #05A3C7 0%, #04748F 100%)",
         }}
       />
-      
-      <div 
+
+      <div
         className="w-14 h-14 sm:w-16 sm:h-16 lg:w-20 lg:h-20 mx-auto mb-3 sm:mb-4 lg:mb-5 rounded-2xl flex items-center justify-center text-2xl sm:text-3xl text-white shadow-md group-hover:scale-110 group-hover:shadow-lg transition-all duration-300"
         style={{
           background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
@@ -393,33 +424,33 @@ function ModuleCard({ title, icon, children, onClick, features = [] }) {
       >
         <span className="group-hover:animate-bounce">{icon}</span>
       </div>
-      
-      <h4 
+
+      <h4
         className="text-base sm:text-lg lg:text-xl font-black text-center mb-2 sm:mb-3 text-[#1A1F29] transition-colors group-hover:text-[#05A3C7]"
       >
         {title}
       </h4>
-      
+
       <p className="text-xs sm:text-sm text-[#5A6C7D] text-center mb-3 sm:mb-4 leading-relaxed">
         {children}
       </p>
-      
+
       {features.length > 0 && (
-        <ul 
+        <ul
           className="text-[10px] sm:text-xs space-y-1.5 sm:space-y-2 mb-3 sm:mb-4 lg:mb-5 rounded-lg p-2 sm:p-3"
           style={{ background: "rgba(5,163,199,0.05)" }}
         >
           {features.map((feature, index) => (
             <li key={index} className="flex items-center gap-2 text-[#1A1F29]">
-              <span className="text-green-500 group-hover:scale-125 transition-transform text-sm">✓</span> 
+              <span className="text-green-500 group-hover:scale-125 transition-transform text-sm">✓</span>
               <span className="group-hover:text-[#05A3C7] transition-colors font-medium">{feature}</span>
             </li>
           ))}
         </ul>
       )}
-      
+
       <div className="flex justify-center">
-        <span 
+        <span
           className="inline-flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-white text-xs sm:text-sm font-bold shadow-sm group-hover:shadow-md transition-all duration-300"
           style={{
             background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
@@ -429,7 +460,7 @@ function ModuleCard({ title, icon, children, onClick, features = [] }) {
         </span>
       </div>
 
-      <div 
+      <div
         className="absolute top-0 right-0 w-24 h-24 sm:w-32 sm:h-32 opacity-5 pointer-events-none"
         style={{
           background: "radial-gradient(circle, #05A3C7 0%, transparent 70%)",

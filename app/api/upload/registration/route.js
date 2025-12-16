@@ -27,7 +27,7 @@ function parseCredits(creditStr) {
 // Process registration data and aggregate credits
 function processRegistrationData(data, semester) {
   console.log('Processing registration data:', data.slice(0, 3)); // Debug log
-  
+
   const processedData = [];
   const creditMap = new Map(); // Map to store aggregated credits by rollno + code
 
@@ -37,9 +37,9 @@ function processRegistrationData(data, semester) {
     const rollno = row.Rollno || row.Roll_No || row.rollno || row.roll_no || row['Roll No'] || row['Roll No:'] || row['Rollno:'] || row['Rollno'];
     const code = row.Code || row.Subject_Code || row.code || row.subject_code || row['Subject Code'] || row['Subject Code:'] || row['Code:'] || row['Code'];
     const credit = parseCredits(row.Credit || row.Credits || row.credit || row.credits || row['Credit'] || row['Credit:'] || row['Credits:'] || row['Credits']);
-    
+
     console.log('Row data:', { rollno, code, credit, originalRow: row }); // Debug log
-    
+
     if (rollno && code) {
       const key = `${rollno}_${code}`;
       if (creditMap.has(key)) {
@@ -54,14 +54,14 @@ function processRegistrationData(data, semester) {
 
   // Second pass: create processed records with aggregated credits
   const processedRows = new Map();
-  
+
   data.forEach(row => {
     // More flexible column name matching
     const rollno = row.Rollno || row.Roll_No || row.rollno || row.roll_no || row['Roll No'] || row['Roll No:'] || row['Rollno:'] || row['Rollno'];
     const code = row.Code || row.Subject_Code || row.code || row.subject_code || row['Subject Code'] || row['Subject Code:'] || row['Code:'] || row['Code'];
     const name = row.Name || row.name || row['Name:'] || row['Name'] || row['Student Name'] || row['Student Name:'];
     const subject = row.Subject || row.Subject_Name || row.subject || row.subject_name || row['Subject'] || row['Subject:'] || row['Subject Name'] || row['Subject Name:'];
-    
+
     if (rollno && code) {
       const key = `${rollno}_${code}`;
       if (!processedRows.has(key)) {
@@ -99,23 +99,23 @@ export async function POST(req) {
     // Check if user is admin
     const userRole = payload.role?.toLowerCase();
     if (userRole !== 'admin') {
-      return NextResponse.json({ 
-        error: "Access denied - Only admins can upload registration data" 
+      return NextResponse.json({
+        error: "Access denied - Only admins can upload registration data"
       }, { status: 403 });
     }
 
     const formData = await req.formData();
     const file = formData.get('file');
     const semester = formData.get('semester');
-    
+
     if (!file) {
       return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
     }
-    
+
     if (!semester) {
       return NextResponse.json({ error: "No semester selected" }, { status: 400 });
     }
-    
+
     // Convert "Semester 1" to "Sem 1" format
     const dbSemester = semester.replace('Semester ', 'Sem ');
 
@@ -125,10 +125,10 @@ export async function POST(req) {
       'application/vnd.ms-excel',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     ];
-    
+
     if (!allowedTypes.includes(file.type)) {
-      return NextResponse.json({ 
-        error: "Invalid file type. Please upload CSV or Excel files only." 
+      return NextResponse.json({
+        error: "Invalid file type. Please upload CSV or Excel files only."
       }, { status: 400 });
     }
 
@@ -140,15 +140,15 @@ export async function POST(req) {
       // Handle CSV files
       const text = new TextDecoder().decode(buffer);
       const lines = text.split('\n').filter(line => line.trim());
-      
+
       if (lines.length < 2) {
-        return NextResponse.json({ 
-          error: "CSV file must contain at least a header row and one data row" 
+        return NextResponse.json({
+          error: "CSV file must contain at least a header row and one data row"
         }, { status: 400 });
       }
 
       const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-      
+
       for (let i = 1; i < lines.length; i++) {
         const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
         const row = {};
@@ -166,8 +166,8 @@ export async function POST(req) {
     }
 
     if (data.length === 0) {
-      return NextResponse.json({ 
-        error: "No data found in the uploaded file" 
+      return NextResponse.json({
+        error: "No data found in the uploaded file"
       }, { status: 400 });
     }
 
@@ -177,9 +177,9 @@ export async function POST(req) {
 
     // Process the data
     const processedData = processRegistrationData(data, dbSemester);
-    
+
     if (processedData.length === 0) {
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: "No valid registration data found. Please check your file format. Make sure your file has columns like 'Rollno', 'Code', 'Credit', etc.",
         debugInfo: {
           totalRows: data.length,
@@ -191,13 +191,23 @@ export async function POST(req) {
 
     // Connect to database - using separate cluster for registration data
     const client = await clientPromise;
-    const db = client.db("cutm1");
+
+    // Get campus and school from query params (priority) or payload
+    const { searchParams } = new URL(req.url);
+    const campusParam = searchParams.get('campus');
+    const schoolParam = searchParams.get('school');
+    const campus = campusParam || payload.campus || null;
+    const school = schoolParam || payload.school || null;
+
+    const { getCampusSchoolDatabase } = await import("@/lib/campus");
+    const dbName = getCampusSchoolDatabase(campus, school);
+    const db = client.db(dbName);
     const collection = db.collection("RegistrationData");
 
     // Check if data already exists for this semester
-    const existingCount = await collection.countDocuments({ 
+    const existingCount = await collection.countDocuments({
       Type: 'Registration',
-      Sem: dbSemester 
+      Sem: dbSemester
     });
 
     let updateStrategy = 'replace'; // Default strategy
@@ -207,12 +217,12 @@ export async function POST(req) {
 
     if (existingCount > 0) {
       console.log(`Found ${existingCount} existing records for ${dbSemester}. Using update strategy.`);
-      
+
       // Use upsert strategy: update existing records, insert new ones
       for (const record of processedData) {
         const result = await collection.updateOne(
-          { 
-            Reg_No: record.Reg_No, 
+          {
+            Reg_No: record.Reg_No,
             Subject_Code: record.Subject_Code,
             Sem: dbSemester,
             Type: 'Registration'
@@ -220,7 +230,7 @@ export async function POST(req) {
           { $set: record },
           { upsert: true }
         );
-        
+
         if (result.upsertedCount > 0) {
           recordsInserted++;
         } else if (result.modifiedCount > 0) {
@@ -231,7 +241,7 @@ export async function POST(req) {
       }
     } else {
       console.log(`No existing records found for ${dbSemester}. Inserting new data.`);
-      
+
       // Insert all new data
       const result = await collection.insertMany(processedData);
       recordsInserted = result.insertedCount;
@@ -252,8 +262,9 @@ export async function POST(req) {
 
   } catch (error) {
     console.error('Registration upload error:', error);
-    return NextResponse.json({ 
-      error: `Upload failed: ${error.message}` 
+    return NextResponse.json({
+      error: `Upload failed: ${error.message}`
     }, { status: 500 });
   }
 }
+

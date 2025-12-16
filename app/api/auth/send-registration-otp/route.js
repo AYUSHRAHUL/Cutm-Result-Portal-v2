@@ -48,7 +48,7 @@ export async function POST(req) {
     }
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    const db = client.db("USER");
     
     // Check if user already exists
     const existingUser = await db.collection("users").findOne({ email });

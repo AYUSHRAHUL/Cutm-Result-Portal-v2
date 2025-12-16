@@ -15,7 +15,7 @@ export async function POST(req) {
     }
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    const db = client.db("USER");
     const res = await db.collection("users").findOneAndUpdate(
       { email },
       { $set: { role: normalizedRole, updatedAt: new Date() } },

@@ -1,4 +1,5 @@
 "use client";
+import { appendSchoolParams } from "@/lib/api-helper";
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
@@ -148,7 +149,8 @@ export default function HonoursManagementPage() {
     setAddingDomain(true);
     
     try {
-      const res = await fetch("/api/honours/domain", {
+      const url = appendSchoolParams("/api/honours/domain");
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -183,7 +185,8 @@ export default function HonoursManagementPage() {
     setAddingSubject(true);
     
     try {
-      const res = await fetch("/api/honours/domain", {
+      const url = appendSchoolParams("/api/honours/domain");
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -1,5 +1,40 @@
 import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
+// Helper function to get branch from registration (async)
+async function getBranchFromRegistration(registration, department = null) {
+  if (!registration) return department || 'Unknown';
+  
+  // Try SOET B.Tech first
+  try {
+    const { parseBTechRegistration } = await import('../soet/parse-registration/route');
+    const parsed = parseBTechRegistration(registration);
+    if (parsed && parsed.isValid && parsed.isBTech) {
+      // Use parsed branch name directly (already mapped correctly)
+      return parsed.branch || department || 'Unknown';
+    }
+  } catch {}
+  
+  // Try SOVET Diploma
+  try {
+    const { parseDiplomaRegistration } = await import('../sovet/parse-registration/route');
+    const parsed = parseDiplomaRegistration(registration);
+    if (parsed && parsed.isValid && parsed.isDiploma) {
+      // Map parsed branch names to full department names
+      const branchNameMap = {
+        'Electrical': 'Electrical Engineering (Diploma)',
+        'Mechanical': 'Mechanical Engineering (Diploma)',
+        'Civil': 'Civil Engineering (Diploma)',
+        'CSE': 'Computer Science Engineering (Diploma)',
+        'Automobile': 'Automobile Engineering (Diploma)',
+        'Mining': 'Mining Engineering (Diploma)'
+      };
+      return branchNameMap[parsed.branch] || parsed.branch || department || 'Unknown';
+    }
+  } catch {}
+  
+  return department || 'Unknown';
+}
+import { getCampusSchoolDatabase } from "@/lib/campus";
 
 const BRANCH_NORMAL = {
   "CIVIL": "Civil Engineering",
@@ -35,40 +70,52 @@ export async function GET(req) {
 
     if (listAll === "1") {
       const client = await clientPromise;
-      const db = client.db("cutm1");
+      // Get campus and school from request
+      const token = req.cookies.get("token")?.value;
+      let campus = null;
+      let school = null;
+      let payload = null;
+      if (token) {
+        try {
+          const { jwtVerify } = await import("jose");
+          const secret = new TextEncoder().encode(process.env.JWT_SECRET || "dev-secret");
+          const result = await jwtVerify(token, secret);
+          payload = result.payload;
+          campus = payload?.campus || null;
+          school = payload?.school || null;
+        } catch { }
+      }
+      const { searchParams } = new URL(req.url);
+      const campusParam = searchParams.get('campus');
+      const schoolParam = searchParams.get('school');
+      campus = campusParam || campus || null;
+      school = schoolParam || school || null;
+      const { getCampusSchoolDatabase } = await import("@/lib/campus");
+      const dbName = getCampusSchoolDatabase(campus, school);
+      const db = client.db(dbName);
       const overrides = db.collection("branch_overrides");
       const regData = db.collection("registrationData");
-      
+
       const items = await overrides
         .find({}, { projection: { _id: 0, reg: 1, branch: 1, batch: 1, updatedAt: 1 } })
         .sort({ updatedAt: -1 })
         .limit(200)
         .toArray();
-      
+
       // Fetch original branch and batch for each registration
       const itemsWithOriginal = await Promise.all(
         items.map(async (item) => {
           const regDoc = await regData.findOne(
-            { Reg_No: item.reg.toUpperCase() }, 
+            { Reg_No: item.reg.toUpperCase() },
             { projection: { Branch: 1, Department: 1, Batch: 1 } }
           ).catch(() => null);
-          
-          const idx8 = item.reg.length >= 8 ? item.reg.charAt(7) : "";
-          const idx8Map = {
-            "1": "Civil Engineering",
-            "2": "Computer Science Engineering",
-            "3": "Electronics & Communication Engineering",
-            "4": "Electronics & Communication Engineering",
-            "5": "Electrical & Electronics Engineering",
-            "6": "Mechanical Engineering",
-            "7": "AIML",
-            "8": "Computer Science Engineering",
-            "9": "Civil Engineering",
-          };
-          const detectedFromIdx = idx8Map[idx8] || "";
+
+          // Use diploma helper to detect branch (handles both B.Tech and Diploma)
+          const detectedFromReg = await getBranchFromRegistration(item.reg);
+          const detectedFromIdx = detectedFromReg !== 'Unknown' ? detectedFromReg : "";
           const originalBranch = normalizeBranch(regDoc?.Branch || regDoc?.Department) || detectedFromIdx || "";
-          const originalBatch = normalizeBatch(regDoc?.Batch) || (item.reg.length >= 2 ? `20${item.reg.substring(0,2)}` : "");
-          
+          const originalBatch = normalizeBatch(regDoc?.Batch) || (item.reg.length >= 2 ? `20${item.reg.substring(0, 2)}` : "");
+
           return {
             ...item,
             originalBranch: originalBranch || null,
@@ -76,7 +123,7 @@ export async function GET(req) {
           };
         })
       );
-      
+
       return NextResponse.json({ overrides: itemsWithOriginal });
     }
 
@@ -84,7 +131,11 @@ export async function GET(req) {
     if (!reg) return NextResponse.json({ error: "Missing reg" }, { status: 400 });
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    // FIXED: Use context-aware database
+    const campus = searchParams.get('campus');
+    const school = searchParams.get('school');
+    const dbName = getCampusSchoolDatabase(campus, school);
+    const db = client.db(dbName);
 
     const overrides = db.collection("branch_overrides");
     const regData = db.collection("registrationData");
@@ -92,26 +143,16 @@ export async function GET(req) {
     const overrideDoc = await overrides.findOne({ reg: reg.toUpperCase() });
     const regDoc = await regData.findOne({ Reg_No: reg.toUpperCase() }, { projection: { Branch: 1, Department: 1, Batch: 1 } }).catch(() => null);
 
-    const idx8 = reg.length >= 8 ? reg.charAt(7) : "";
-    const idx8Map = {
-      "1": "Civil Engineering",
-      "2": "Computer Science Engineering",
-      "3": "Electronics & Communication Engineering",
-      "4": "Electronics & Communication Engineering",
-      "5": "Electrical & Electronics Engineering",
-      "6": "Mechanical Engineering",
-      "7": "AIML",
-      "8": "Computer Science Engineering",
-      "9": "Civil Engineering",
-    };
-    const detectedFromIdx = idx8Map[idx8] || "";
+    // Use diploma helper to detect branch (handles both B.Tech and Diploma)
+    const detectedFromReg = await getBranchFromRegistration(reg);
+    const detectedFromIdx = detectedFromReg !== 'Unknown' ? detectedFromReg : "";
     const detected = normalizeBranch(regDoc?.Branch || regDoc?.Department) || detectedFromIdx || "";
 
-    const detectedBatch = normalizeBatch(regDoc?.Batch) || (reg.length >= 2 ? `20${reg.substring(0,2)}` : "");
+    const detectedBatch = normalizeBatch(regDoc?.Batch) || (reg.length >= 2 ? `20${reg.substring(0, 2)}` : "");
 
-    return NextResponse.json({ 
-      reg, 
-      detected, 
+    return NextResponse.json({
+      reg,
+      detected,
       originalBranch: detected, // Original branch from registration data
       override: overrideDoc?.branch || null,
       detectedBatch,
@@ -131,43 +172,49 @@ export async function POST(req) {
     if (newBranch === undefined && newBatch === undefined) return NextResponse.json({ error: "Provide newBranch or newBatch" }, { status: 400 });
 
     // Handle "-" as explicit null (remove override)
-    const branchValue = newBranch === null ? null : (newBranch ? normalizeBranch(newBranch) : null);
-    const batchValue = newBatch === null ? null : (newBatch ? normalizeBatch(newBatch) : null);
-    
+    const normalizedBranch = newBranch === null ? null : (newBranch ? normalizeBranch(newBranch) : null);
+    const normalizedBatch = newBatch === null ? null : (newBatch ? normalizeBatch(newBatch) : null);
+
     // Validate only if a non-null value was provided
-    if (newBranch !== null && newBranch !== undefined && newBranch !== "" && !branchValue) {
+    if (newBranch !== null && newBranch !== undefined && newBranch !== "" && !normalizedBranch) {
       return NextResponse.json({ error: "Invalid branch" }, { status: 400 });
     }
-    if (newBatch !== null && newBatch !== undefined && newBatch !== "" && !batchValue) {
+    if (newBatch !== null && newBatch !== undefined && newBatch !== "" && !normalizedBatch) {
       return NextResponse.json({ error: "Invalid batch. Use YYYY (e.g., 2022)" }, { status: 400 });
     }
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
+
+    // FIXED: Use context-aware database from URL params (appended by frontend)
+    const { searchParams } = new URL(req.url);
+    const campus = searchParams.get('campus');
+    const school = searchParams.get('school');
+    const dbName = getCampusSchoolDatabase(campus, school);
+    const db = client.db(dbName);
 
     const overrides = db.collection("branch_overrides");
-    
+
     // Get existing override to preserve batch if only branch is being updated
     const existing = await overrides.findOne({ reg: reg.toUpperCase() });
-    
+
     // Build update object - only include fields that should be updated
     const updateFields = { reg: reg.toUpperCase(), updatedAt: new Date() };
-    
+
     // Update branch if explicitly provided in request body
     if ('newBranch' in body) {
       // newBranch was provided in request (could be null to remove override)
-      updateFields.branch = branchValue;
+      updateFields.branch = normalizedBranch;
     } else {
       // newBranch was NOT provided - preserve existing branch
       if (existing?.branch !== undefined) {
         updateFields.branch = existing.branch;
       }
     }
-    
+
     // Update batch if explicitly provided in request body
     if ('newBatch' in body) {
       // newBatch was provided in request (could be null to remove override)
-      updateFields.batch = batchValue;
+      updateFields.batch = normalizedBatch;
     } else {
       // newBatch was NOT provided - preserve existing batch
       if (existing?.batch !== undefined) {
@@ -195,7 +242,7 @@ export async function POST(req) {
       if (Object.keys(syncFields).length > 0) {
         await regData.updateMany({ Reg_No: reg.toUpperCase() }, { $set: syncFields });
       }
-    } catch {}
+    } catch { }
 
     return NextResponse.json({ ok: true, branch: normalizedBranch || null, batch: normalizedBatch || null });
   } catch (e) {

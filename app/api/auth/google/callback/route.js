@@ -175,7 +175,7 @@ export async function GET(req) {
     // Connect to database
     console.log("Google OAuth: Connecting to database...");
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    const db = client.db("USER");
 
     // Check if user exists
     console.log("Google OAuth: Checking for existing user with email:", email);
@@ -230,19 +230,33 @@ export async function GET(req) {
     const normalizedRole = normalizeRole(user.role);
     console.log("Google OAuth: User role:", normalizedRole);
     
+    // Detect campus from employee ID for teachers
+    let campus = null;
+    if (normalizedRole === "teacher" && user.employeeId) {
+      const { detectCampus } = await import("@/lib/campus");
+      campus = detectCampus(user.employeeId);
+    }
+    
     const token = jwt.sign(
-      { id: user._id.toString(), role: normalizedRole, email: user.email },
+      { 
+        id: user._id.toString(), 
+        role: normalizedRole, 
+        email: user.email,
+        campus: campus || null,
+        employeeId: user.employeeId || null
+      },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
-    // Determine redirect based on role
+    // Determine redirect based on role and campus
     const role = normalizedRole;
+    const { getTeacherDashboardPath } = await import("@/lib/campus");
     const target =
       role === "admin"
         ? "/dashboard/admin"
         : role === "teacher"
-        ? "/dashboard/teacher"
+        ? getTeacherDashboardPath(campus)
         : "/dashboard/user";
 
     console.log("Google OAuth: Redirecting to:", target);

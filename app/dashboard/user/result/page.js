@@ -2,6 +2,8 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
+import { getSchoolFromRegistration } from "@/lib/campus";
 
 function ResultPageContent() {
   const router = useRouter();
@@ -36,8 +38,12 @@ function ResultPageContent() {
           // Fetch results for all semesters
           const semesterResults = {};
 
+          // For user panel, determine school from registration number
+          const school = getSchoolFromRegistration(registration);
+          const resultApiUrl = school === 'SOVET' ? '/api/sovet/result' : '/api/soet/result';
+
           for (const sem of semesters) {
-            const res = await fetch("/api/result", {
+            const res = await fetch(resultApiUrl, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ registration, semester: sem.trim() }),
@@ -56,7 +62,11 @@ function ResultPageContent() {
           setActiveSemester(0); // Start with first semester
         } else {
           // Single semester
-          const res = await fetch("/api/result", {
+          // For user panel, determine school from registration number
+          const school = getSchoolFromRegistration(registration);
+          const resultApiUrl = school === 'SOVET' ? '/api/sovet/result' : '/api/soet/result';
+          
+          const res = await fetch(resultApiUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ registration, semester }),

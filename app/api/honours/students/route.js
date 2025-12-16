@@ -27,7 +27,14 @@ export async function GET(req) {
     const limit = parseInt(searchParams.get("limit") || "1000");
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    // Get database based on campus and school
+    const campusParam = searchParams.get('campus');
+    const schoolParam = searchParams.get('school');
+    const campus = campusParam || payload.campus || null;
+    const school = schoolParam || payload.school || null;
+    const { getCampusSchoolDatabase } = await import("@/lib/campus");
+    const dbName = getCampusSchoolDatabase(campus, school);
+    const db = client.db(dbName);
 
     let query = {};
     
@@ -110,7 +117,14 @@ export async function POST(req) {
     }
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    // Get database based on campus and school
+    const campusParam = searchParams.get('campus');
+    const schoolParam = searchParams.get('school');
+    const campus = campusParam || payload.campus || null;
+    const school = schoolParam || payload.school || null;
+    const { getCampusSchoolDatabase } = await import("@/lib/campus");
+    const dbName = getCampusSchoolDatabase(campus, school);
+    const db = client.db(dbName);
 
     // Check if student already exists
     const existing = await db.collection("honours_students")

@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
 
 // Excel XML Helper Functions
 function escapeXml(value) {
@@ -28,7 +30,7 @@ function createExcelCell(value, styleId = null) {
     cellXml += ` ss:StyleID="${styleId}"`;
   }
   cellXml += ">";
-  
+
   // Only add Data if there's a value
   if (value !== null && value !== undefined && value !== "") {
     const strValue = String(value);
@@ -38,7 +40,7 @@ function createExcelCell(value, styleId = null) {
     const data = escapeXml(strValue);
     cellXml += `<Data ss:Type="${type}">${data}</Data>`;
   }
-  
+
   cellXml += "</Cell>";
   return cellXml;
 }
@@ -52,7 +54,7 @@ function createExcelMergedCell(value, styleId, mergeAcross = 0) {
     cellXml += ` ss:MergeAcross="${mergeAcross}"`;
   }
   cellXml += ">";
-  
+
   // Only add Data if there's a value
   if (value !== null && value !== undefined && value !== "") {
     const strValue = String(value);
@@ -61,7 +63,7 @@ function createExcelMergedCell(value, styleId, mergeAcross = 0) {
     const data = escapeXml(strValue);
     cellXml += `<Data ss:Type="${type}">${data}</Data>`;
   }
-  
+
   cellXml += "</Cell>";
   return cellXml;
 }
@@ -71,7 +73,29 @@ function createExcelRow(cells) {
 }
 
 export default function TeacherBasketProgressTracker() {
+  const searchParams = useSearchParams();
+  const school = searchParams.get('school');
+  const isDiploma = school?.toUpperCase() === 'SOVET' || school?.toUpperCase()?.includes('VOCATIONAL');
   const [department, setDepartment] = useState("");
+
+  const btechDeptsList = [
+    { value: "Civil Engineering", label: "Civil Engineering" },
+    { value: "Computer Science Engineering", label: "Computer Science Engineering" },
+    { value: "Electronics & Communication Engineering", label: "Electronics & Communication Engineering" },
+    { value: "Electrical & Electronics Engineering", label: "Electrical & Electronics Engineering" },
+    { value: "Mechanical Engineering", label: "Mechanical Engineering" },
+    { value: "AIML", label: "AIML" }
+  ];
+  const diplomaDeptsList = [
+    { value: "Civil Engineering", label: "Civil Engineering" },
+    { value: "Computer Science Engineering", label: "Computer Science Engineering" },
+    { value: "Electrical Engineering", label: "Electrical Engineering" },
+    { value: "Mechanical Engineering", label: "Mechanical Engineering" },
+    { value: "Mining Engineering", label: "Mining Engineering" },
+    { value: "Automobile Engineering", label: "Automobile Engineering" }
+  ];
+  const deptOptions = isDiploma ? diplomaDeptsList : btechDeptsList;
+
   const [batch, setBatch] = useState("");
   const [registration, setRegistration] = useState("");
   const [registrationOptions, setRegistrationOptions] = useState([]);
@@ -92,7 +116,7 @@ export default function TeacherBasketProgressTracker() {
   const [basketProgress, setBasketProgress] = useState({});
   const [allStudentsData, setAllStudentsData] = useState([]);
   const [dataSources, setDataSources] = useState(null);
-  
+
   // Basket detail state
   const [selectedBasket, setSelectedBasket] = useState(null);
   const [showBasketDetails, setShowBasketDetails] = useState(false);
@@ -131,7 +155,7 @@ export default function TeacherBasketProgressTracker() {
       timestamp: new Date()
     };
     setNotifications(prev => [...prev, notification]);
-    
+
     // Auto-remove after 5 seconds
     setTimeout(() => {
       setNotifications(prev => prev.filter(n => n.id !== notification.id));
@@ -143,16 +167,16 @@ export default function TeacherBasketProgressTracker() {
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
       const oscillator = audioContext.createOscillator();
       const gainNode = audioContext.createGain();
-      
+
       oscillator.connect(gainNode);
       gainNode.connect(audioContext.destination);
-      
+
       oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
       oscillator.frequency.setValueAtTime(600, audioContext.currentTime + 0.1);
-      
+
       gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
       gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
-      
+
       oscillator.start(audioContext.currentTime);
       oscillator.stop(audioContext.currentTime + 0.2);
     } catch (error) {
@@ -187,72 +211,83 @@ export default function TeacherBasketProgressTracker() {
     setError("");
     setSearchPerformed(true);
     setLoading(true);
-    
+
     // FIXED: Reset previous results immediately
     setStudentData(null);
     setBasketProgress({});
     setAllStudentsData([]);
-    
+
     try {
       const hasSelectedRegistrations = selectedRegistrations.length > 0;
       const isBulkSearch = registration === "all" || (registration === "" && !hasSelectedRegistrations);
-      
+
       if (isBulkSearch) {
         // FIXED: Enhanced department validation for bulk search
         if (!department || department === "" || department === "Select Department") {
           throw new Error("Please select a valid department for bulk search");
         }
-        
-        const validDepartments = [
+
+        const btechDepts = [
           "All",
-          "Civil Engineering", 
+          "Civil Engineering",
           "Computer Science Engineering",
-          "Electronics & Communication Engineering", 
+          "Electronics & Communication Engineering",
           "Electrical & Electronics Engineering",
           "Mechanical Engineering",
           "AIML"
         ];
-        
+        const diplomaDepts = [
+          "All",
+          "Civil Engineering",
+          "Computer Science Engineering",
+          "Electrical Engineering",
+          "Mechanical Engineering",
+          "Mining Engineering",
+          "Automobile Engineering"
+        ];
+        const validDepartments = isDiploma ? diplomaDepts : btechDepts;
+
         if (!validDepartments.includes(department)) {
           throw new Error("Please select a valid department from the dropdown");
         }
-        
+
         // Allow "All" departments for bulk search
         if (department === "All") {
           // This is valid - will get all students
         }
-        
+
         // FIXED: Enhanced request body with proper filtering
-        const requestBody = { 
+        const requestBody = {
           registration: "all",
           department: department === "All" || department === "Select Department" ? "" : department, // Send empty string for "All" departments
           batch: batch && batch !== "All" && batch !== "Select Batch" ? batch : "", // Send empty string for "All" batches
           semesters: semesterValues.length > 0 && !semesterValues.includes("All") ? semesterValues : [], // Send empty array for "All" semesters
           basket: basket && basket !== "All" && basket !== "Select Basket" ? basket : "" // Send empty string for "All" baskets
         };
-        
+
         console.log("Frontend sending request:", requestBody);
-        
+
         console.log("Making fetch request to:", "/api/cbcs/track/bulk");
         let res;
         try {
-          res = await fetch("/api/cbcs/track/bulk", {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-          },
-          body: JSON.stringify(requestBody)
-        });
+          const url = appendSchoolParams("/api/cbcs/track/bulk");
+          res = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Accept": "application/json"
+            },
+            body: JSON.stringify(requestBody)
+          });
           console.log("Fetch completed, response received");
         } catch (fetchError) {
           console.error("Fetch error:", fetchError);
           throw new Error(`Network error: ${fetchError.message}`);
         }
-        
+
         console.log("Response status:", res.status);
         console.log("Response headers:", Object.fromEntries(res.headers.entries()));
-        
+
         let data;
         try {
           const responseText = await res.text();
@@ -263,9 +298,9 @@ export default function TeacherBasketProgressTracker() {
           console.error("Parse error:", parseError);
           throw new Error("Invalid response from server. Please check your network connection.");
         }
-        
+
         if (!res.ok) {
-          
+
           if (res.status === 404) {
             // Show debug information if available
             if (data?.debug) {
@@ -291,29 +326,29 @@ Please check if the department name matches exactly with the available departmen
             throw new Error(data?.error || `Server error: ${res.status} - ${res.statusText}`);
           }
         }
-        
+
         // FIXED: Enhanced data processing
         const students = data.students || data.data || [];
-        
+
         if (!students || students.length === 0) {
           throw new Error(`No students found in ${department}. Try selecting "All Departments" or check if students exist in this department.`);
         }
-        
+
         // FIXED: Set data with proper validation
         setAllStudentsData(students);
         setDataSources(data.dataSources || null);
         setLastUpdated(new Date());
-        
+
         // Success notification
         addNotification('success', `Found ${students.length} students in ${department}`);
         playNotificationSound();
-        
+
       } else {
         // Handle multiple selected registrations or single registration
-        const registrationsToSearch = selectedRegistrations.length > 0 
-          ? selectedRegistrations 
+        const registrationsToSearch = selectedRegistrations.length > 0
+          ? selectedRegistrations
           : (registration && registration.trim().length >= 6 ? [registration.trim().toUpperCase()] : []);
-          
+
         const normalizedDepartment = department && department !== "All" && department !== "Select Department" ? department : "";
         const normalizedBatch = batch && batch !== "All" && batch !== "Select Batch" ? batch : "";
         const normalizedSemesters = semesterValues.length > 0 && !semesterValues.includes("All") ? semesterValues : [];
@@ -326,38 +361,39 @@ Please check if the department name matches exactly with the available departmen
           semesters: normalizedSemesters,
           basket: normalizedBasket
         });
-        
+
         if (registrationsToSearch.length === 0) {
           throw new Error("Please select at least one student using checkboxes or enter a valid registration number (minimum 6 characters)");
         }
-        
+
         if (department && (department === "Select Department")) {
           throw new Error("Please select a valid department or leave it empty");
         }
-        
+
         // If multiple registrations selected, fetch all and combine results
         if (registrationsToSearch.length > 1) {
           const allStudents = [];
           let allDataSources = null;
-          
+
           for (const reg of registrationsToSearch) {
             try {
               const requestBody = buildRequestBody(reg, false);
-              
-              const res = await fetch("/api/cbcs/track", {
+
+              const url = appendSchoolParams("/api/cbcs/track");
+              const res = await fetch(url, {
                 method: "POST",
-                headers: { 
+                headers: {
                   "Content-Type": "application/json",
-                  "Accept": "application/json" 
+                  "Accept": "application/json"
                 },
                 body: JSON.stringify(requestBody)
               });
-              
+
               if (res.ok) {
                 const responseText = await res.text();
                 const data = JSON.parse(responseText);
                 const student = data.student || data.data;
-                
+
                 if (student) {
                   // Convert individual student data to bulk format
                   const progress = data.basketProgress || data.progress || {};
@@ -376,7 +412,7 @@ Please check if the department name matches exactly with the available departmen
                     percentage: Math.round((Object.values(progress).reduce((sum, b) => sum + (Number(b?.earned_credits) || 0), 0) / (student.is_lateral_entry ? 120 : 160)) * 100),
                     status: Object.values(progress).every(b => Number(b?.earned_credits || 0) >= Number(b?.required_credits || 0)) ? 'Completed' : 'In Progress'
                   });
-                  
+
                   if (!allDataSources && data.dataSources) {
                     allDataSources = data.dataSources;
                   }
@@ -387,11 +423,11 @@ Please check if the department name matches exactly with the available departmen
               // Continue with other registrations
             }
           }
-          
+
           if (allStudents.length === 0) {
             throw new Error("No students found for the selected registrations");
           }
-          
+
           setAllStudentsData(allStudents);
           setDataSources(allDataSources);
           setLastUpdated(new Date());
@@ -400,50 +436,51 @@ Please check if the department name matches exactly with the available departmen
         } else {
           // Single registration search (existing logic)
           const requestBody = buildRequestBody(registrationsToSearch[0], isManualRegistrationSearch);
-        
-        console.log("Individual search request:", requestBody);
-        
-        const res = await fetch("/api/cbcs/track", {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Accept": "application/json" 
-          },
-          body: JSON.stringify(requestBody)
-        });
-        
-        let data;
-        try {
-          const responseText = await res.text();
-          data = JSON.parse(responseText);
-        } catch (parseError) {
-          throw new Error("Invalid response from server");
-        }
-        
-        if (!res.ok) {
-          if (res.status === 404) {
-              throw new Error(`Student with registration ${registrationsToSearch[0]} not found. Please check the registration number.`);
-          } else {
-            throw new Error(data.error || "Unable to load student progress");
+
+          console.log("Individual search request:", requestBody);
+
+          const url = appendSchoolParams("/api/cbcs/track");
+          const res = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Accept": "application/json"
+            },
+            body: JSON.stringify(requestBody)
+          });
+
+          let data;
+          try {
+            const responseText = await res.text();
+            data = JSON.parse(responseText);
+          } catch (parseError) {
+            throw new Error("Invalid response from server");
           }
-        }
-        
-        // FIXED: Enhanced individual data processing
-        const student = data.student || data.data;
-        const progress = data.basketProgress || data.progress || {};
-        
-        if (!student) {
+
+          if (!res.ok) {
+            if (res.status === 404) {
+              throw new Error(`Student with registration ${registrationsToSearch[0]} not found. Please check the registration number.`);
+            } else {
+              throw new Error(data.error || "Unable to load student progress");
+            }
+          }
+
+          // FIXED: Enhanced individual data processing
+          const student = data.student || data.data;
+          const progress = data.basketProgress || data.progress || {};
+
+          if (!student) {
             throw new Error(`No data found for registration ${registrationsToSearch[0]}. Please verify the registration number.`);
-        }
-        
-        setStudentData(student);
-        setBasketProgress(progress);
-        setDataSources(data.dataSources || null);
-        setLastUpdated(new Date());
-        
-        // Success notification
-        addNotification('success', `Student data loaded successfully for ${student.name}`);
-        playNotificationSound();
+          }
+
+          setStudentData(student);
+          setBasketProgress(progress);
+          setDataSources(data.dataSources || null);
+          setLastUpdated(new Date());
+
+          // Success notification
+          addNotification('success', `Student data loaded successfully for ${student.name}`);
+          playNotificationSound();
         }
       }
     } catch (err) {
@@ -465,7 +502,7 @@ Please check if the department name matches exactly with the available departmen
         setError("");
         setRegistrationOptions([]);
         // Map UI department to API branch code names expected by /api/batch
-        const branchMap = {
+        const btechMap = {
           "Civil Engineering": "Civil",
           "Computer Science Engineering": "CSE",
           "Electronics & Communication Engineering": "ECE",
@@ -473,10 +510,20 @@ Please check if the department name matches exactly with the available departmen
           "Mechanical Engineering": "Mechanical",
           "AIML": "AIML",
         };
+        const diplomaMap = {
+          "Civil Engineering": "Civil",
+          "Computer Science Engineering": "CSE",
+          "Electrical Engineering": "EE",
+          "Mechanical Engineering": "Mechanical",
+          "Mining Engineering": "Mining",
+          "Automobile Engineering": "Automobile",
+        };
+        const branchMap = isDiploma ? diplomaMap : btechMap;
         const branch = department && department !== "All" ? branchMap[department] : undefined;
         const hasBatch = batch && batch !== "All";
         const body = { ...(branch ? { branch } : {}), ...(hasBatch ? { batch } : {}) };
-        const res = await fetch("/api/batch", {
+        const url = getSchoolApiUrl("batch");
+        const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
@@ -535,11 +582,11 @@ Please check if the department name matches exactly with the available departmen
     // Always expect 5 baskets (Basket I, II, III, IV, V) for total calculation
     const expectedBaskets = ["Basket I", "Basket II", "Basket III", "Basket IV", "Basket V"];
     const totalBaskets = expectedBaskets.length; // Always 5
-    
+
     // Calculate baskets completed using the EXACT same logic as individual rows: earned >= required
     let basketsCompleted = 0;
     const basketStatuses = {};
-    
+
     expectedBaskets.forEach((basketName) => {
       const b = basketProgress[basketName];
       if (b) {
@@ -555,14 +602,14 @@ Please check if the department name matches exactly with the available departmen
         basketStatuses[basketName] = { earnedCredits: 0, requiredCredits: 0, isCompleted: false };
       }
     });
-    
+
     // Calculate totals from all baskets in basketProgress
     const totalEarned = entries.reduce((sum, b) => sum + (Number(b?.earned_credits) || 0), 0);
     const totalFailed = entries.reduce((sum, b) => sum + (Number(b?.failed_credits) || 0), 0);
     const totalCredits = totalEarned + totalFailed; // earned + failed for totals
     const totalRequired = studentData?.is_lateral_entry ? 120 : 160;
     const percentage = Math.min(100, Math.round((totalEarned / totalRequired) * 100));
-    
+
     console.log('🔍 Overall Stats Calculation:', {
       totalBaskets,
       basketsCompleted,
@@ -570,14 +617,14 @@ Please check if the department name matches exactly with the available departmen
       basketStatuses,
       willShowTotalAs: basketsCompleted === totalBaskets && totalBaskets > 0 ? 'Completed' : 'Not Completed'
     });
-    
+
     return { totalBaskets, basketsCompleted, totalEarned, totalFailed, totalCredits, totalRequired, percentage };
   }, [basketProgress, studentData]);
 
   // Enhanced filtering and sorting for bulk results
   const filteredAndSortedStudents = useMemo(() => {
     let students = [...allStudentsData];
-    
+
     // If specific registrations are selected, limit results to those students
     if (selectedRegistrations.length > 0) {
       const selectedSet = new Set(selectedRegistrations.map(reg => reg.toUpperCase()));
@@ -586,17 +633,17 @@ Please check if the department name matches exactly with the available departmen
         return selectedSet.has(reg);
       });
     }
-    
+
     // Apply search term filter
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
-      students = students.filter(student => 
+      students = students.filter(student =>
         student.name?.toLowerCase().includes(term) ||
         student.registration?.toLowerCase().includes(term) ||
         student.department?.toLowerCase().includes(term)
       );
     }
-    
+
     // Apply status filter
     if (filterStatus !== 'all') {
       students = students.filter(student => {
@@ -612,12 +659,12 @@ Please check if the department name matches exactly with the available departmen
         }
       });
     }
-    
+
     // Apply sorting
     students.sort((a, b) => {
       let aVal;
       let bVal;
-      
+
       switch (sortBy) {
         case 'name':
           aVal = (a.name || '').toString().toLowerCase().trim();
@@ -639,7 +686,7 @@ Please check if the department name matches exactly with the available departmen
           aVal = (a.name || '').toString().toLowerCase().trim();
           bVal = (b.name || '').toString().toLowerCase().trim();
       }
-      
+
       if (typeof aVal === 'string') {
         const comparison = aVal.localeCompare(bVal, undefined, { numeric: true, sensitivity: 'base' });
         return sortOrder === 'asc' ? comparison : -comparison;
@@ -647,25 +694,25 @@ Please check if the department name matches exactly with the available departmen
         return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
       }
     });
-    
+
     return students;
   }, [allStudentsData, searchTerm, filterStatus, sortBy, sortOrder, selectedRegistrations]);
 
   const sortedBasketSubjects = useMemo(() => {
     if (!selectedBasket?.subjects) return [];
-    
+
     const parseSemesterValue = (semester) => {
       if (!semester) return Number.MAX_SAFE_INTEGER;
       const match = semester.toString().match(/\d+/);
       return match ? parseInt(match[0], 10) : Number.MAX_SAFE_INTEGER;
     };
-    
+
     return [...selectedBasket.subjects].sort((a, b) => {
       const semA = parseSemesterValue(a.semester);
       const semB = parseSemesterValue(b.semester);
-      
+
       if (semA !== semB) return semA - semB;
-      
+
       const nameA = (a.name || '').toString().toLowerCase().trim();
       const nameB = (b.name || '').toString().toLowerCase().trim();
       return nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
@@ -676,10 +723,10 @@ Please check if the department name matches exactly with the available departmen
   useEffect(() => {
     if (autoRefresh && searchPerformed && !loading) {
       const interval = setInterval(() => {
-        onSubmit({ preventDefault: () => {} });
+        onSubmit({ preventDefault: () => { } });
         addNotification('info', 'Data refreshed automatically');
       }, 30000); // Refresh every 30 seconds
-      
+
       return () => clearInterval(interval);
     }
   }, [autoRefresh, searchPerformed, loading]);
@@ -705,8 +752,9 @@ Please check if the department name matches exactly with the available departmen
     try {
       setLoading(true);
       setError("");
-      
-      const response = await fetch("/api/cbcs/track", {
+
+      const url = appendSchoolParams("/api/cbcs/track");
+      const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -717,16 +765,16 @@ Please check if the department name matches exactly with the available departmen
           basket: `Basket ${basketNumber}`
         })
       });
-      
+
       const data = await response.json();
-      
+
       if (data.error) {
         throw new Error(data.error);
       }
-      
+
       const basketName = `Basket ${basketNumber}`;
       const basketInfo = data.basketProgress?.[basketName];
-      
+
       if (basketInfo) {
         setSelectedBasket({
           name: `${basketName} - ${student.name}`,
@@ -749,8 +797,9 @@ Please check if the department name matches exactly with the available departmen
     try {
       setLoading(true);
       setError("");
-      
-      const response = await fetch("/api/cbcs/track", {
+
+      const url = appendSchoolParams("/api/cbcs/track");
+      const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -761,17 +810,17 @@ Please check if the department name matches exactly with the available departmen
           basket: ""
         })
       });
-      
+
       const data = await response.json();
-      
+
       if (data.error) {
         throw new Error(data.error);
       }
-      
+
       setStudentData(data.student);
       setBasketProgress(data.basketProgress || {});
       setSearchPerformed(true);
-      
+
     } catch (err) {
       setError(`Failed to load student details: ${err.message}`);
     } finally {
@@ -804,7 +853,7 @@ Please check if the department name matches exactly with the available departmen
     if (!isBulkContext && studentData) {
       // For individual student: Export in CBCS.xlsx template format matching Excel export
       // Group subjects by semester and organize by basket columns
-      
+
       // Collect all subjects with their basket and semester info
       const allSubjects = [];
       Object.entries(basketProgress).forEach(([basketName, basketInfo]) => {
@@ -813,15 +862,15 @@ Please check if the department name matches exactly with the available departmen
           allSubjects.push({
             ...subject,
             basket: basketName,
-            basketNumber: basketName === "Basket I" ? 1 : 
-                         basketName === "Basket II" ? 2 :
-                         basketName === "Basket III" ? 3 :
-                         basketName === "Basket IV" ? 4 :
-                         basketName === "Basket V" ? 5 : 0
+            basketNumber: basketName === "Basket I" ? 1 :
+              basketName === "Basket II" ? 2 :
+                basketName === "Basket III" ? 3 :
+                  basketName === "Basket IV" ? 4 :
+                    basketName === "Basket V" ? 5 : 0
           });
         });
       });
-      
+
       // Group by semester
       const subjectsBySemester = {};
       allSubjects.forEach(subject => {
@@ -831,40 +880,40 @@ Please check if the department name matches exactly with the available departmen
         }
         subjectsBySemester[sem].push(subject);
       });
-      
+
       // Sort semesters
       const sortedSemesters = Object.keys(subjectsBySemester).sort((a, b) => {
         const semNumA = parseInt(a.replace(/[^0-9]/g, '')) || 0;
         const semNumB = parseInt(b.replace(/[^0-9]/g, '')) || 0;
         return semNumA - semNumB;
       });
-      
+
       // Build CSV matching CBCS.xlsx template format EXACTLY
       const csvData = [];
-      
+
       // Header Section (4 rows - matching Excel)
       csvData.push(["CENTURION UNIVERSITY OF TECHNOLOGY & MANAGEMENT", "", "", "", "", "", "", "", ""]);
       csvData.push(["SCHOOL OF ENGINEERING & TECHNOLOGY", "", "", "", "", "", "", "", ""]);
       csvData.push(["SUBJECT REGISTRATION AS PER CBCS CURRICULUM", "", "", "", "", "", "", "", ""]);
       csvData.push(["REGISTRATION", "", "", "", "", "", "", "", ""]);
-      
+
       // Student Info Section (1 row - matching Excel)
       csvData.push(["NAME:", studentData.name || '', "", "REGISTRATION NO:", studentData.registration || '', "", "BRANCH:", studentData.department || studentData.actual_department || '', ""]);
-      
+
       // Semester-wise Subject Tables (matching Excel structure exactly)
       sortedSemesters.forEach(semester => {
         const subjects = subjectsBySemester[semester];
         const semesterDisplay = semester.replace(/Sem\s*/i, 'Semester-');
-        
+
         // Calculate totals for this semester
         let semesterTotals = { basket1: 0, basket2: 0, basket3: 0, basket4: 0, basket5: 0, grandTotal: 0 };
-        
+
         // Semester Header (1 row - matching Excel colspan=9)
         csvData.push([semesterDisplay, "", "", "", "", "", "", "", ""]);
-        
+
         // Column Headers (1 row - matching Excel)
         csvData.push(["Sl.N", "Subject Code", "Subject", "Basket 1 (Credit)", "Basket 2 (Credit)", "Basket 3 (Credit)", "Basket 4 (Credit)", "Basket 5 (Credit)", "Grand Total (Credit)"]);
-        
+
         // Subject Rows (matching Excel structure)
         subjects.forEach((subject, idx) => {
           const credits = Number(subject.credits) || 0;
@@ -873,14 +922,14 @@ Please check if the department name matches exactly with the available departmen
           const basket3 = subject.basketNumber === 3 ? credits : 0;
           const basket4 = subject.basketNumber === 4 ? credits : 0;
           const basket5 = subject.basketNumber === 5 ? credits : 0;
-          
+
           semesterTotals.basket1 += basket1;
           semesterTotals.basket2 += basket2;
           semesterTotals.basket3 += basket3;
           semesterTotals.basket4 += basket4;
           semesterTotals.basket5 += basket5;
           semesterTotals.grandTotal += credits;
-          
+
           csvData.push([
             idx + 1,
             subject.code || '',
@@ -893,16 +942,16 @@ Please check if the department name matches exactly with the available departmen
             credits
           ]);
         });
-        
+
         // Semester Total Row (1 row - matching Excel)
         csvData.push(["Total", "", "", semesterTotals.basket1, semesterTotals.basket2, semesterTotals.basket3, semesterTotals.basket4, semesterTotals.basket5, semesterTotals.grandTotal]);
-        
+
         // Empty row (1 row - matching Excel empty row with colspan=9)
         csvData.push(["", "", "", "", "", "", "", "", ""]);
       });
-      
+
       // Overall Totals (1 row - matching Excel)
-      csvData.push(["Total", "", "", 
+      csvData.push(["Total", "", "",
         allSubjects.filter(s => s.basketNumber === 1).reduce((sum, s) => sum + (Number(s.credits) || 0), 0),
         allSubjects.filter(s => s.basketNumber === 2).reduce((sum, s) => sum + (Number(s.credits) || 0), 0),
         allSubjects.filter(s => s.basketNumber === 3).reduce((sum, s) => sum + (Number(s.credits) || 0), 0),
@@ -910,14 +959,14 @@ Please check if the department name matches exactly with the available departmen
         allSubjects.filter(s => s.basketNumber === 5).reduce((sum, s) => sum + (Number(s.credits) || 0), 0),
         allSubjects.reduce((sum, s) => sum + (Number(s.credits) || 0), 0)
       ]);
-      
+
       const csv = csvData.map(row => row.map(cell => `"${cell}"`).join(",")).join("\n");
       downloadFile(csv, `student_${studentData.registration}_basket_progress.csv`, "text/csv");
       addNotification('success', 'CSV exported in CBCS template format');
     } else if (isBulkContext && filteredAndSortedStudents.length > 0) {
       const csvData = [];
       csvData.push(["Sl.No", "Name", "Registration No", "Department", "Student Type", "Basket I", "Basket II", "Basket III", "Basket IV", "Basket V", "Total Credits", "Required Credits", "Percentage", "Status"]);
-      
+
       filteredAndSortedStudents.forEach((student, index) => {
         csvData.push([
           index + 1,
@@ -936,7 +985,7 @@ Please check if the department name matches exactly with the available departmen
           student.status || "Not Started"
         ]);
       });
-      
+
       const csv = csvData.map(row => row.map(cell => `"${cell}"`).join(",")).join("\n");
       downloadFile(csv, `bulk_basket_analysis_${department}_${new Date().toISOString().split('T')[0]}.csv`, "text/csv");
       addNotification('success', `CSV exported with ${filteredAndSortedStudents.length} students`);
@@ -951,7 +1000,7 @@ Please check if the department name matches exactly with the available departmen
     if (!isBulkContext && studentData) {
       // For individual student: Export in CBCS.xlsx template format matching the screenshot
       // Group subjects by semester and organize by basket columns
-      
+
       // Collect all subjects with their basket and semester info
       const allSubjects = [];
       Object.entries(basketProgress).forEach(([basketName, basketInfo]) => {
@@ -960,15 +1009,15 @@ Please check if the department name matches exactly with the available departmen
           allSubjects.push({
             ...subject,
             basket: basketName,
-            basketNumber: basketName === "Basket I" ? 1 : 
-                         basketName === "Basket II" ? 2 :
-                         basketName === "Basket III" ? 3 :
-                         basketName === "Basket IV" ? 4 :
-                         basketName === "Basket V" ? 5 : 0
+            basketNumber: basketName === "Basket I" ? 1 :
+              basketName === "Basket II" ? 2 :
+                basketName === "Basket III" ? 3 :
+                  basketName === "Basket IV" ? 4 :
+                    basketName === "Basket V" ? 5 : 0
           });
         });
       });
-      
+
       // Group by semester
       const subjectsBySemester = {};
       allSubjects.forEach(subject => {
@@ -978,14 +1027,14 @@ Please check if the department name matches exactly with the available departmen
         }
         subjectsBySemester[sem].push(subject);
       });
-      
+
       // Sort semesters
       const sortedSemesters = Object.keys(subjectsBySemester).sort((a, b) => {
         const semNumA = parseInt(a.replace(/[^0-9]/g, '')) || 0;
         const semNumB = parseInt(b.replace(/[^0-9]/g, '')) || 0;
         return semNumA - semNumB;
       });
-      
+
       // Build HTML table matching CBCS.xlsx template
       let htmlContent = `
         <html>
@@ -1026,29 +1075,29 @@ Please check if the department name matches exactly with the available departmen
               
               <!-- Semester-wise Subject Tables -->
               ${sortedSemesters.map(semester => {
-                const subjects = subjectsBySemester[semester];
-                const semesterDisplay = semester.replace(/Sem\s*/i, 'Semester-');
-                
-                // Calculate totals for this semester
-                let semesterTotals = { basket1: 0, basket2: 0, basket3: 0, basket4: 0, basket5: 0, grandTotal: 0 };
-                
-                // Build subject rows and calculate totals
-                const subjectRows = subjects.map((subject, idx) => {
-                  const credits = Number(subject.credits) || 0;
-                  const basket1 = subject.basketNumber === 1 ? credits : 0;
-                  const basket2 = subject.basketNumber === 2 ? credits : 0;
-                  const basket3 = subject.basketNumber === 3 ? credits : 0;
-                  const basket4 = subject.basketNumber === 4 ? credits : 0;
-                  const basket5 = subject.basketNumber === 5 ? credits : 0;
-                  
-                  semesterTotals.basket1 += basket1;
-                  semesterTotals.basket2 += basket2;
-                  semesterTotals.basket3 += basket3;
-                  semesterTotals.basket4 += basket4;
-                  semesterTotals.basket5 += basket5;
-                  semesterTotals.grandTotal += credits;
-                  
-                  return `
+        const subjects = subjectsBySemester[semester];
+        const semesterDisplay = semester.replace(/Sem\s*/i, 'Semester-');
+
+        // Calculate totals for this semester
+        let semesterTotals = { basket1: 0, basket2: 0, basket3: 0, basket4: 0, basket5: 0, grandTotal: 0 };
+
+        // Build subject rows and calculate totals
+        const subjectRows = subjects.map((subject, idx) => {
+          const credits = Number(subject.credits) || 0;
+          const basket1 = subject.basketNumber === 1 ? credits : 0;
+          const basket2 = subject.basketNumber === 2 ? credits : 0;
+          const basket3 = subject.basketNumber === 3 ? credits : 0;
+          const basket4 = subject.basketNumber === 4 ? credits : 0;
+          const basket5 = subject.basketNumber === 5 ? credits : 0;
+
+          semesterTotals.basket1 += basket1;
+          semesterTotals.basket2 += basket2;
+          semesterTotals.basket3 += basket3;
+          semesterTotals.basket4 += basket4;
+          semesterTotals.basket5 += basket5;
+          semesterTotals.grandTotal += credits;
+
+          return `
                     <tr>
                       <td style="text-align: center;">${idx + 1}</td>
                       <td>${subject.code || ''}</td>
@@ -1061,9 +1110,9 @@ Please check if the department name matches exactly with the available departmen
                       <td style="text-align: center;">${credits}</td>
                     </tr>
                   `;
-                }).join('');
-                
-                return `
+        }).join('');
+
+        return `
                   <!-- ${semesterDisplay} Header -->
                   <tr>
                     <td colspan="9" style="font-weight: bold; background-color: #D9E1F2; text-align: center;">
@@ -1100,7 +1149,7 @@ Please check if the department name matches exactly with the available departmen
                   
                   <tr><td colspan="9" style="height: 10px;"></td></tr>
                 `;
-              }).join('')}
+      }).join('')}
               
               <!-- Overall Totals -->
               <tr style="font-weight: bold; background-color: #D9E1F2;">
@@ -1116,7 +1165,7 @@ Please check if the department name matches exactly with the available departmen
           </body>
         </html>
       `;
-      
+
       downloadFile(htmlContent, `student_${studentData.registration}_basket_progress.xls`, "application/vnd.ms-excel");
       addNotification('success', 'Excel file exported in CBCS template format');
     } else if (isBulkContext && filteredAndSortedStudents.length > 0) {
@@ -1127,9 +1176,9 @@ Please check if the department name matches exactly with the available departmen
             <h2>Bulk Basket Analysis Report</h2>
             <table border="1">
               <tr><th>Sl.No</th><th>Name</th><th>Registration No</th><th>Department</th><th>Student Type</th><th>Basket I</th><th>Basket II</th><th>Basket III</th><th>Basket IV</th><th>Basket V</th><th>Total Credits</th><th>Required Credits</th><th>Percentage</th><th>Status</th></tr>
-              ${filteredAndSortedStudents.map((student, index) => 
-                `<tr><td>${index + 1}</td><td>${student.name}</td><td>${student.registration}</td><td>${student.department}</td><td>${student.is_lateral_entry ? 'Lateral Entry' : 'Regular'}</td><td>${student.basketI || 0}</td><td>${student.basketII || 0}</td><td>${student.basketIII || 0}</td><td>${student.basketIV || 0}</td><td>${student.basketV || 0}</td><td>${student.totalCredits || 0}</td><td>${student.totalRequiredCredits || (student.is_lateral_entry ? 120 : 160)}</td><td>${student.percentage || 0}%</td><td>${student.status || "Not Started"}</td></tr>`
-              ).join("")}
+              ${filteredAndSortedStudents.map((student, index) =>
+        `<tr><td>${index + 1}</td><td>${student.name}</td><td>${student.registration}</td><td>${student.department}</td><td>${student.is_lateral_entry ? 'Lateral Entry' : 'Regular'}</td><td>${student.basketI || 0}</td><td>${student.basketII || 0}</td><td>${student.basketIII || 0}</td><td>${student.basketIV || 0}</td><td>${student.basketV || 0}</td><td>${student.totalCredits || 0}</td><td>${student.totalRequiredCredits || (student.is_lateral_entry ? 120 : 160)}</td><td>${student.percentage || 0}%</td><td>${student.status || "Not Started"}</td></tr>`
+      ).join("")}
             </table>
           </body>
         </html>
@@ -1145,7 +1194,7 @@ Please check if the department name matches exactly with the available departmen
     if (registration !== "all" && studentData) {
       // For individual student: Export in CBCS.xlsx template format matching the exact format provided
       // Group subjects by semester and organize by basket columns
-      
+
       // Collect all subjects with their basket and semester info
       const allSubjects = [];
       Object.entries(basketProgress).forEach(([basketName, basketInfo]) => {
@@ -1154,15 +1203,15 @@ Please check if the department name matches exactly with the available departmen
           allSubjects.push({
             ...subject,
             basket: basketName,
-            basketNumber: basketName === "Basket I" ? 1 : 
-                         basketName === "Basket II" ? 2 :
-                         basketName === "Basket III" ? 3 :
-                         basketName === "Basket IV" ? 4 :
-                         basketName === "Basket V" ? 5 : 0
+            basketNumber: basketName === "Basket I" ? 1 :
+              basketName === "Basket II" ? 2 :
+                basketName === "Basket III" ? 3 :
+                  basketName === "Basket IV" ? 4 :
+                    basketName === "Basket V" ? 5 : 0
           });
         });
       });
-      
+
       // Group by semester - Normalize semester keys to match expected format
       const subjectsBySemester = {};
       allSubjects.forEach(subject => {
@@ -1181,17 +1230,17 @@ Please check if the department name matches exactly with the available departmen
         }
         subjectsBySemester[sem].push(subject);
       });
-      
+
       // Get all 8 semesters (even if empty) - always show all
       // Use normalized keys: "Sem 1", "Sem 2", etc.
       const allSemesterKeys = ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"];
       const sortedSemesters = allSemesterKeys;
-      
+
       // Get session year from registration (first 2 digits)
       const regYear = studentData.registration ? studentData.registration.substring(0, 2) : new Date().getFullYear().toString().substring(2);
       const sessionYear = `20${regYear}-${parseInt(regYear) + 4}`;
       const branchCode = studentData.department || studentData.actual_department || '';
-      const branchMap = {
+      const btechMap = {
         "Civil Engineering": "Civil",
         "Computer Science Engineering": "CSE",
         "Electronics & Communication Engineering": "ECE",
@@ -1199,10 +1248,19 @@ Please check if the department name matches exactly with the available departmen
         "Mechanical Engineering": "Mechanical",
         "AIML": "AIML",
       };
-      const branchShort = Object.keys(branchMap).find(key => branchCode.includes(key)) 
-        ? branchMap[Object.keys(branchMap).find(key => branchCode.includes(key))] 
+      const diplomaMap = {
+        "Civil Engineering": "Civil",
+        "Computer Science Engineering": "CSE",
+        "Electrical Engineering": "EE",
+        "Mechanical Engineering": "Mechanical",
+        "Mining Engineering": "Mining",
+        "Automobile Engineering": "Automobile",
+      };
+      const branchMap = isDiploma ? diplomaMap : btechMap;
+      const branchShort = Object.keys(branchMap).find(key => branchCode.includes(key))
+        ? branchMap[Object.keys(branchMap).find(key => branchCode.includes(key))]
         : branchCode;
-      
+
       // Helper function to calculate semester totals (same logic as in buildSemesterTable)
       const calculateSemesterTotals = (semester) => {
         const subjects = subjectsBySemester[semester] || [];
@@ -1219,13 +1277,13 @@ Please check if the department name matches exactly with the available departmen
         });
         return totals;
       };
-      
+
       // Calculate semester totals for all semesters
       const semesterTotalsMap = {};
       allSemesterKeys.forEach(semKey => {
         semesterTotalsMap[semKey] = calculateSemesterTotals(semKey);
       });
-      
+
       // Calculate year totals by adding semester totals (matching screenshot format exactly)
       // Layout: Top row = Sem 1 (left) + Sem 2 (right), Bottom row = Sem 3 (left) + Sem 4 (right)
       // 1st Year = Sem 1 totals + Sem 2 totals (as shown in screenshot)
@@ -1237,7 +1295,7 @@ Please check if the department name matches exactly with the available departmen
         basket5: (semesterTotalsMap["Sem 1"]?.basket5 || 0) + (semesterTotalsMap["Sem 2"]?.basket5 || 0),
         grandTotal: (semesterTotalsMap["Sem 1"]?.grandTotal || 0) + (semesterTotalsMap["Sem 2"]?.grandTotal || 0)
       };
-      
+
       // 1st & 2nd Year = 1st Year + Sem 3 + Sem 4 (as shown in screenshot)
       const secondYearTotals = {
         basket1: firstYearTotals.basket1 + (semesterTotalsMap["Sem 3"]?.basket1 || 0) + (semesterTotalsMap["Sem 4"]?.basket1 || 0),
@@ -1247,7 +1305,7 @@ Please check if the department name matches exactly with the available departmen
         basket5: firstYearTotals.basket5 + (semesterTotalsMap["Sem 3"]?.basket5 || 0) + (semesterTotalsMap["Sem 4"]?.basket5 || 0),
         grandTotal: firstYearTotals.grandTotal + (semesterTotalsMap["Sem 3"]?.grandTotal || 0) + (semesterTotalsMap["Sem 4"]?.grandTotal || 0)
       };
-      
+
       // 1st, 2nd & 3rd Year = 1st & 2nd Year + Sem 5 + Sem 6
       const thirdYearTotals = {
         basket1: secondYearTotals.basket1 + (semesterTotalsMap["Sem 5"]?.basket1 || 0) + (semesterTotalsMap["Sem 6"]?.basket1 || 0),
@@ -1257,7 +1315,7 @@ Please check if the department name matches exactly with the available departmen
         basket5: secondYearTotals.basket5 + (semesterTotalsMap["Sem 5"]?.basket5 || 0) + (semesterTotalsMap["Sem 6"]?.basket5 || 0),
         grandTotal: secondYearTotals.grandTotal + (semesterTotalsMap["Sem 5"]?.grandTotal || 0) + (semesterTotalsMap["Sem 6"]?.grandTotal || 0)
       };
-      
+
       // 1st, 2nd, 3rd & 4th Year = 1st, 2nd & 3rd Year + Sem 7 + Sem 8
       const fourthYearTotals = {
         basket1: thirdYearTotals.basket1 + (semesterTotalsMap["Sem 7"]?.basket1 || 0) + (semesterTotalsMap["Sem 8"]?.basket1 || 0),
@@ -1267,7 +1325,7 @@ Please check if the department name matches exactly with the available departmen
         basket5: thirdYearTotals.basket5 + (semesterTotalsMap["Sem 7"]?.basket5 || 0) + (semesterTotalsMap["Sem 8"]?.basket5 || 0),
         grandTotal: thirdYearTotals.grandTotal + (semesterTotalsMap["Sem 7"]?.grandTotal || 0) + (semesterTotalsMap["Sem 8"]?.grandTotal || 0)
       };
-      
+
       // Build HTML table matching CBCS.xlsx template EXACTLY
       let htmlContent = `
         <html>
@@ -1314,34 +1372,34 @@ Please check if the department name matches exactly with the available departmen
               
               <!-- Semester-wise Subject Tables - Arranged in pairs side by side -->
               ${(() => {
-                // Helper function to build a semester table
-                const buildSemesterTable = (semester, semNum) => {
-                  const subjects = subjectsBySemester[semester] || [];
-                  const semesterDisplay = semester.replace(/Sem\s*/i, 'Semester-');
-                  const hasSlNo = semNum % 2 === 0; // Even semesters have Sl. No
-                  
-                  // Calculate totals for this semester
-                  let semesterTotals = { basket1: 0, basket2: 0, basket3: 0, basket4: 0, basket5: 0, grandTotal: 0 };
-                  
-                  // Build subject rows
-                  const subjectRows = subjects.map((subject, idx) => {
-                    const credits = Number(subject.credits) || 0;
-                    const basket1 = subject.basketNumber === 1 ? credits : 0;
-                    const basket2 = subject.basketNumber === 2 ? credits : 0;
-                    const basket3 = subject.basketNumber === 3 ? credits : 0;
-                    const basket4 = subject.basketNumber === 4 ? credits : 0;
-                    const basket5 = subject.basketNumber === 5 ? credits : 0;
-                    
-                    semesterTotals.basket1 += basket1;
-                    semesterTotals.basket2 += basket2;
-                    semesterTotals.basket3 += basket3;
-                    semesterTotals.basket4 += basket4;
-                    semesterTotals.basket5 += basket5;
-                    semesterTotals.grandTotal += credits;
-                    
-                    const slNoCell = hasSlNo ? `<td style="text-align: center; padding: 5px;">${idx + 1}</td>` : '';
-                    
-                    return `
+          // Helper function to build a semester table
+          const buildSemesterTable = (semester, semNum) => {
+            const subjects = subjectsBySemester[semester] || [];
+            const semesterDisplay = semester.replace(/Sem\s*/i, 'Semester-');
+            const hasSlNo = semNum % 2 === 0; // Even semesters have Sl. No
+
+            // Calculate totals for this semester
+            let semesterTotals = { basket1: 0, basket2: 0, basket3: 0, basket4: 0, basket5: 0, grandTotal: 0 };
+
+            // Build subject rows
+            const subjectRows = subjects.map((subject, idx) => {
+              const credits = Number(subject.credits) || 0;
+              const basket1 = subject.basketNumber === 1 ? credits : 0;
+              const basket2 = subject.basketNumber === 2 ? credits : 0;
+              const basket3 = subject.basketNumber === 3 ? credits : 0;
+              const basket4 = subject.basketNumber === 4 ? credits : 0;
+              const basket5 = subject.basketNumber === 5 ? credits : 0;
+
+              semesterTotals.basket1 += basket1;
+              semesterTotals.basket2 += basket2;
+              semesterTotals.basket3 += basket3;
+              semesterTotals.basket4 += basket4;
+              semesterTotals.basket5 += basket5;
+              semesterTotals.grandTotal += credits;
+
+              const slNoCell = hasSlNo ? `<td style="text-align: center; padding: 5px;">${idx + 1}</td>` : '';
+
+              return `
                       <tr>
                         ${slNoCell}
                         <td style="padding: 5px;">${subject.code || ''}</td>
@@ -1354,14 +1412,14 @@ Please check if the department name matches exactly with the available departmen
                         <td style="text-align: center; padding: 5px;">${credits}</td>
                       </tr>
                     `;
-                  }).join('');
-                  
-                  const headerColspan = hasSlNo ? 9 : 8;
-                  const slNoHeader = hasSlNo ? '<td style="padding: 5px;">Sl. No</td>' : '';
-                  const totalColspan = hasSlNo ? 3 : 2;
-                  
-                  return {
-                    html: `
+            }).join('');
+
+            const headerColspan = hasSlNo ? 9 : 8;
+            const slNoHeader = hasSlNo ? '<td style="padding: 5px;">Sl. No</td>' : '';
+            const totalColspan = hasSlNo ? 3 : 2;
+
+            return {
+              html: `
                       <!-- ${semesterDisplay} Header -->
                       <tr>
                         <td colspan="${headerColspan}" style="font-weight: bold; background-color: #D9E1F2; text-align: center; padding: 8px;">
@@ -1396,28 +1454,28 @@ Please check if the department name matches exactly with the available departmen
                         <td style="text-align: center; padding: 5px;">${semesterTotals.grandTotal}</td>
                       </tr>
                     `,
-                    totals: semesterTotals,
-                    semNum,
-                    headerColspan
-                  };
-                };
-                
-                // Build semester pairs matching screenshot layout exactly:
-                // Top row: Sem 1 (left) + Sem 2 (right)
-                // Bottom row: Sem 3 (left) + Sem 4 (right)
-                let result = '';
-                
-                // First row: Sem 1 + Sem 2 (side-by-side)
-                const sem1Key = allSemesterKeys[0]; // Sem 1
-                const sem2Key = allSemesterKeys[1]; // Sem 2
-                const sem1Table = buildSemesterTable(sem1Key, 1);
-                const sem2Table = buildSemesterTable(sem2Key, 2);
-                
-                const sem1Colspan = 4; // Sem 1 is odd (no Sl. No) = 8 cols, so 4 in outer table
-                const sem2Colspan = 5; // Sem 2 is even (has Sl. No) = 9 cols, so 5 in outer table
-                
-                // Add "1st Year Total Credits" row inside Sem 2 table (in Subject column)
-                const sem2TableWithYearTotal = sem2Table.html + `
+              totals: semesterTotals,
+              semNum,
+              headerColspan
+            };
+          };
+
+          // Build semester pairs matching screenshot layout exactly:
+          // Top row: Sem 1 (left) + Sem 2 (right)
+          // Bottom row: Sem 3 (left) + Sem 4 (right)
+          let result = '';
+
+          // First row: Sem 1 + Sem 2 (side-by-side)
+          const sem1Key = allSemesterKeys[0]; // Sem 1
+          const sem2Key = allSemesterKeys[1]; // Sem 2
+          const sem1Table = buildSemesterTable(sem1Key, 1);
+          const sem2Table = buildSemesterTable(sem2Key, 2);
+
+          const sem1Colspan = 4; // Sem 1 is odd (no Sl. No) = 8 cols, so 4 in outer table
+          const sem2Colspan = 5; // Sem 2 is even (has Sl. No) = 9 cols, so 5 in outer table
+
+          // Add "1st Year Total Credits" row inside Sem 2 table (in Subject column)
+          const sem2TableWithYearTotal = sem2Table.html + `
                       <!-- 1st Year Total Credits Row (inside Sem 2 table, Subject column) -->
                       <tr style="font-weight: bold; background-color: #E6F3FF;">
                         <td style="text-align: center; padding: 5px;"></td>
@@ -1431,8 +1489,8 @@ Please check if the department name matches exactly with the available departmen
                         <td style="text-align: center; padding: 5px;">${firstYearTotals.grandTotal || 0}</td>
                       </tr>
                     `;
-                
-                result += `
+
+          result += `
                   <tr>
                     <td colspan="${sem1Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
                       <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
@@ -1446,21 +1504,21 @@ Please check if the department name matches exactly with the available departmen
                     </td>
                   </tr>
                 `;
-                
-                // Add spacing between rows
-                result += `<tr><td colspan="9" style="height: 10px; border: 1px solid #000;"></td></tr>`;
-                
-                // Second row: Sem 3 + Sem 4 (side-by-side)
-                const sem3Key = allSemesterKeys[2]; // Sem 3
-                const sem4Key = allSemesterKeys[3]; // Sem 4
-                const sem3Table = buildSemesterTable(sem3Key, 3);
-                const sem4Table = buildSemesterTable(sem4Key, 4);
-                
-                const sem3Colspan = 4; // Sem 3 is odd (no Sl. No) = 8 cols, so 4 in outer table
-                const sem4Colspan = 5; // Sem 4 is even (has Sl. No) = 9 cols, so 5 in outer table
-                
-                // Add "1st & 2nd Year Total Credits" row inside Sem 4 table (in Subject column)
-                const sem4TableWithYearTotal = sem4Table.html + `
+
+          // Add spacing between rows
+          result += `<tr><td colspan="9" style="height: 10px; border: 1px solid #000;"></td></tr>`;
+
+          // Second row: Sem 3 + Sem 4 (side-by-side)
+          const sem3Key = allSemesterKeys[2]; // Sem 3
+          const sem4Key = allSemesterKeys[3]; // Sem 4
+          const sem3Table = buildSemesterTable(sem3Key, 3);
+          const sem4Table = buildSemesterTable(sem4Key, 4);
+
+          const sem3Colspan = 4; // Sem 3 is odd (no Sl. No) = 8 cols, so 4 in outer table
+          const sem4Colspan = 5; // Sem 4 is even (has Sl. No) = 9 cols, so 5 in outer table
+
+          // Add "1st & 2nd Year Total Credits" row inside Sem 4 table (in Subject column)
+          const sem4TableWithYearTotal = sem4Table.html + `
                       <!-- 1st & 2nd Year Total Credits Row (inside Sem 4 table, Subject column) -->
                       <tr style="font-weight: bold; background-color: #E6F3FF;">
                         <td style="text-align: center; padding: 5px;"></td>
@@ -1474,8 +1532,8 @@ Please check if the department name matches exactly with the available departmen
                         <td style="text-align: center; padding: 5px;">${secondYearTotals.grandTotal || 0}</td>
                       </tr>
                     `;
-                
-                result += `
+
+          result += `
                   <tr>
                     <td colspan="${sem3Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
                       <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
@@ -1489,25 +1547,25 @@ Please check if the department name matches exactly with the available departmen
                     </td>
                   </tr>
                 `;
-                
-                // Add remaining semesters (5,6,7,8) if needed
-                for (let i = 4; i < 8; i += 2) {
-                  const sem1Key = allSemesterKeys[i];
-                  const sem2Key = allSemesterKeys[i + 1];
-                  const sem1Num = i + 1;
-                  const sem2Num = i + 2;
-                  
-                  const sem1Table = buildSemesterTable(sem1Key, sem1Num);
-                  const sem2Table = buildSemesterTable(sem2Key, sem2Num);
-                  
-                  const sem1Colspan = 4;
-                  const sem2Colspan = 5;
-                  
-                  // Add year totals inside even semester tables (Sem 6, Sem 8)
-                  let sem2TableWithYearTotal = sem2Table.html;
-                  if (sem2Num === 6) {
-                    // Add "1st, 2nd & 3rd year Total Credits" inside Sem 6 table (in Subject column)
-                    sem2TableWithYearTotal = sem2Table.html + `
+
+          // Add remaining semesters (5,6,7,8) if needed
+          for (let i = 4; i < 8; i += 2) {
+            const sem1Key = allSemesterKeys[i];
+            const sem2Key = allSemesterKeys[i + 1];
+            const sem1Num = i + 1;
+            const sem2Num = i + 2;
+
+            const sem1Table = buildSemesterTable(sem1Key, sem1Num);
+            const sem2Table = buildSemesterTable(sem2Key, sem2Num);
+
+            const sem1Colspan = 4;
+            const sem2Colspan = 5;
+
+            // Add year totals inside even semester tables (Sem 6, Sem 8)
+            let sem2TableWithYearTotal = sem2Table.html;
+            if (sem2Num === 6) {
+              // Add "1st, 2nd & 3rd year Total Credits" inside Sem 6 table (in Subject column)
+              sem2TableWithYearTotal = sem2Table.html + `
                           <!-- 1st, 2nd & 3rd year Total Credits Row (inside Sem 6 table, Subject column) -->
                           <tr style="font-weight: bold; background-color: #E6F3FF;">
                             <td style="text-align: center; padding: 5px;"></td>
@@ -1521,9 +1579,9 @@ Please check if the department name matches exactly with the available departmen
                             <td style="text-align: center; padding: 5px;">${thirdYearTotals.grandTotal || 0}</td>
                           </tr>
                         `;
-                  } else if (sem2Num === 8) {
-                    // Add "1st, 2nd, 3rd & 4th year Total" inside Sem 8 table (in Subject column)
-                    sem2TableWithYearTotal = sem2Table.html + `
+            } else if (sem2Num === 8) {
+              // Add "1st, 2nd, 3rd & 4th year Total" inside Sem 8 table (in Subject column)
+              sem2TableWithYearTotal = sem2Table.html + `
                           <!-- 1st, 2nd, 3rd & 4th year Total Row (inside Sem 8 table, Subject column) -->
                           <tr style="font-weight: bold; background-color: #E6F3FF;">
                             <td style="text-align: center; padding: 5px;"></td>
@@ -1537,11 +1595,11 @@ Please check if the department name matches exactly with the available departmen
                             <td style="text-align: center; padding: 5px;">${fourthYearTotals.grandTotal || 0}</td>
                           </tr>
                         `;
-                  }
-                  
-                  result += `<tr><td colspan="9" style="height: 10px; border: 1px solid #000;"></td></tr>`;
-                  
-                  result += `
+            }
+
+            result += `<tr><td colspan="9" style="height: 10px; border: 1px solid #000;"></td></tr>`;
+
+            result += `
                     <tr>
                       <td colspan="${sem1Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
                         <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
@@ -1555,15 +1613,15 @@ Please check if the department name matches exactly with the available departmen
                       </td>
                     </tr>
                   `;
-                }
-                
-                return result;
-              })()}
+          }
+
+          return result;
+        })()}
             </table>
           </body>
         </html>
       `;
-      
+
       downloadFile(htmlContent, `CBCS_Registration_${studentData.registration}_${new Date().toISOString().split('T')[0]}.xls`, "application/vnd.ms-excel");
       addNotification('success', 'Report downloaded in CBCS template format');
     }
@@ -1579,15 +1637,15 @@ Please check if the department name matches exactly with the available departmen
         allSubjects.push({
           ...subject,
           basket: basketName,
-          basketNumber: basketName === "Basket I" ? 1 : 
-                       basketName === "Basket II" ? 2 :
-                       basketName === "Basket III" ? 3 :
-                       basketName === "Basket IV" ? 4 :
-                       basketName === "Basket V" ? 5 : 0
+          basketNumber: basketName === "Basket I" ? 1 :
+            basketName === "Basket II" ? 2 :
+              basketName === "Basket III" ? 3 :
+                basketName === "Basket IV" ? 4 :
+                  basketName === "Basket V" ? 5 : 0
         });
       });
     });
-    
+
     // Group by semester - Normalize semester keys
     const subjectsBySemester = {};
     allSubjects.forEach(subject => {
@@ -1604,9 +1662,9 @@ Please check if the department name matches exactly with the available departmen
       }
       subjectsBySemester[sem].push(subject);
     });
-    
+
     const allSemesterKeys = ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"];
-    
+
     // Get session year and branch
     const regYear = studentData.registration ? studentData.registration.substring(0, 2) : new Date().getFullYear().toString().substring(2);
     const sessionYear = `20${regYear}-${parseInt(regYear) + 4}`;
@@ -1619,10 +1677,10 @@ Please check if the department name matches exactly with the available departmen
       "Mechanical Engineering": "Mechanical",
       "AIML": "AIML",
     };
-    const branchShort = Object.keys(branchMap).find(key => branchCode.includes(key)) 
-      ? branchMap[Object.keys(branchMap).find(key => branchCode.includes(key))] 
+    const branchShort = Object.keys(branchMap).find(key => branchCode.includes(key))
+      ? branchMap[Object.keys(branchMap).find(key => branchCode.includes(key))]
       : branchCode;
-    
+
     // Calculate semester totals
     const calculateSemesterTotals = (semester) => {
       const subjects = subjectsBySemester[semester] || [];
@@ -1639,12 +1697,12 @@ Please check if the department name matches exactly with the available departmen
       });
       return totals;
     };
-    
+
     const semesterTotalsMap = {};
     allSemesterKeys.forEach(semKey => {
       semesterTotalsMap[semKey] = calculateSemesterTotals(semKey);
     });
-    
+
     // Calculate year totals
     const firstYearTotals = {
       basket1: (semesterTotalsMap["Sem 1"]?.basket1 || 0) + (semesterTotalsMap["Sem 2"]?.basket1 || 0),
@@ -1654,7 +1712,7 @@ Please check if the department name matches exactly with the available departmen
       basket5: (semesterTotalsMap["Sem 1"]?.basket5 || 0) + (semesterTotalsMap["Sem 2"]?.basket5 || 0),
       grandTotal: (semesterTotalsMap["Sem 1"]?.grandTotal || 0) + (semesterTotalsMap["Sem 2"]?.grandTotal || 0)
     };
-    
+
     const secondYearTotals = {
       basket1: firstYearTotals.basket1 + (semesterTotalsMap["Sem 3"]?.basket1 || 0) + (semesterTotalsMap["Sem 4"]?.basket1 || 0),
       basket2: firstYearTotals.basket2 + (semesterTotalsMap["Sem 3"]?.basket2 || 0) + (semesterTotalsMap["Sem 4"]?.basket2 || 0),
@@ -1663,7 +1721,7 @@ Please check if the department name matches exactly with the available departmen
       basket5: firstYearTotals.basket5 + (semesterTotalsMap["Sem 3"]?.basket5 || 0) + (semesterTotalsMap["Sem 4"]?.basket5 || 0),
       grandTotal: firstYearTotals.grandTotal + (semesterTotalsMap["Sem 3"]?.grandTotal || 0) + (semesterTotalsMap["Sem 4"]?.grandTotal || 0)
     };
-    
+
     const thirdYearTotals = {
       basket1: secondYearTotals.basket1 + (semesterTotalsMap["Sem 5"]?.basket1 || 0) + (semesterTotalsMap["Sem 6"]?.basket1 || 0),
       basket2: secondYearTotals.basket2 + (semesterTotalsMap["Sem 5"]?.basket2 || 0) + (semesterTotalsMap["Sem 6"]?.basket2 || 0),
@@ -1672,7 +1730,7 @@ Please check if the department name matches exactly with the available departmen
       basket5: secondYearTotals.basket5 + (semesterTotalsMap["Sem 5"]?.basket5 || 0) + (semesterTotalsMap["Sem 6"]?.basket5 || 0),
       grandTotal: secondYearTotals.grandTotal + (semesterTotalsMap["Sem 5"]?.grandTotal || 0) + (semesterTotalsMap["Sem 6"]?.grandTotal || 0)
     };
-    
+
     const fourthYearTotals = {
       basket1: thirdYearTotals.basket1 + (semesterTotalsMap["Sem 7"]?.basket1 || 0) + (semesterTotalsMap["Sem 8"]?.basket1 || 0),
       basket2: thirdYearTotals.basket2 + (semesterTotalsMap["Sem 7"]?.basket2 || 0) + (semesterTotalsMap["Sem 8"]?.basket2 || 0),
@@ -1681,15 +1739,15 @@ Please check if the department name matches exactly with the available departmen
       basket5: thirdYearTotals.basket5 + (semesterTotalsMap["Sem 7"]?.basket5 || 0) + (semesterTotalsMap["Sem 8"]?.basket5 || 0),
       grandTotal: thirdYearTotals.grandTotal + (semesterTotalsMap["Sem 7"]?.grandTotal || 0) + (semesterTotalsMap["Sem 8"]?.grandTotal || 0)
     };
-    
+
     // Build HTML table (same as downloadReport)
     const buildSemesterTable = (semester, semNum) => {
       const subjects = subjectsBySemester[semester] || [];
       const semesterDisplay = semester.replace(/Sem\s*/i, 'Semester-');
       const hasSlNo = semNum % 2 === 0;
-      
+
       let semesterTotals = { basket1: 0, basket2: 0, basket3: 0, basket4: 0, basket5: 0, grandTotal: 0 };
-      
+
       const subjectRows = subjects.map((subject, idx) => {
         const credits = Number(subject.credits) || 0;
         const basket1 = subject.basketNumber === 1 ? credits : 0;
@@ -1697,16 +1755,16 @@ Please check if the department name matches exactly with the available departmen
         const basket3 = subject.basketNumber === 3 ? credits : 0;
         const basket4 = subject.basketNumber === 4 ? credits : 0;
         const basket5 = subject.basketNumber === 5 ? credits : 0;
-        
+
         semesterTotals.basket1 += basket1;
         semesterTotals.basket2 += basket2;
         semesterTotals.basket3 += basket3;
         semesterTotals.basket4 += basket4;
         semesterTotals.basket5 += basket5;
         semesterTotals.grandTotal += credits;
-        
+
         const slNoCell = hasSlNo ? `<td style="text-align: center; padding: 5px;">${idx + 1}</td>` : '';
-        
+
         return `
           <tr>
             ${slNoCell}
@@ -1721,11 +1779,11 @@ Please check if the department name matches exactly with the available departmen
           </tr>
         `;
       }).join('');
-      
+
       const headerColspan = hasSlNo ? 9 : 8;
       const slNoHeader = hasSlNo ? '<td style="padding: 5px;">Sl. No</td>' : '';
       const totalColspan = hasSlNo ? 3 : 2;
-      
+
       return {
         html: `
           <tr>
@@ -1760,7 +1818,7 @@ Please check if the department name matches exactly with the available departmen
         headerColspan
       };
     };
-    
+
     // Build semester pairs
     let result = '';
     const sem1Table = buildSemesterTable(allSemesterKeys[0], 1);
@@ -1778,7 +1836,7 @@ Please check if the department name matches exactly with the available departmen
         <td style="text-align: center; padding: 5px;">${firstYearTotals.grandTotal || 0}</td>
       </tr>
     `;
-    
+
     result += `
       <tr>
         <td colspan="4" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
@@ -1793,9 +1851,9 @@ Please check if the department name matches exactly with the available departmen
         </td>
       </tr>
     `;
-    
+
     result += `<tr><td colspan="9" style="height: 10px; border: 1px solid #000;"></td></tr>`;
-    
+
     const sem3Table = buildSemesterTable(allSemesterKeys[2], 3);
     const sem4Table = buildSemesterTable(allSemesterKeys[3], 4);
     const sem4TableWithYearTotal = sem4Table.html + `
@@ -1811,7 +1869,7 @@ Please check if the department name matches exactly with the available departmen
         <td style="text-align: center; padding: 5px;">${secondYearTotals.grandTotal || 0}</td>
       </tr>
     `;
-    
+
     result += `
       <tr>
         <td colspan="4" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
@@ -1826,16 +1884,16 @@ Please check if the department name matches exactly with the available departmen
         </td>
       </tr>
     `;
-    
+
     for (let i = 4; i < 8; i += 2) {
       const sem1Key = allSemesterKeys[i];
       const sem2Key = allSemesterKeys[i + 1];
       const sem1Num = i + 1;
       const sem2Num = i + 2;
-      
+
       const sem1Table = buildSemesterTable(sem1Key, sem1Num);
       const sem2Table = buildSemesterTable(sem2Key, sem2Num);
-      
+
       let sem2TableWithYearTotal = sem2Table.html;
       if (sem2Num === 6) {
         sem2TableWithYearTotal = sem2Table.html + `
@@ -1866,7 +1924,7 @@ Please check if the department name matches exactly with the available departmen
           </tr>
         `;
       }
-      
+
       result += `<tr><td colspan="9" style="height: 10px; border: 1px solid #000;"></td></tr>`;
       result += `
         <tr>
@@ -1883,7 +1941,7 @@ Please check if the department name matches exactly with the available departmen
         </tr>
       `;
     }
-    
+
     return `
       <html>
         <head><meta charset="UTF-8"></head>
@@ -1933,7 +1991,7 @@ Please check if the department name matches exactly with the available departmen
   // Function to generate Excel XML worksheet matching HTML format exactly (for bulk download)
   const generateStudentWorksheetXmlFromHtmlFormat = useCallback((studentData, basketProgress, sheetName) => {
     const cleanSheetName = sanitizeSheetName(sheetName || studentData.registration || studentData.name || "Student");
-    
+
     // Use the exact same logic as generateStudentReportHtml
     const allSubjects = [];
     Object.entries(basketProgress).forEach(([basketName, basketInfo]) => {
@@ -1942,15 +2000,15 @@ Please check if the department name matches exactly with the available departmen
         allSubjects.push({
           ...subject,
           basket: basketName,
-          basketNumber: basketName === "Basket I" ? 1 : 
-                       basketName === "Basket II" ? 2 :
-                       basketName === "Basket III" ? 3 :
-                       basketName === "Basket IV" ? 4 :
-                       basketName === "Basket V" ? 5 : 0
+          basketNumber: basketName === "Basket I" ? 1 :
+            basketName === "Basket II" ? 2 :
+              basketName === "Basket III" ? 3 :
+                basketName === "Basket IV" ? 4 :
+                  basketName === "Basket V" ? 5 : 0
         });
       });
     });
-    
+
     const subjectsBySemester = {};
     allSubjects.forEach(subject => {
       let sem = subject.semester || "Unknown";
@@ -1966,9 +2024,9 @@ Please check if the department name matches exactly with the available departmen
       }
       subjectsBySemester[sem].push(subject);
     });
-    
+
     const allSemesterKeys = ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"];
-    
+
     const regYear = studentData.registration ? studentData.registration.substring(0, 2) : new Date().getFullYear().toString().substring(2);
     const sessionYear = `20${regYear}-${parseInt(regYear) + 4}`;
     const branchCode = studentData.department || studentData.actual_department || '';
@@ -1980,10 +2038,10 @@ Please check if the department name matches exactly with the available departmen
       "Mechanical Engineering": "Mechanical",
       "AIML": "AIML",
     };
-    const branchShort = Object.keys(branchMap).find(key => branchCode.includes(key)) 
-      ? branchMap[Object.keys(branchMap).find(key => branchCode.includes(key))] 
+    const branchShort = Object.keys(branchMap).find(key => branchCode.includes(key))
+      ? branchMap[Object.keys(branchMap).find(key => branchCode.includes(key))]
       : branchCode;
-    
+
     const calculateSemesterTotals = (semester) => {
       const subjects = subjectsBySemester[semester] || [];
       let totals = { basket1: 0, basket2: 0, basket3: 0, basket4: 0, basket5: 0, grandTotal: 0 };
@@ -1999,12 +2057,12 @@ Please check if the department name matches exactly with the available departmen
       });
       return totals;
     };
-    
+
     const semesterTotalsMap = {};
     allSemesterKeys.forEach(semKey => {
       semesterTotalsMap[semKey] = calculateSemesterTotals(semKey);
     });
-    
+
     const firstYearTotals = {
       basket1: (semesterTotalsMap["Sem 1"]?.basket1 || 0) + (semesterTotalsMap["Sem 2"]?.basket1 || 0),
       basket2: (semesterTotalsMap["Sem 1"]?.basket2 || 0) + (semesterTotalsMap["Sem 2"]?.basket2 || 0),
@@ -2013,7 +2071,7 @@ Please check if the department name matches exactly with the available departmen
       basket5: (semesterTotalsMap["Sem 1"]?.basket5 || 0) + (semesterTotalsMap["Sem 2"]?.basket5 || 0),
       grandTotal: (semesterTotalsMap["Sem 1"]?.grandTotal || 0) + (semesterTotalsMap["Sem 2"]?.grandTotal || 0)
     };
-    
+
     const secondYearTotals = {
       basket1: firstYearTotals.basket1 + (semesterTotalsMap["Sem 3"]?.basket1 || 0) + (semesterTotalsMap["Sem 4"]?.basket1 || 0),
       basket2: firstYearTotals.basket2 + (semesterTotalsMap["Sem 3"]?.basket2 || 0) + (semesterTotalsMap["Sem 4"]?.basket2 || 0),
@@ -2022,7 +2080,7 @@ Please check if the department name matches exactly with the available departmen
       basket5: firstYearTotals.basket5 + (semesterTotalsMap["Sem 3"]?.basket5 || 0) + (semesterTotalsMap["Sem 4"]?.basket5 || 0),
       grandTotal: firstYearTotals.grandTotal + (semesterTotalsMap["Sem 3"]?.grandTotal || 0) + (semesterTotalsMap["Sem 4"]?.grandTotal || 0)
     };
-    
+
     const thirdYearTotals = {
       basket1: secondYearTotals.basket1 + (semesterTotalsMap["Sem 5"]?.basket1 || 0) + (semesterTotalsMap["Sem 6"]?.basket1 || 0),
       basket2: secondYearTotals.basket2 + (semesterTotalsMap["Sem 5"]?.basket2 || 0) + (semesterTotalsMap["Sem 6"]?.basket2 || 0),
@@ -2031,7 +2089,7 @@ Please check if the department name matches exactly with the available departmen
       basket5: secondYearTotals.basket5 + (semesterTotalsMap["Sem 5"]?.basket5 || 0) + (semesterTotalsMap["Sem 6"]?.basket5 || 0),
       grandTotal: secondYearTotals.grandTotal + (semesterTotalsMap["Sem 5"]?.grandTotal || 0) + (semesterTotalsMap["Sem 6"]?.grandTotal || 0)
     };
-    
+
     const fourthYearTotals = {
       basket1: thirdYearTotals.basket1 + (semesterTotalsMap["Sem 7"]?.basket1 || 0) + (semesterTotalsMap["Sem 8"]?.basket1 || 0),
       basket2: thirdYearTotals.basket2 + (semesterTotalsMap["Sem 7"]?.basket2 || 0) + (semesterTotalsMap["Sem 8"]?.basket2 || 0),
@@ -2040,15 +2098,15 @@ Please check if the department name matches exactly with the available departmen
       basket5: thirdYearTotals.basket5 + (semesterTotalsMap["Sem 7"]?.basket5 || 0) + (semesterTotalsMap["Sem 8"]?.basket5 || 0),
       grandTotal: thirdYearTotals.grandTotal + (semesterTotalsMap["Sem 7"]?.grandTotal || 0) + (semesterTotalsMap["Sem 8"]?.grandTotal || 0)
     };
-    
+
     const rows = [];
     // 17 columns: Left semester (8) + Right semester (9) - matching HTML nested table structure exactly
     const columnWidths = [80, 200, 60, 60, 60, 60, 60, 60, 40, 80, 200, 60, 60, 60, 60, 60, 60];
     const columnsXml = columnWidths.map((width) => `<Column ss:AutoFitWidth="0" ss:Width="${width}"/>`).join("");
-    
+
     // Headers - 17 columns (no merged cells to avoid Excel opening issues)
     rows.push(createExcelRow([
-       createExcelCell("", "Header"),
+      createExcelCell("", "Header"),
       createExcelCell("", "Header"),
       createExcelCell("", "Header"),
       createExcelCell("", "Header"),
@@ -2068,7 +2126,7 @@ Please check if the department name matches exactly with the available departmen
       createExcelCell("", "Header")
     ]));
     rows.push(createExcelRow([
-       createExcelCell("", "Header"),
+      createExcelCell("", "Header"),
       createExcelCell("", "Header"),
       createExcelCell("", "Header"),
       createExcelCell("", "Header"),
@@ -2088,7 +2146,7 @@ Please check if the department name matches exactly with the available departmen
       createExcelCell("", "Header")
     ]));
     rows.push(createExcelRow([
-       createExcelCell("", "Header"),
+      createExcelCell("", "Header"),
       createExcelCell("", "Header"),
       createExcelCell("", "Header"),
       createExcelCell("", "Header"),
@@ -2108,7 +2166,7 @@ Please check if the department name matches exactly with the available departmen
       createExcelCell("", "Header")
     ]));
     rows.push(createExcelRow([
-       createExcelCell("", "Header"),
+      createExcelCell("", "Header"),
       createExcelCell("", "Header"),
       createExcelCell("", "Header"),
       createExcelCell("", "Header"),
@@ -2127,16 +2185,16 @@ Please check if the department name matches exactly with the available departmen
       createExcelCell("", "Header"),
       createExcelCell("", "Header")
     ]));
-    
+
     // Student info - 17 columns (no merged cells to avoid Excel opening issues)
     rows.push(createExcelRow([
       createExcelCell("NAME OF STUDENT:", "Label"),
       createExcelCell(studentData.name || "", "Value"),
 
-       createExcelCell("", "Value"),
- 
       createExcelCell("", "Value"),
- 
+
+      createExcelCell("", "Value"),
+
       createExcelCell("", "Value"),
       createExcelCell("", "Value"),
       createExcelCell("", "Value"),
@@ -2155,13 +2213,13 @@ Please check if the department name matches exactly with the available departmen
       createExcelCell("REGISTRATION NO:", "Label"),
       createExcelCell("", "Value"),
 
-      createExcelCell(studentData.registration || "", "Value"), 
-       createExcelCell("SESSION:", "Label"),
-       createExcelCell(sessionYear, "Value"),  
+      createExcelCell(studentData.registration || "", "Value"),
+      createExcelCell("SESSION:", "Label"),
+      createExcelCell(sessionYear, "Value"),
 
-       createExcelCell("", "Value"),
       createExcelCell("", "Value"),
- 
+      createExcelCell("", "Value"),
+
       createExcelCell("", "Value"),
       createExcelCell("", "Value"),
       createExcelCell("", "Value"),
@@ -2177,8 +2235,8 @@ Please check if the department name matches exactly with the available departmen
       createExcelCell("BRANCH:", "Label"),
       createExcelCell(branchShort, "Value"),
 
-       createExcelCell("", "Value"),
-        createExcelCell("", "Value"),
+      createExcelCell("", "Value"),
+      createExcelCell("", "Value"),
 
       createExcelCell("", "Value"),
       createExcelCell("", "Value"),
@@ -2194,16 +2252,16 @@ Please check if the department name matches exactly with the available departmen
       createExcelCell("", "Value"),
       createExcelCell("", "Value")
     ]));
-    
+
     // Build semester pairs side-by-side (17 columns: left 8, right 9) - exactly like screenshot
     const buildSemesterPair = (sem1Key, sem2Key, sem1Num, sem2Num, yearTotals, yearLabel) => {
       const sem1Subjects = subjectsBySemester[sem1Key] || [];
       const sem2Subjects = subjectsBySemester[sem2Key] || [];
       const maxRows = Math.max(sem1Subjects.length, sem2Subjects.length);
-      
+
       // Empty separator row (minimal spacing)
       rows.push(createExcelRow(Array(17).fill("").map(() => createExcelCell("", "Spacer"))));
-      
+
       // Semester headers - side by side (17 columns: left 8, right 9) - no merged cells, no spacer
       rows.push(createExcelRow([
         createExcelCell(`Semester-${sem1Num}`, "SemesterHeader"),
@@ -2214,8 +2272,8 @@ Please check if the department name matches exactly with the available departmen
         createExcelCell("", "SemesterHeader"),
         createExcelCell("", "SemesterHeader"),
         createExcelCell("", "SemesterHeader"),
-         createExcelCell("", "SemesterHeader"),
-         createExcelCell(`Semester-${sem2Num}`, "SemesterHeader"),
+        createExcelCell("", "SemesterHeader"),
+        createExcelCell(`Semester-${sem2Num}`, "SemesterHeader"),
 
         createExcelCell("", "SemesterHeader"),
         createExcelCell("", "SemesterHeader"),
@@ -2225,7 +2283,7 @@ Please check if the department name matches exactly with the available departmen
         createExcelCell("", "SemesterHeader"),
         createExcelCell("", "SemesterHeader")
       ]));
-      
+
       // Column headers - side by side (17 columns) - no spacer between
       rows.push(createExcelRow([
         // Left semester headers (8 columns)
@@ -2248,30 +2306,30 @@ Please check if the department name matches exactly with the available departmen
         createExcelCell("Basket 5 (Credit)", "ColumnHeader"),
         createExcelCell("Grand Total (Credit)", "ColumnHeader")
       ]));
-      
+
       let sem1Totals = { basket1: 0, basket2: 0, basket3: 0, basket4: 0, basket5: 0, grandTotal: 0 };
       let sem2Totals = { basket1: 0, basket2: 0, basket3: 0, basket4: 0, basket5: 0, grandTotal: 0 };
-      
+
       // Subject rows - side by side (17 columns)
       for (let idx = 0; idx < maxRows; idx++) {
         const subj1 = sem1Subjects[idx];
         const subj2 = sem2Subjects[idx];
-        
+
         const credits1 = subj1 ? Number(subj1?.credits) || 0 : 0;
         const credits2 = subj2 ? Number(subj2?.credits) || 0 : 0;
-        
+
         const basket1_1 = subj1 && subj1.basketNumber === 1 ? credits1 : 0;
         const basket2_1 = subj1 && subj1.basketNumber === 2 ? credits1 : 0;
         const basket3_1 = subj1 && subj1.basketNumber === 3 ? credits1 : 0;
         const basket4_1 = subj1 && subj1.basketNumber === 4 ? credits1 : 0;
         const basket5_1 = subj1 && subj1.basketNumber === 5 ? credits1 : 0;
-        
+
         const basket1_2 = subj2 && subj2.basketNumber === 1 ? credits2 : 0;
         const basket2_2 = subj2 && subj2.basketNumber === 2 ? credits2 : 0;
         const basket3_2 = subj2 && subj2.basketNumber === 3 ? credits2 : 0;
         const basket4_2 = subj2 && subj2.basketNumber === 4 ? credits2 : 0;
         const basket5_2 = subj2 && subj2.basketNumber === 5 ? credits2 : 0;
-        
+
         if (subj1) {
           sem1Totals.basket1 += basket1_1;
           sem1Totals.basket2 += basket2_1;
@@ -2280,7 +2338,7 @@ Please check if the department name matches exactly with the available departmen
           sem1Totals.basket5 += basket5_1;
           sem1Totals.grandTotal += credits1;
         }
-        
+
         if (subj2) {
           sem2Totals.basket1 += basket1_2;
           sem2Totals.basket2 += basket2_2;
@@ -2289,7 +2347,7 @@ Please check if the department name matches exactly with the available departmen
           sem2Totals.basket5 += basket5_2;
           sem2Totals.grandTotal += credits2;
         }
-        
+
         rows.push(createExcelRow([
           // Left semester: Code, Subject, Basket 1-5, Total (8 columns)
           createExcelCell(subj1?.code || "", "Value"),
@@ -2312,7 +2370,7 @@ Please check if the department name matches exactly with the available departmen
           createExcelCell(credits2 || "", "ValueCenter")
         ]));
       }
-      
+
       // Totals row - exactly 17 columns
       rows.push(createExcelRow([
         // Left semester totals (8 columns)
@@ -2325,8 +2383,8 @@ Please check if the department name matches exactly with the available departmen
         createExcelCell(sem1Totals.basket5 || "", "TotalValue"),
         createExcelCell(sem1Totals.grandTotal || "", "TotalValue"),
         // Right semester totals (9 columns) - directly adjacent
-         createExcelCell("", "TotalLabel"),
-         createExcelCell("Total", "TotalLabel"),
+        createExcelCell("", "TotalLabel"),
+        createExcelCell("Total", "TotalLabel"),
 
         createExcelCell("", "TotalLabel"),
         createExcelCell(sem2Totals.basket1 || "", "TotalValue"),
@@ -2336,7 +2394,7 @@ Please check if the department name matches exactly with the available departmen
         createExcelCell(sem2Totals.basket5 || "", "TotalValue"),
         createExcelCell(sem2Totals.grandTotal || "", "TotalValue")
       ]));
-      
+
       // Year totals if applicable (only for even semesters: 2, 4, 6, 8)
       if (yearTotals && yearLabel && sem2Num % 2 === 0) {
         rows.push(createExcelRow([
@@ -2360,35 +2418,35 @@ Please check if the department name matches exactly with the available departmen
         ]));
       }
     };
-    
+
     // Build semester pairs side-by-side (matching screenshot exactly - no extra spacing)
     buildSemesterPair(allSemesterKeys[0], allSemesterKeys[1], 1, 2, firstYearTotals, "1st Year Total Credits");
-    
+
     // Minimal spacing between semester pairs (matching screenshot)
     rows.push(createExcelRow(Array(17).fill("").map(() => createExcelCell("", "Spacer"))));
-    
+
     buildSemesterPair(allSemesterKeys[2], allSemesterKeys[3], 3, 4, secondYearTotals, "1st & 2nd Year Total Credits");
-    
+
     // Minimal spacing between semester pairs (matching screenshot)
     rows.push(createExcelRow(Array(17).fill("").map(() => createExcelCell("", "Spacer"))));
-    
+
     buildSemesterPair(allSemesterKeys[4], allSemesterKeys[5], 5, 6, thirdYearTotals, "1st, 2nd & 3rd year Total Credits");
-    
+
     // Minimal spacing between semester pairs (matching screenshot)
     rows.push(createExcelRow(Array(17).fill("").map(() => createExcelCell("", "Spacer"))));
-    
+
     buildSemesterPair(allSemesterKeys[6], allSemesterKeys[7], 7, 8, fourthYearTotals, "1st, 2nd, 3rd & 4th year Total");
-    
+
     const tableXml = `<Table ss:ExpandedColumnCount="17" ss:ExpandedRowCount="${rows.length}" x:FullColumns="1" x:FullRows="1">${columnsXml}${rows.join("")}</Table>`;
     const worksheetOptions = `<WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"></WorksheetOptions>`;
-    
+
     return `<Worksheet ss:Name="${escapeXml(cleanSheetName)}">${tableXml}${worksheetOptions}</Worksheet>`;
   }, []);
 
   // Function to generate Excel XML worksheet for a student (same format as HTML)
   const generateStudentWorksheetXml = useCallback((studentData, basketProgress, sheetName) => {
     const cleanSheetName = sanitizeSheetName(sheetName || studentData.registration || studentData.name || "Student");
-    
+
     // Collect all subjects with their basket and semester info
     const allSubjects = [];
     Object.entries(basketProgress).forEach(([basketName, basketInfo]) => {
@@ -2397,15 +2455,15 @@ Please check if the department name matches exactly with the available departmen
         allSubjects.push({
           ...subject,
           basket: basketName,
-          basketNumber: basketName === "Basket I" ? 1 : 
-                       basketName === "Basket II" ? 2 :
-                       basketName === "Basket III" ? 3 :
-                       basketName === "Basket IV" ? 4 :
-                       basketName === "Basket V" ? 5 : 0
+          basketNumber: basketName === "Basket I" ? 1 :
+            basketName === "Basket II" ? 2 :
+              basketName === "Basket III" ? 3 :
+                basketName === "Basket IV" ? 4 :
+                  basketName === "Basket V" ? 5 : 0
         });
       });
     });
-    
+
     // Group by semester
     const subjectsBySemester = {};
     allSubjects.forEach(subject => {
@@ -2422,9 +2480,9 @@ Please check if the department name matches exactly with the available departmen
       }
       subjectsBySemester[sem].push(subject);
     });
-    
+
     const allSemesterKeys = ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"];
-    
+
     // Get session year and branch
     const regYear = studentData.registration ? studentData.registration.substring(0, 2) : new Date().getFullYear().toString().substring(2);
     const sessionYear = `20${regYear}-${parseInt(regYear) + 4}`;
@@ -2437,10 +2495,10 @@ Please check if the department name matches exactly with the available departmen
       "Mechanical Engineering": "Mechanical",
       "AIML": "AIML",
     };
-    const branchShort = Object.keys(branchMap).find(key => branchCode.includes(key)) 
-      ? branchMap[Object.keys(branchMap).find(key => branchCode.includes(key))] 
+    const branchShort = Object.keys(branchMap).find(key => branchCode.includes(key))
+      ? branchMap[Object.keys(branchMap).find(key => branchCode.includes(key))]
       : branchCode;
-    
+
     // Calculate semester totals
     const calculateSemesterTotals = (semester) => {
       const subjects = subjectsBySemester[semester] || [];
@@ -2457,12 +2515,12 @@ Please check if the department name matches exactly with the available departmen
       });
       return totals;
     };
-    
+
     const semesterTotalsMap = {};
     allSemesterKeys.forEach(semKey => {
       semesterTotalsMap[semKey] = calculateSemesterTotals(semKey);
     });
-    
+
     // Calculate year totals
     const firstYearTotals = {
       basket1: (semesterTotalsMap["Sem 1"]?.basket1 || 0) + (semesterTotalsMap["Sem 2"]?.basket1 || 0),
@@ -2472,7 +2530,7 @@ Please check if the department name matches exactly with the available departmen
       basket5: (semesterTotalsMap["Sem 1"]?.basket5 || 0) + (semesterTotalsMap["Sem 2"]?.basket5 || 0),
       grandTotal: (semesterTotalsMap["Sem 1"]?.grandTotal || 0) + (semesterTotalsMap["Sem 2"]?.grandTotal || 0)
     };
-    
+
     const secondYearTotals = {
       basket1: firstYearTotals.basket1 + (semesterTotalsMap["Sem 3"]?.basket1 || 0) + (semesterTotalsMap["Sem 4"]?.basket1 || 0),
       basket2: firstYearTotals.basket2 + (semesterTotalsMap["Sem 3"]?.basket2 || 0) + (semesterTotalsMap["Sem 4"]?.basket2 || 0),
@@ -2481,7 +2539,7 @@ Please check if the department name matches exactly with the available departmen
       basket5: firstYearTotals.basket5 + (semesterTotalsMap["Sem 3"]?.basket5 || 0) + (semesterTotalsMap["Sem 4"]?.basket5 || 0),
       grandTotal: firstYearTotals.grandTotal + (semesterTotalsMap["Sem 3"]?.grandTotal || 0) + (semesterTotalsMap["Sem 4"]?.grandTotal || 0)
     };
-    
+
     const thirdYearTotals = {
       basket1: secondYearTotals.basket1 + (semesterTotalsMap["Sem 5"]?.basket1 || 0) + (semesterTotalsMap["Sem 6"]?.basket1 || 0),
       basket2: secondYearTotals.basket2 + (semesterTotalsMap["Sem 5"]?.basket2 || 0) + (semesterTotalsMap["Sem 6"]?.basket2 || 0),
@@ -2490,7 +2548,7 @@ Please check if the department name matches exactly with the available departmen
       basket5: secondYearTotals.basket5 + (semesterTotalsMap["Sem 5"]?.basket5 || 0) + (semesterTotalsMap["Sem 6"]?.basket5 || 0),
       grandTotal: secondYearTotals.grandTotal + (semesterTotalsMap["Sem 5"]?.grandTotal || 0) + (semesterTotalsMap["Sem 6"]?.grandTotal || 0)
     };
-    
+
     const fourthYearTotals = {
       basket1: thirdYearTotals.basket1 + (semesterTotalsMap["Sem 7"]?.basket1 || 0) + (semesterTotalsMap["Sem 8"]?.basket1 || 0),
       basket2: thirdYearTotals.basket2 + (semesterTotalsMap["Sem 7"]?.basket2 || 0) + (semesterTotalsMap["Sem 8"]?.basket2 || 0),
@@ -2499,20 +2557,20 @@ Please check if the department name matches exactly with the available departmen
       basket5: thirdYearTotals.basket5 + (semesterTotalsMap["Sem 7"]?.basket5 || 0) + (semesterTotalsMap["Sem 8"]?.basket5 || 0),
       grandTotal: thirdYearTotals.grandTotal + (semesterTotalsMap["Sem 7"]?.grandTotal || 0) + (semesterTotalsMap["Sem 8"]?.grandTotal || 0)
     };
-    
+
     const rows = [];
     // 17 columns: Left semester (8) + Right semester (9)
     const columnWidths = [80, 200, 60, 60, 60, 60, 60, 60, 40, 80, 200, 60, 60, 60, 60, 60, 60];
     const columnsXml = columnWidths.map((width) => `<Column ss:AutoFitWidth="0" ss:Width="${width}"/>`).join("");
-    
+
     // Headers - 17 columns (use simple cells instead of merged to avoid Excel issues)
     rows.push(createExcelRow([
-       createExcelCell("", "Header"),
       createExcelCell("", "Header"),
       createExcelCell("", "Header"),
       createExcelCell("", "Header"),
       createExcelCell("", "Header"),
- 
+      createExcelCell("", "Header"),
+
       createExcelCell("", "Header"),
       createExcelCell("", "Header"),
       createExcelCell("", "Header"),
@@ -2528,7 +2586,7 @@ Please check if the department name matches exactly with the available departmen
       createExcelCell("", "Header")
     ]));
     rows.push(createExcelRow([
-       createExcelCell("", "Header"),
+      createExcelCell("", "Header"),
       createExcelCell("", "Header"),
       createExcelCell("", "Header"),
       createExcelCell("", "Header"),
@@ -2548,7 +2606,7 @@ Please check if the department name matches exactly with the available departmen
       createExcelCell("", "Header")
     ]));
     rows.push(createExcelRow([
-       createExcelCell("", "Header"),
+      createExcelCell("", "Header"),
       createExcelCell("", "Header"),
       createExcelCell("", "Header"),
       createExcelCell("", "Header"),
@@ -2568,7 +2626,7 @@ Please check if the department name matches exactly with the available departmen
       createExcelCell("", "Header")
     ]));
     rows.push(createExcelRow([
-       createExcelCell("", "Header"),
+      createExcelCell("", "Header"),
       createExcelCell("", "Header"),
       createExcelCell("", "Header"),
       createExcelCell("", "Header"),
@@ -2587,7 +2645,7 @@ Please check if the department name matches exactly with the available departmen
       createExcelCell("", "Header"),
       createExcelCell("", "Header")
     ]));
-    
+
     // Student info - exactly 17 columns (no merged cells to avoid Excel issues)
     rows.push(createExcelRow([
       createExcelCell("NAME OF STUDENT:", "Label"),
@@ -2646,16 +2704,16 @@ Please check if the department name matches exactly with the available departmen
       createExcelCell("", "Value"),
       createExcelCell("", "Value")
     ]));
-    
+
     // Build semester pairs side-by-side (17 columns: left 8, right 9)
     const buildSemesterPair = (sem1Key, sem2Key, sem1Num, sem2Num, yearTotals = null) => {
       const sem1Subjects = subjectsBySemester[sem1Key] || [];
       const sem2Subjects = subjectsBySemester[sem2Key] || [];
       const maxSubjects = Math.max(sem1Subjects.length, sem2Subjects.length);
-      
+
       // Empty separator row
       rows.push(createExcelRow(Array(17).fill("").map(() => createExcelCell("", "Spacer"))));
-      
+
       // Semester headers - side by side (17 columns: left 8, right 9) - no merged cells
       rows.push(createExcelRow([
         createExcelCell(`Semester-${sem1Num}`, "SemesterHeader"), // Left: 1 column
@@ -2676,7 +2734,7 @@ Please check if the department name matches exactly with the available departmen
         createExcelCell("", "SemesterHeader"),
         createExcelCell("", "SemesterHeader") // Total 9 columns for right
       ]));
-      
+
       // Column headers - side by side (17 columns)
       rows.push(createExcelRow([
         // Left semester headers (8 columns)
@@ -2699,30 +2757,30 @@ Please check if the department name matches exactly with the available departmen
         createExcelCell("Basket 5 (Credit)", "ColumnHeader"),
         createExcelCell("Grand Total (Credit)", "ColumnHeader")
       ]));
-      
+
       let sem1Totals = { basket1: 0, basket2: 0, basket3: 0, basket4: 0, basket5: 0, grandTotal: 0 };
       let sem2Totals = { basket1: 0, basket2: 0, basket3: 0, basket4: 0, basket5: 0, grandTotal: 0 };
-      
+
       // Subject rows - side by side
       for (let idx = 0; idx < maxSubjects; idx++) {
         const subj1 = sem1Subjects[idx];
         const subj2 = sem2Subjects[idx];
-        
+
         const credits1 = subj1 ? Number(subj1?.credits) || 0 : 0;
         const credits2 = subj2 ? Number(subj2?.credits) || 0 : 0;
-        
+
         const basket1_1 = subj1 && subj1.basketNumber === 1 ? credits1 : 0;
         const basket2_1 = subj1 && subj1.basketNumber === 2 ? credits1 : 0;
         const basket3_1 = subj1 && subj1.basketNumber === 3 ? credits1 : 0;
         const basket4_1 = subj1 && subj1.basketNumber === 4 ? credits1 : 0;
         const basket5_1 = subj1 && subj1.basketNumber === 5 ? credits1 : 0;
-        
+
         const basket1_2 = subj2 && subj2.basketNumber === 1 ? credits2 : 0;
         const basket2_2 = subj2 && subj2.basketNumber === 2 ? credits2 : 0;
         const basket3_2 = subj2 && subj2.basketNumber === 3 ? credits2 : 0;
         const basket4_2 = subj2 && subj2.basketNumber === 4 ? credits2 : 0;
         const basket5_2 = subj2 && subj2.basketNumber === 5 ? credits2 : 0;
-        
+
         if (subj1) {
           sem1Totals.basket1 += basket1_1;
           sem1Totals.basket2 += basket2_1;
@@ -2731,7 +2789,7 @@ Please check if the department name matches exactly with the available departmen
           sem1Totals.basket5 += basket5_1;
           sem1Totals.grandTotal += credits1;
         }
-        
+
         if (subj2) {
           sem2Totals.basket1 += basket1_2;
           sem2Totals.basket2 += basket2_2;
@@ -2740,7 +2798,7 @@ Please check if the department name matches exactly with the available departmen
           sem2Totals.basket5 += basket5_2;
           sem2Totals.grandTotal += credits2;
         }
-        
+
         rows.push(createExcelRow([
           // Left semester: Code, Subject, Basket 1-5, Total (8 columns)
           createExcelCell(subj1?.code || "", "Value"),
@@ -2763,7 +2821,7 @@ Please check if the department name matches exactly with the available departmen
           createExcelCell(credits2 || "", "ValueCenter")
         ]));
       }
-      
+
       // Totals row - exactly 17 columns (no merged cells to avoid Excel issues)
       rows.push(createExcelRow([
         // Left semester totals (8 columns): Total, empty, Basket 1-5, Grand Total
@@ -2786,14 +2844,14 @@ Please check if the department name matches exactly with the available departmen
         createExcelCell(sem2Totals.basket5 || "", "TotalValue"),
         createExcelCell(sem2Totals.grandTotal || "", "TotalValue")
       ]));
-      
+
       // Year totals if applicable (only for even semesters: 2, 4, 6, 8)
       if (yearTotals && sem2Num % 2 === 0) {
         const yearLabel = sem2Num === 2 ? "1st Year Total Credits" :
-                          sem2Num === 4 ? "1st & 2nd Year Total Credits" :
-                          sem2Num === 6 ? "1st, 2nd & 3rd year Total Credits" :
-                          sem2Num === 8 ? "1st, 2nd, 3rd & 4th year Total" : "";
-        
+          sem2Num === 4 ? "1st & 2nd Year Total Credits" :
+            sem2Num === 6 ? "1st, 2nd & 3rd year Total Credits" :
+              sem2Num === 8 ? "1st, 2nd, 3rd & 4th year Total" : "";
+
         if (yearLabel) {
           // Year totals row: 8 empty (left) + Year label (merged 2) + empty (1) + 6 basket totals = 17
           rows.push(createExcelRow([
@@ -2818,20 +2876,20 @@ Please check if the department name matches exactly with the available departmen
         }
       }
     };
-    
+
     // Build semester pairs side-by-side (matching HTML format)
     buildSemesterPair(allSemesterKeys[0], allSemesterKeys[1], 1, 2, firstYearTotals);
     buildSemesterPair(allSemesterKeys[2], allSemesterKeys[3], 3, 4, secondYearTotals);
     buildSemesterPair(allSemesterKeys[4], allSemesterKeys[5], 5, 6, thirdYearTotals);
     buildSemesterPair(allSemesterKeys[6], allSemesterKeys[7], 7, 8, fourthYearTotals);
-    
+
     // Build table XML - Excel XML requires consistent structure (17 columns)
     const tableXml = `<Table ss:ExpandedColumnCount="17" ss:ExpandedRowCount="${rows.length}" x:FullColumns="1" x:FullRows="1">${columnsXml}${rows.join("")}</Table>`;
-    
+
     // WorksheetOptions - Excel requires proper opening/closing tags (keep it simple)
     const worksheetOptions = `<WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
 </WorksheetOptions>`;
-    
+
     return `<Worksheet ss:Name="${escapeXml(cleanSheetName)}">${tableXml}${worksheetOptions}</Worksheet>`;
   }, []);
 
@@ -2844,7 +2902,7 @@ Please check if the department name matches exactly with the available departmen
  xmlns:x="urn:schemas-microsoft-com:office:excel"
  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
  xmlns:html="http://www.w3.org/TR/REC-html40">`;
-    
+
     const documentProperties = `<DocumentProperties xmlns="urn:schemas-microsoft-com:office:office"></DocumentProperties>`;
     const excelWorkbook = `<ExcelWorkbook xmlns="urn:schemas-microsoft-com:office:excel"></ExcelWorkbook>`;
 
@@ -2932,7 +2990,7 @@ Please check if the department name matches exactly with the available departmen
 <Interior ss:Pattern="Solid" ss:Color="#FFFFFF"/>
 </Style>
 </Styles>`;
-    
+
     // Build workbook XML - keep it compact for better Excel compatibility
     return `${workbookHeader}${documentProperties}${excelWorkbook}${styles}${worksheetsXml.join("")}</Workbook>`;
   }, []);
@@ -2940,7 +2998,7 @@ Please check if the department name matches exactly with the available departmen
   // Bulk download function - creates individual sheets for each student
   const downloadBulkReport = useCallback(async () => {
     const isBulkContext = registration === "all" || selectedRegistrations.length > 0;
-    
+
     if (!isBulkContext || filteredAndSortedStudents.length === 0) {
       addNotification('error', 'No students available for bulk report download');
       return;
@@ -2953,18 +3011,19 @@ Please check if the department name matches exactly with the available departmen
       const worksheets = [];
       const seenSheetNames = new Set();
       const semesterFilter = semesterValues.length > 0 && !semesterValues.includes("All") ? semesterValues : [];
-      
+
       // Sort students by registration number in ascending order for bulk download
       const sortedStudents = [...filteredAndSortedStudents].sort((a, b) => {
         const regA = a.registration || '';
         const regB = b.registration || '';
         return regA.localeCompare(regB, undefined, { numeric: true, sensitivity: 'base' });
       });
-      
+
       for (const [index, student] of sortedStudents.entries()) {
         try {
           // Fetch detailed student data
-          const res = await fetch("/api/cbcs/track", {
+          const url = appendSchoolParams("/api/cbcs/track");
+          const res = await fetch(url, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -3020,7 +3079,7 @@ Please check if the department name matches exactly with the available departmen
           // Use the same logic as generateStudentReportHtml but convert to Excel XML
           const worksheetXml = generateStudentWorksheetXmlFromHtmlFormat(studentData, basketProgress, sheetName);
           worksheets.push(worksheetXml);
-          
+
           // Update progress every 5 students
           if ((index + 1) % 5 === 0) {
             addNotification('info', `Processed ${index + 1} of ${sortedStudents.length} students...`);
@@ -3043,7 +3102,7 @@ Please check if the department name matches exactly with the available departmen
         `Bulk_CBCS_Reports_${department || 'all'}_${new Date().toISOString().split('T')[0]}.xls`,
         "application/vnd.ms-excel;charset=utf-8"
       );
-      
+
       addNotification('success', `Bulk report downloaded with ${worksheets.length} students, each in their own sheet.`);
     } catch (error) {
       console.error('Bulk report download failed:', error);
@@ -3084,63 +3143,96 @@ Please check if the department name matches exactly with the available departmen
 
   return (
     <div className={`min-h-screen transition-all duration-300 ${darkMode ? 'bg-gray-900' : 'bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50'}`}>
-   
+
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 py-8">
         {/* Enhanced Page Title */}
         <div className="text-center mb-8">
           <h1 className={`text-4xl font-extrabold mb-2 ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-            Advanced Basket Progress Tracker
+            Advanced {isDiploma ? 'Diploma Subject' : 'Basket Progress'} Tracker
           </h1>
           <p className={`text-lg ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-            🎯 Comprehensive CBCS basket analysis with real-time insights
+            🎯 Comprehensive {isDiploma ? 'Diploma subject' : 'CBCS basket'} analysis with real-time insights
           </p>
-          
+
           {/* Enhanced Credit Requirements Card */}
-          <div className={`mt-6 p-6 rounded-2xl shadow-lg max-w-5xl mx-auto ${
-            darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200'
-          }`}>
-            <div className={`text-sm ${darkMode ? 'text-blue-300' : 'text-blue-800'}`}>
-              <span className="font-bold text-lg">📋 Credit Requirements Overview</span>
-              <div className={`mt-4 grid grid-cols-1 md:grid-cols-3 gap-6 text-left`}>
-                <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'}`}>
-                  <span className="font-semibold">Regular Students (till 2023):</span> 
-                  <span className={`ml-2 font-bold ${darkMode ? 'text-blue-300' : 'text-blue-600'}`}>{legacyRegularCreditRequirements.total} total credits</span>
-                  <div className="text-xs mt-2 space-y-1">
-                    <div>Basket I: {legacyRegularCreditRequirements.basket1} credits</div>
-                    <div>Basket II: {legacyRegularCreditRequirements.basket2} credits</div>
-                    <div>Basket III: {legacyRegularCreditRequirements.basket3} credits</div>
-                    <div>Basket IV: {legacyRegularCreditRequirements.basket4} credits</div>
-                    <div>Basket V: {legacyRegularCreditRequirements.basket5} credits</div>
+          {/* Enhanced Credit Requirements Card - Show only for B.Tech */}
+          {isDiploma ? (
+            <div className={`mt-6 p-6 rounded-2xl shadow-lg max-w-5xl mx-auto ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200'
+              }`}>
+              <div className={`text-sm ${darkMode ? 'text-blue-300' : 'text-blue-800'}`}>
+                <span className="font-bold text-lg">📋 Diploma Credit Requirements (SCTE&VT)</span>
+                <div className={`mt-4 grid grid-cols-1 md:grid-cols-2 gap-6 text-left`}>
+                  <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'}`}>
+                    <span className="font-semibold">Regular Students:</span>
+                    <span className={`ml-2 font-bold ${darkMode ? 'text-blue-300' : 'text-blue-600'}`}>120 total credits</span>
+                    <div className="text-xs mt-2 space-y-1">
+                      <div>Basket I: 12 credits</div>
+                      <div>Basket II: 13 credits</div>
+                      <div>Basket III: 20 credits</div>
+                      <div>Basket IV: 26 credits</div>
+                      <div>Basket V: 49 credits</div>
+                    </div>
+                  </div>
+                  <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'}`}>
+                    <span className="font-semibold">Lateral Entry Students:</span>
+                    <span className="ml-2 font-bold text-orange-500">80 total credits</span>
+                    <div className="text-xs mt-2 space-y-1">
+                      <div>Basket I: Exempted (0 credits)</div>
+                      <div>Basket II: 5 credits</div>
+                      <div>Basket III: 12 credits</div>
+                      <div>Basket IV: 26 credits</div>
+                      <div>Basket V: 37 credits</div>
+                    </div>
                   </div>
                 </div>
-                <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'}`}>
-                  <span className="font-semibold">Regular Students (2024 batch onwards):</span> 
-                  <span className={`ml-2 font-bold ${darkMode ? 'text-blue-300' : 'text-blue-600'}`}>{regularCreditRequirements.total} total credits</span>
-                  <div className="text-xs mt-2 space-y-1">
-                    <div>Basket I: {regularCreditRequirements.basket1} credits</div>
-                    <div>Basket II: {regularCreditRequirements.basket2} credits</div>
-                    <div>Basket III: {regularCreditRequirements.basket3} credits</div>
-                    <div>Basket IV: {regularCreditRequirements.basket4} credits</div>
-                    <div>Basket V: {regularCreditRequirements.basket5} credits</div>
               </div>
-              </div>
-                <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'}`}>
-                  <span className="font-semibold">Lateral Entry Students:</span> 
-                  <span className="ml-2 font-bold text-orange-500">120 total credits</span>
-                  <div className="text-xs mt-2 space-y-1">
-                    <div>Basket I: 6 credits</div>
-                    <div>Basket II: 9 credits</div>
-                    <div>Basket III: 25 credits</div>
-                    <div>Basket IV: 48 credits</div>
-                    <div>Basket V: 32 credits</div>
             </div>
+          ) : (
+            <div className={`mt-6 p-6 rounded-2xl shadow-lg max-w-5xl mx-auto ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200'
+              }`}>
+              <div className={`text-sm ${darkMode ? 'text-blue-300' : 'text-blue-800'}`}>
+                <span className="font-bold text-lg">📋 Credit Requirements Overview</span>
+                <div className={`mt-4 grid grid-cols-1 md:grid-cols-3 gap-6 text-left`}>
+                  <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'}`}>
+                    <span className="font-semibold">Regular Students (till 2023):</span>
+                    <span className={`ml-2 font-bold ${darkMode ? 'text-blue-300' : 'text-blue-600'}`}>{legacyRegularCreditRequirements.total} total credits</span>
+                    <div className="text-xs mt-2 space-y-1">
+                      <div>Basket I: {legacyRegularCreditRequirements.basket1} credits</div>
+                      <div>Basket II: {legacyRegularCreditRequirements.basket2} credits</div>
+                      <div>Basket III: {legacyRegularCreditRequirements.basket3} credits</div>
+                      <div>Basket IV: {legacyRegularCreditRequirements.basket4} credits</div>
+                      <div>Basket V: {legacyRegularCreditRequirements.basket5} credits</div>
+                    </div>
+                  </div>
+                  <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'}`}>
+                    <span className="font-semibold">Regular Students (2024 batch onwards):</span>
+                    <span className={`ml-2 font-bold ${darkMode ? 'text-blue-300' : 'text-blue-600'}`}>{regularCreditRequirements.total} total credits</span>
+                    <div className="text-xs mt-2 space-y-1">
+                      <div>Basket I: {regularCreditRequirements.basket1} credits</div>
+                      <div>Basket II: {regularCreditRequirements.basket2} credits</div>
+                      <div>Basket III: {regularCreditRequirements.basket3} credits</div>
+                      <div>Basket IV: {regularCreditRequirements.basket4} credits</div>
+                      <div>Basket V: {regularCreditRequirements.basket5} credits</div>
+                    </div>
+                  </div>
+                  <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'}`}>
+                    <span className="font-semibold">Lateral Entry Students:</span>
+                    <span className="ml-2 font-bold text-orange-500">120 total credits</span>
+                    <div className="text-xs mt-2 space-y-1">
+                      <div>Basket I: 6 credits</div>
+                      <div>Basket II: 9 credits</div>
+                      <div>Basket III: 25 credits</div>
+                      <div>Basket IV: 48 credits</div>
+                      <div>Basket V: 32 credits</div>
+                    </div>
+                  </div>
                 </div>
+
               </div>
-              
             </div>
-          </div>
+          )}
         </div>
 
         {/* Search Form */}
@@ -3150,22 +3242,21 @@ Please check if the department name matches exactly with the available departmen
               {/* Department */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">
-                  Department: <span className="text-red-500">*</span> 
+                  Department: <span className="text-red-500">*</span>
                   <span className="text-xs text-gray-500">(Required for bulk search)</span>
                 </label>
-                <select 
-                  value={department} 
-                  onChange={e => setDepartment(e.target.value)} 
+                <select
+                  value={department}
+                  onChange={e => setDepartment(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
                 >
                   <option value="">Select Department</option>
                   <option value="All">All Departments</option>
-                  <option value="Civil Engineering">Civil Engineering</option>
-                  <option value="Computer Science Engineering">Computer Science Engineering</option>
-                  <option value="Electronics & Communication Engineering">Electronics & Communication Engineering</option>
-                  <option value="Electrical & Electronics Engineering">Electrical & Electronics Engineering</option>
-                  <option value="Mechanical Engineering">Mechanical Engineering</option>
-                  <option value="AIML">AIML</option>
+                  {deptOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
                 </select>
                 <div className="text-xs text-gray-500">
                   💡 Department selection is mandatory for "All Students" search
@@ -3175,148 +3266,148 @@ Please check if the department name matches exactly with the available departmen
               {/* Batch */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">Batch:</label>
-                <select 
-                  value={batch} 
-                  onChange={e => setBatch(e.target.value)} 
+                <select
+                  value={batch}
+                  onChange={e => setBatch(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
                 >
                   <option value="">Select Batch</option>
                   <option value="All">All Batches</option>
-                  {["20","21","22","23","24","25"].map(y => <option key={y} value={y}>{`20${y} (${y})`}</option>)}
+                  {["20", "21", "22", "23", "24", "25"].map(y => <option key={y} value={y}>{`20${y} (${y})`}</option>)}
                 </select>
               </div>
 
-            {/* Registration No */}
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">Registration No:</label>
+              {/* Registration No */}
               <div className="space-y-2">
-                {/* All Students option */}
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={registration === "all"}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setRegistration("all");
-                        setSelectedRegistrations([]);
-                      } else {
-                        setRegistration("");
-                      }
-                    }}
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                  />
-                  <label className="text-sm text-gray-700">All Students</label>
-                </div>
-                
-                {/* Manual input for single registration */}
-                <input 
-                  type="text"
-                  value={registration !== "all" && selectedRegistrations.length === 0 ? registration : ""} 
-                    onChange={e => {
-                    setRegistration(e.target.value);
-                    setSelectedRegistrations([]);
-                    }} 
-                  placeholder="Or type registration manually"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
-                  disabled={registration === "all"}
-                />
-                
-                {/* Multi-select checkboxes for registration options */}
-                {registrationOptions.length > 0 && registration !== "all" && (
-                  <div className="border border-gray-300 rounded-md p-3 max-h-60 overflow-y-auto bg-white">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-xs font-semibold text-gray-600">Select Multiple Students:</div>
-                      {selectedRegistrations.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setSelectedRegistrations([])}
-                          className="text-xs text-blue-600 hover:text-blue-800 underline"
-                        >
-                          Clear All
-                        </button>
-                      )}
-                    </div>
-                  {loadingRegistrations && (
-                    <div className="text-xs text-gray-500">Loading registrations...</div>
-                  )}
-                    <div className="space-y-1">
-                      {registrationOptions.map(opt => {
-                        const isChecked = selectedRegistrations.includes(opt.value);
-                        return (
-                          <div key={opt.value} className="flex items-center gap-2 hover:bg-gray-50 p-1 rounded">
-                  <input 
-                              type="checkbox"
-                              id={`reg-${opt.value}`}
-                              checked={isChecked}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedRegistrations(prev => [...prev, opt.value]);
-                                  setRegistration(""); // Clear manual input when selecting from list
-                                } else {
-                                  setSelectedRegistrations(prev => prev.filter(r => r !== opt.value));
-                                }
-                              }}
-                              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
-                            />
-                            <label 
-                              htmlFor={`reg-${opt.value}`}
-                              className="text-sm text-gray-700 cursor-pointer flex-1 select-none"
-                            >
-                              {opt.label}
-                            </label>
-                </div>
-                        );
-                      })}
-                    </div>
+                <label className="block text-sm font-medium text-gray-700">Registration No:</label>
+                <div className="space-y-2">
+                  {/* All Students option */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={registration === "all"}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setRegistration("all");
+                          setSelectedRegistrations([]);
+                        } else {
+                          setRegistration("");
+                        }
+                      }}
+                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    />
+                    <label className="text-sm text-gray-700">All Students</label>
                   </div>
-                )}
-                
-                {/* Display selected registrations */}
-                {selectedRegistrations.length > 0 && (
-                  <div className="border border-blue-200 rounded-md p-3 bg-blue-50">
-                    <div className="text-xs font-semibold text-blue-800 mb-2">
-                      Selected Students ({selectedRegistrations.length}):
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedRegistrations.map(reg => (
-                        <span
-                          key={reg}
-                          className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs"
-                        >
-                          {reg}
+
+                  {/* Manual input for single registration */}
+                  <input
+                    type="text"
+                    value={registration !== "all" && selectedRegistrations.length === 0 ? registration : ""}
+                    onChange={e => {
+                      setRegistration(e.target.value);
+                      setSelectedRegistrations([]);
+                    }}
+                    placeholder="Or type registration manually"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
+                    disabled={registration === "all"}
+                  />
+
+                  {/* Multi-select checkboxes for registration options */}
+                  {registrationOptions.length > 0 && registration !== "all" && (
+                    <div className="border border-gray-300 rounded-md p-3 max-h-60 overflow-y-auto bg-white">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs font-semibold text-gray-600">Select Multiple Students:</div>
+                        {selectedRegistrations.length > 0 && (
                           <button
                             type="button"
-                            onClick={() => {
-                              setSelectedRegistrations(selectedRegistrations.filter(r => r !== reg));
-                            }}
-                            className="text-blue-600 hover:text-blue-800 font-bold"
+                            onClick={() => setSelectedRegistrations([])}
+                            className="text-xs text-blue-600 hover:text-blue-800 underline"
                           >
-                            ×
+                            Clear All
                           </button>
-                        </span>
-                      ))}
+                        )}
+                      </div>
+                      {loadingRegistrations && (
+                        <div className="text-xs text-gray-500">Loading registrations...</div>
+                      )}
+                      <div className="space-y-1">
+                        {registrationOptions.map(opt => {
+                          const isChecked = selectedRegistrations.includes(opt.value);
+                          return (
+                            <div key={opt.value} className="flex items-center gap-2 hover:bg-gray-50 p-1 rounded">
+                              <input
+                                type="checkbox"
+                                id={`reg-${opt.value}`}
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedRegistrations(prev => [...prev, opt.value]);
+                                    setRegistration(""); // Clear manual input when selecting from list
+                                  } else {
+                                    setSelectedRegistrations(prev => prev.filter(r => r !== opt.value));
+                                  }
+                                }}
+                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                              />
+                              <label
+                                htmlFor={`reg-${opt.value}`}
+                                className="text-sm text-gray-700 cursor-pointer flex-1 select-none"
+                              >
+                                {opt.label}
+                              </label>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedRegistrations([])}
-                      className="mt-2 text-xs text-blue-600 hover:text-blue-800 underline"
-                    >
-                      Clear All
-                    </button>
-                  </div>
-                )}
+                  )}
+
+                  {/* Display selected registrations */}
+                  {selectedRegistrations.length > 0 && (
+                    <div className="border border-blue-200 rounded-md p-3 bg-blue-50">
+                      <div className="text-xs font-semibold text-blue-800 mb-2">
+                        Selected Students ({selectedRegistrations.length}):
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedRegistrations.map(reg => (
+                          <span
+                            key={reg}
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs"
+                          >
+                            {reg}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedRegistrations(selectedRegistrations.filter(r => r !== reg));
+                              }}
+                              className="text-blue-600 hover:text-blue-800 font-bold"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedRegistrations([])}
+                        className="mt-2 text-xs text-blue-600 hover:text-blue-800 underline"
+                      >
+                        Clear All
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="text-xs text-gray-500">
+                  💡 Select "All Students", use checkboxes to select multiple, or type registration manually
+                </div>
               </div>
-              <div className="text-xs text-gray-500">
-                💡 Select "All Students", use checkboxes to select multiple, or type registration manually
-              </div>
-            </div>
 
               {/* Semester */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">Semester:</label>
-                <select 
-                  value={semesterValues.length > 0 ? semesterValues[0] : ""} 
-                  onChange={e => setSemesterValues([e.target.value])} 
+                <select
+                  value={semesterValues.length > 0 ? semesterValues[0] : ""}
+                  onChange={e => setSemesterValues([e.target.value])}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
                   disabled={loadingSemesters}
                 >
@@ -3330,18 +3421,18 @@ Please check if the department name matches exactly with the available departmen
               {/* FIXED: Basket */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">Basket:</label>
-                <select 
-                  value={basket} 
-                  onChange={e => setBasket(e.target.value)} 
+                <select
+                  value={basket}
+                  onChange={e => setBasket(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
                 >
                   <option value="">Select Basket</option>
                   <option value="All">All Baskets</option>
-                  <option value="Basket I">Basket I (17/6 credits)</option>
-                  <option value="Basket II">Basket II (12/9 credits)</option>
-                  <option value="Basket III">Basket III (25 credits)</option>
-                  <option value="Basket IV">Basket IV ({is2024Onwards ? '60/48' : '58/48'} credits)</option>
-                  <option value="Basket V">Basket V ({is2024Onwards ? '46/32' : '48/32'} credits)</option>
+                  <option value="Basket I">{isDiploma ? "Basket I (12/0 credits)" : "Basket I (17/6 credits)"}</option>
+                  <option value="Basket II">{isDiploma ? "Basket II (13/5 credits)" : "Basket II (12/9 credits)"}</option>
+                  <option value="Basket III">{isDiploma ? "Basket III (20/12 credits)" : "Basket III (25 credits)"}</option>
+                  <option value="Basket IV">{isDiploma ? "Basket IV (26/26 credits)" : `Basket IV (${is2024Onwards ? '60/48' : '58/48'} credits)`}</option>
+                  <option value="Basket V">{isDiploma ? "Basket V (49/37 credits)" : `Basket V (${is2024Onwards ? '46/32' : '48/32'} credits)`}</option>
                 </select>
                 <div className="text-xs text-gray-500">
                   💡 Filter results by specific basket or view all baskets
@@ -3351,17 +3442,16 @@ Please check if the department name matches exactly with the available departmen
 
             {/* Submit and Clear Buttons */}
             <div className="flex justify-center space-x-4">
-              <button 
-                type="submit" 
-                className={`px-8 py-3 bg-green-600 text-white font-medium rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors ${
-                  loading ? 'opacity-70 cursor-not-allowed' : ''
-                }`}
+              <button
+                type="submit"
+                className={`px-8 py-3 bg-green-600 text-white font-medium rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors ${loading ? 'opacity-70 cursor-not-allowed' : ''
+                  }`}
                 disabled={loading}
               >
                 {loading ? "Loading..." : "Submit"}
               </button>
-              
-              <button 
+
+              <button
                 type="button"
                 onClick={clearFilters}
                 className="px-8 py-3 bg-gray-600 text-white font-medium rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
@@ -3372,8 +3462,42 @@ Please check if the department name matches exactly with the available departmen
           </form>
         </div>
 
-        {/* Lateral Entry Student Alert */}
-        {searchPerformed && !loading && registration !== "all" && selectedRegistrations.length <= 1 && studentData && studentData.is_lateral_entry && (
+        {/* Diploma Student Alert */}
+        {searchPerformed && !loading && registration !== "all" && selectedRegistrations.length <= 1 && studentData && studentData.is_diploma && (
+          <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-blue-800">
+                  🎓 Diploma Student Detected
+                </h3>
+                <div className="mt-2 text-sm text-blue-700">
+                  <p>
+                    <strong>{studentData.name}</strong> ({studentData.registration}) is a <strong>{studentData.student_type}</strong> student.
+                  </p>
+                  <p className="mt-1">
+                    <strong>Total Required Credits: <span className="text-blue-900 font-bold">{studentData.totalRequiredCredits} credits</span></strong>
+                    {studentData.is_lateral_entry ? " (Diploma Lateral Entry - 80 credits)" : " (Diploma Regular - 120 credits)"}
+                  </p>
+                  <div className="mt-2 text-xs">
+                    <strong>Basket Requirements:</strong> {
+                      studentData.is_lateral_entry
+                        ? "Basket I: 0, Basket II: 5, Basket III: 12, Basket IV: 26, Basket V: 37"
+                        : "Basket I: 12, Basket II: 13, Basket III: 20, Basket IV: 26, Basket V: 49"
+                    }
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Lateral Entry Student Alert (B.Tech only) */}
+        {searchPerformed && !loading && registration !== "all" && selectedRegistrations.length <= 1 && studentData && studentData.is_lateral_entry && !studentData.is_diploma && (
           <div className="bg-orange-50 border-l-4 border-orange-400 p-4 mb-6">
             <div className="flex">
               <div className="flex-shrink-0">
@@ -3435,11 +3559,11 @@ Please check if the department name matches exactly with the available departmen
         {searchPerformed && !loading && (
           <div className="bg-green-50 border border-green-200 rounded-md p-4 mb-6">
             <div className="text-green-800 text-sm">
-              <strong>Search Completed:</strong><br/>
-              Department: {department || 'All'}<br/>
-              Batch: {batch || 'All'}<br/>
-              Basket: {basket || 'All'}<br/>
-              Results: {filteredAndSortedStudents.length} students found<br/>
+              <strong>Search Completed:</strong><br />
+              Department: {department || 'All'}<br />
+              Batch: {batch || 'All'}<br />
+              Basket: {basket || 'All'}<br />
+              Results: {filteredAndSortedStudents.length} students found<br />
               {filteredAndSortedStudents.length > 0 && (
                 <span className="text-green-600">
                   ✅ Use the table below to view detailed basket progress for each student
@@ -3464,7 +3588,7 @@ Please check if the department name matches exactly with the available departmen
                 <li>• Removing some filters to broaden your search</li>
                 <li>• Checking if the department has students in the database</li>
               </ul>
-              <button 
+              <button
                 onClick={clearFilters}
                 className="mt-4 px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 transition-colors"
               >
@@ -3483,25 +3607,24 @@ Please check if the department name matches exactly with the available departmen
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">Bulk Search Results</h3>
                   <p className="text-sm text-gray-600">
-                    Department: <span className="font-medium">{department}</span> | 
+                    Department: <span className="font-medium">{department}</span> |
                     Total Students: <span className="font-medium">{filteredAndSortedStudents.length}</span>
                   </p>
                 </div>
                 <div className="flex space-x-2">
-                  <button 
-                    onClick={downloadBulkReport} 
+                  <button
+                    onClick={downloadBulkReport}
                     disabled={isExporting}
-                    className={`px-3 py-1 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700 transition-colors flex items-center gap-1 ${
-                      isExporting ? 'opacity-70 cursor-not-allowed' : ''
-                    }`}
+                    className={`px-3 py-1 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700 transition-colors flex items-center gap-1 ${isExporting ? 'opacity-70 cursor-not-allowed' : ''
+                      }`}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
                     {isExporting ? 'Downloading...' : 'Download Report'}
                   </button>
-                  <button 
-                    onClick={exportToExcel} 
+                  <button
+                    onClick={exportToExcel}
                     className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 transition-colors"
                   >
                     Export Excel
@@ -3515,10 +3638,10 @@ Please check if the department name matches exactly with the available departmen
               <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                 <h4 className="text-sm font-semibold text-blue-800 mb-2">📊 Data Sources Used for Basket Calculation:</h4>
                 <div className="flex flex-wrap gap-3">
-                  {dataSources.sources.cutm1 && (
+                  {dataSources.sources.result && (
                     <div className="flex items-center gap-2">
                       <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
-                        CUTM1 Collection
+                        Result Collection
                       </span>
                       <span className="text-sm text-blue-700">{dataSources.cutm1Records} records</span>
                     </div>
@@ -3553,29 +3676,29 @@ Please check if the department name matches exactly with the available departmen
                     {/* Dynamic Basket Columns - Show only selected basket or all if "All" is selected */}
                     {(!basket || basket === "All" || basket === "Select Basket" || basket === "") ? (
                       <>
-                    <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket I (17/6)</th>
-                    <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket II (12/9)</th>
-                    <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket III (25)</th>
-                    <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket IV ({is2024Onwards ? '60/48' : '58/48'})</th>
-                    <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket V ({is2024Onwards ? '46/32' : '48/32'})</th>
+                        <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">{isDiploma ? "Basket I (12/0)" : "Basket I (17/6)"}</th>
+                        <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">{isDiploma ? "Basket II (13/5)" : "Basket II (12/9)"}</th>
+                        <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">{isDiploma ? "Basket III (20/12)" : "Basket III (25)"}</th>
+                        <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">{isDiploma ? "Basket IV (26/26)" : `Basket IV (${is2024Onwards ? '60/48' : '58/48'})`}</th>
+                        <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">{isDiploma ? "Basket V (49/37)" : `Basket V (${is2024Onwards ? '46/32' : '48/32'})`}</th>
                       </>
                     ) : (
                       <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">
-                        {basket === "Basket I" ? "Basket I (17/6)" :
-                         basket === "Basket II" ? "Basket II (12/9)" :
-                         basket === "Basket III" ? "Basket III (25)" :
-                         basket === "Basket IV" ? `Basket IV (${is2024Onwards ? '60/48' : '58/48'})` :
-                         basket === "Basket V" ? `Basket V (${is2024Onwards ? '46/32' : '48/32'})` : basket}
+                        {basket === "Basket I" ? (isDiploma ? "Basket I (12/0)" : "Basket I (17/6)") :
+                          basket === "Basket II" ? (isDiploma ? "Basket II (13/5)" : "Basket II (12/9)") :
+                            basket === "Basket III" ? (isDiploma ? "Basket III (20/12)" : "Basket III (25)") :
+                              basket === "Basket IV" ? (isDiploma ? "Basket IV (26/26)" : `Basket IV (${is2024Onwards ? '60/48' : '58/48'})`) :
+                                basket === "Basket V" ? (isDiploma ? "Basket V (49/37)" : `Basket V (${is2024Onwards ? '46/32' : '48/32'})`) : basket}
                       </th>
                     )}
-                    <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Total Credits (160/120)</th>
+                    <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">{isDiploma ? 'Total Credits (120/80)' : 'Total Credits (160/120)'}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredAndSortedStudents.map((student, index) => (
                     <tr key={student.registration || index} className="hover:bg-gray-50 transition-colors">
                       <td className="border border-gray-300 px-4 py-3 text-sm text-gray-900">{index + 1}</td>
-                      <td 
+                      <td
                         className="border border-gray-300 px-4 py-3 text-sm text-gray-900 font-medium cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 transition-colors"
                         onClick={() => handleBulkStudentClick(student)}
                         title="Click to view detailed student progress"
@@ -3589,74 +3712,74 @@ Please check if the department name matches exactly with the available departmen
                         {student.department || 'Unknown'}
                         {student.is_lateral_entry && (
                           <span className="ml-2 px-2 py-1 bg-orange-100 text-orange-800 text-xs rounded-full">
-                              Lateral Entry
-                            </span>
+                            Lateral Entry
+                          </span>
                         )}
                       </td>
                       {/* Dynamic Basket Columns - Show only selected basket or all if "All" is selected */}
                       {(!basket || basket === "All" || basket === "Select Basket" || basket === "") ? (
                         <>
-                      <td 
-                        className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                        onClick={() => handleBulkBasketClick(student, "I")}
-                        title="Click to view Basket I details"
-                      >
-                        {student.basketI || student.basket1 || 0}
-                      </td>
-                      <td 
-                        className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                        onClick={() => handleBulkBasketClick(student, "II")}
-                        title="Click to view Basket II details"
-                      >
-                        {student.basketII || student.basket2 || 0}
-                      </td>
-                      <td 
-                        className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                        onClick={() => handleBulkBasketClick(student, "III")}
-                        title="Click to view Basket III details"
-                      >
-                        {student.basketIII || student.basket3 || 0}
-                      </td>
-                      <td 
-                        className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                        onClick={() => handleBulkBasketClick(student, "IV")}
-                        title="Click to view Basket IV details"
-                      >
-                        {student.basketIV || student.basket4 || 0}
-                      </td>
-                      <td 
-                        className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                        onClick={() => handleBulkBasketClick(student, "V")}
-                        title="Click to view Basket V details"
-                      >
-                        {student.basketV || student.basket5 || 0}
-                      </td>
+                          <td
+                            className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                            onClick={() => handleBulkBasketClick(student, "I")}
+                            title="Click to view Basket I details"
+                          >
+                            {student.basketI || student.basket1 || 0}
+                          </td>
+                          <td
+                            className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                            onClick={() => handleBulkBasketClick(student, "II")}
+                            title="Click to view Basket II details"
+                          >
+                            {student.basketII || student.basket2 || 0}
+                          </td>
+                          <td
+                            className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                            onClick={() => handleBulkBasketClick(student, "III")}
+                            title="Click to view Basket III details"
+                          >
+                            {student.basketIII || student.basket3 || 0}
+                          </td>
+                          <td
+                            className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                            onClick={() => handleBulkBasketClick(student, "IV")}
+                            title="Click to view Basket IV details"
+                          >
+                            {student.basketIV || student.basket4 || 0}
+                          </td>
+                          <td
+                            className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                            onClick={() => handleBulkBasketClick(student, "V")}
+                            title="Click to view Basket V details"
+                          >
+                            {student.basketV || student.basket5 || 0}
+                          </td>
                         </>
                       ) : (
-                        <td 
+                        <td
                           className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
                           onClick={() => {
                             const basketNum = basket === "Basket I" ? "I" :
-                                            basket === "Basket II" ? "II" :
-                                            basket === "Basket III" ? "III" :
-                                            basket === "Basket IV" ? "IV" :
-                                            basket === "Basket V" ? "V" : "";
+                              basket === "Basket II" ? "II" :
+                                basket === "Basket III" ? "III" :
+                                  basket === "Basket IV" ? "IV" :
+                                    basket === "Basket V" ? "V" : "";
                             if (basketNum) handleBulkBasketClick(student, basketNum);
                           }}
                           title={`Click to view ${basket} details`}
                         >
                           {basket === "Basket I" ? (student.basketI || student.basket1 || 0) :
-                           basket === "Basket II" ? (student.basketII || student.basket2 || 0) :
-                           basket === "Basket III" ? (student.basketIII || student.basket3 || 0) :
-                           basket === "Basket IV" ? (student.basketIV || student.basket4 || 0) :
-                           basket === "Basket V" ? (student.basketV || student.basket5 || 0) : 0}
+                            basket === "Basket II" ? (student.basketII || student.basket2 || 0) :
+                              basket === "Basket III" ? (student.basketIII || student.basket3 || 0) :
+                                basket === "Basket IV" ? (student.basketIV || student.basket4 || 0) :
+                                  basket === "Basket V" ? (student.basketV || student.basket5 || 0) : 0}
                         </td>
                       )}
                       <td className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center font-semibold bg-gray-50">
                         {student.totalCredits || student.total || 0}
                         {student.is_lateral_entry && (
                           <div className="text-xs text-orange-600 mt-1">
-                            /{student.totalRequiredCredits || 120}
+                            /{student.totalRequiredCredits || (isDiploma ? 80 : 120)}
                           </div>
                         )}
                       </td>
@@ -3683,7 +3806,7 @@ Please check if the department name matches exactly with the available departmen
                 <li>• Try removing semester filters</li>
                 <li>• Contact administrator if the issue persists</li>
               </ul>
-              <button 
+              <button
                 onClick={clearFilters}
                 className="mt-4 px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 transition-colors"
               >
@@ -3701,8 +3824,8 @@ Please check if the department name matches exactly with the available departmen
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-gray-900">Individual Student Results</h3>
                 <div className="flex space-x-2">
-                  <button 
-                    onClick={downloadReport} 
+                  <button
+                    onClick={downloadReport}
                     className="px-3 py-1 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700 transition-colors flex items-center gap-1"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3710,8 +3833,8 @@ Please check if the department name matches exactly with the available departmen
                     </svg>
                     Download Report
                   </button>
-                  <button 
-                    onClick={() => window.print()} 
+                  <button
+                    onClick={() => window.print()}
                     className="px-3 py-1 bg-gray-600 text-white text-sm rounded hover:bg-gray-700 transition-colors"
                   >
                     Print
@@ -3722,7 +3845,7 @@ Please check if the department name matches exactly with the available departmen
 
             <div className="p-6">
               {/* Total Credits Summary Card for Lateral Entry */}
-              {studentData.is_lateral_entry && (
+              {studentData.is_lateral_entry && !studentData.is_diploma && (
                 <div className="mb-6 bg-gradient-to-r from-orange-50 to-orange-100 border border-orange-200 rounded-lg p-4">
                   <div className="flex items-center">
                     <div className="flex-shrink-0">
@@ -3776,11 +3899,11 @@ Please check if the department name matches exactly with the available departmen
                           <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Data Sources:</td>
                           <td className="px-4 py-3 text-gray-900">
                             <div className="flex flex-wrap gap-2">
-                              {dataSources.sources.cutm1 && (
+                              {dataSources.sources.result && (
                                 <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
-                                  CUTM1 ({dataSources.cutm1Records} records)
-                            </span>
-                          )}
+                                  Result ({dataSources.resultRecords} records)
+                                </span>
+                              )}
                               {dataSources.sources.registrationData && (
                                 <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
                                   Registration Data ({dataSources.registrationDataRecords} records)
@@ -3790,14 +3913,14 @@ Please check if the department name matches exactly with the available departmen
                                 Total: {dataSources.totalRecords} records
                               </span>
                             </div>
-                        </td>
-                      </tr>
+                          </td>
+                        </tr>
                       )}
                       <tr className="border-b border-gray-200">
                         <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Total Required Credits:</td>
                         <td className="px-4 py-3 text-gray-900">
                           <span className={`font-bold ${studentData.is_lateral_entry ? 'text-orange-600' : 'text-blue-600'}`}>
-                            {studentData.overall_stats?.total_required_credits || (studentData.is_lateral_entry ? 120 : 160)} credits
+                            {studentData.overall_stats?.total_required_credits || (studentData.is_diploma ? (studentData.is_lateral_entry ? 80 : 120) : (studentData.is_lateral_entry ? 120 : 160))} credits
                           </span>
                           {studentData.is_lateral_entry && (
                             <span className="ml-2 text-xs text-gray-500">(Lateral Entry)</span>
@@ -3826,8 +3949,8 @@ Please check if the department name matches exactly with the available departmen
                       <span className="text-gray-600">Registration Data</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className="px-2 py-1 rounded bg-gray-100 text-gray-800 font-medium">CUTM1</span>
-                      <span className="text-gray-600">CUTM1 Database</span>
+                      <span className="px-2 py-1 rounded bg-gray-100 text-gray-800 font-medium">Result</span>
+                      <span className="text-gray-600">Result Database</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="px-2 py-1 rounded bg-yellow-100 text-yellow-800 font-medium">Result Not Published</span>
@@ -3857,11 +3980,11 @@ Please check if the department name matches exactly with the available departmen
                           const requiredCredits = Number(info?.required_credits) || 0;
                           const isCompleted = earnedCredits >= requiredCredits && requiredCredits > 0;
                           const status = isCompleted ? "Completed" : "Not Completed";
-                          
+
                           return (
                             <tr key={basketName} className="border-b border-gray-200 hover:bg-gray-50 transition-colors">
                               <td className="px-4 py-3 text-center text-gray-900">{index + 1}</td>
-                              <td 
+                              <td
                                 className="px-4 py-3 cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
                                 onClick={() => handleBasketClick(basketName, info)}
                                 title="Click to view detailed subjects"
@@ -3873,11 +3996,10 @@ Please check if the department name matches exactly with the available departmen
                               <td className="px-4 py-3 text-center text-red-600 font-medium">{failedCredits}</td>
                               <td className="px-4 py-3 text-center text-gray-900 font-semibold">{totalCredits}</td>
                               <td className="px-4 py-3 text-center">
-                                <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                  isCompleted 
-                                    ? 'bg-green-100 text-green-800' 
-                                    : 'bg-red-100 text-red-800'
-                                }`}>
+                                <span className={`px-2 py-1 rounded text-xs font-medium ${isCompleted
+                                  ? 'bg-green-100 text-green-800'
+                                  : 'bg-red-100 text-red-800'
+                                  }`}>
                                   {status}
                                 </span>
                               </td>
@@ -3891,13 +4013,13 @@ Please check if the department name matches exactly with the available departmen
                           </td>
                         </tr>
                       )}
-                      
+
                       {/* Total Row */}
                       {Object.entries(basketProgress || {}).length > 0 && (
                         <tr className="bg-gray-50 border-t-2 border-gray-300">
                           <td className="px-4 py-3 font-semibold text-center text-gray-900" colSpan="2">Total</td>
                           <td className="px-4 py-3 text-center font-semibold text-gray-900">
-                            {studentData.is_lateral_entry ? 120 : overallStats.totalRequired}
+                            {studentData.is_diploma && studentData.is_lateral_entry ? 80 : (studentData.is_lateral_entry ? 120 : overallStats.totalRequired)}
                             {studentData.is_lateral_entry && (
                               <div className="text-xs text-orange-600 mt-1">
                                 Lateral Entry Total
@@ -3918,13 +4040,12 @@ Please check if the department name matches exactly with the available departmen
                                 willShow: allBasketsCompleted ? '✅ Completed' : '❌ Not Completed'
                               });
                               return (
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                  allBasketsCompleted
-                                ? 'bg-green-100 text-green-800' 
-                                : 'bg-red-100 text-red-800'
-                            }`}>
+                                <span className={`px-2 py-1 rounded text-xs font-medium ${allBasketsCompleted
+                                  ? 'bg-green-100 text-green-800'
+                                  : 'bg-red-100 text-red-800'
+                                  }`}>
                                   {allBasketsCompleted ? "Completed" : "Not Completed"}
-                            </span>
+                                </span>
                               );
                             })()}
                             {studentData.is_lateral_entry && (
@@ -3950,9 +4071,9 @@ Please check if the department name matches exactly with the available departmen
               {/* Modal Header */}
               <div className="bg-blue-600 text-white px-6 py-4 flex justify-between items-center">
                 <div>
-                <h3 className="text-xl font-semibold">
-                  {selectedBasket.name} - Detailed Subjects
-                </h3>
+                  <h3 className="text-xl font-semibold">
+                    {selectedBasket.name} - Detailed Subjects
+                  </h3>
                   {studentData?.is_lateral_entry && (
                     <div className="mt-1">
                       <span className="px-2 py-1 bg-orange-500 text-white text-xs rounded-full">
@@ -3968,7 +4089,7 @@ Please check if the department name matches exactly with the available departmen
                   ×
                 </button>
               </div>
-              
+
               {/* Modal Body */}
               <div className="p-5 overflow-y-auto max-h-[70vh]">
                 {/* Basket Summary */}
@@ -4001,10 +4122,10 @@ Please check if the department name matches exactly with the available departmen
                     <div className="mt-3 p-2 bg-orange-50 border border-orange-200 rounded text-sm">
                       <span className="font-semibold text-orange-800">Note:</span>
                       <span className="text-orange-700 ml-1">
-                        This student is a lateral entry student with modified credit requirements. 
+                        This student is a lateral entry student with modified credit requirements.
                         Total required credits: 120 (instead of 160 for regular students).
                       </span>
-                </div>
+                    </div>
                   )}
                 </div>
 
@@ -4031,37 +4152,34 @@ Please check if the department name matches exactly with the available departmen
                             <td className="border border-gray-300 px-3 py-2 text-gray-900">{subject.name || 'Unknown Subject'}</td>
                             <td className="border border-gray-300 px-3 py-2 text-center text-gray-900">{subject.credits || 0}</td>
                             <td className="border border-gray-300 px-3 py-2 text-center">
-                              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                subject.grade === 'Result Not Published'
-                                  ? 'bg-yellow-100 text-yellow-800'
-                                  : subject.completed 
-                                    ? 'bg-green-100 text-green-800' 
-                                    : 'bg-red-100 text-red-800'
-                              }`}>
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${subject.grade === 'Result Not Published'
+                                ? 'bg-yellow-100 text-yellow-800'
+                                : subject.completed
+                                  ? 'bg-green-100 text-green-800'
+                                  : 'bg-red-100 text-red-800'
+                                }`}>
                                 {subject.grade || (subject.completed ? 'PASS' : 'FAIL')}
                               </span>
                             </td>
                             <td className="border border-gray-300 px-3 py-2 text-center text-gray-900">{subject.semester || 'N/A'}</td>
                             <td className="border border-gray-300 px-3 py-2 text-center">
                               <div className="flex flex-col gap-1">
-                                <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                  subject.status === 'Completed'
-                                    ? 'bg-green-100 text-green-800' 
-                                    : subject.status === 'Failed'
+                                <span className={`px-2 py-1 rounded text-xs font-medium ${subject.status === 'Completed'
+                                  ? 'bg-green-100 text-green-800'
+                                  : subject.status === 'Failed'
                                     ? 'bg-red-100 text-red-800'
                                     : 'bg-orange-100 text-orange-800'
-                                }`}>
+                                  }`}>
                                   {subject.status || (subject.completed ? 'Completed' : 'Failed')}
                                 </span>
                                 {subject.dataSource && (
-                                  <span className={`px-1 py-0.5 rounded text-xs font-medium ${
-                                    subject.dataSource === 'Registration' 
-                                      ? 'bg-blue-100 text-blue-800' 
+                                  <span className={`px-1 py-0.5 rounded text-xs font-medium ${subject.dataSource === 'Registration'
+                                    ? 'bg-blue-100 text-blue-800'
                                     : 'bg-gray-100 text-gray-800'
-                                }`}>
-                                  {subject.dataSource === 'Registration' ? 'Reg' : 'CUTM1'}
-                                </span>
-                              )}
+                                    }`}>
+                                    {subject.dataSource === 'Registration' ? 'Reg' : 'Result'}
+                                  </span>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -4122,7 +4240,7 @@ Please check if the department name matches exactly with the available departmen
           </div>
         )}
 
-       
+
       </div>
 
       <style jsx>{`

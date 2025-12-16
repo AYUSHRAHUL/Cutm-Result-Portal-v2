@@ -176,7 +176,7 @@ export async function POST(req) {
 
     // Insert into database
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    const db = await (async () => { const { getDatabaseFromRequest } = await import("@/lib/db-helper"); const dbName = await getDatabaseFromRequest(req); return client.db(dbName); })();
 
     const result = await db.collection("honours_domain_subjects").insertMany(processedSubjects, { ordered: false });
 
@@ -205,3 +205,4 @@ export async function POST(req) {
     }, { status: 500 });
   }
 }
+

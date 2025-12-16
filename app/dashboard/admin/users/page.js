@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
+import { appendSchoolParams } from "@/lib/api-helper";
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState([]);
@@ -24,7 +25,8 @@ export default function AdminUsersPage() {
     try {
       setLoading(true);
       setError("");
-      const res = await fetch("/api/users");
+      const usersUrl = appendSchoolParams("/api/users");
+      const res = await fetch(usersUrl);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to fetch users");
       setUsers(data.users || []);
@@ -87,7 +89,8 @@ export default function AdminUsersPage() {
       // Convert _id to string if it's an ObjectId
       const userId = typeof editingUser._id === 'object' ? editingUser._id.toString() : editingUser._id;
 
-      const res = await fetch("/api/users", {
+      const usersUrl = appendSchoolParams("/api/users");
+      const res = await fetch(usersUrl, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -138,7 +141,8 @@ export default function AdminUsersPage() {
       // Convert _id to string if it's an ObjectId
       const userId = typeof user._id === 'object' ? user._id.toString() : String(user._id);
 
-      const res = await fetch("/api/users", {
+      const usersUrl = appendSchoolParams("/api/users");
+      const res = await fetch(usersUrl, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

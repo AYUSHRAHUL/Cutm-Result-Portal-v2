@@ -25,7 +25,7 @@ export async function GET(req) {
     const limit = parseInt(searchParams.get("limit") || "1000");
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    const db = await (async () => { const { getDatabaseFromRequest } = await import("@/lib/db-helper"); const dbName = await getDatabaseFromRequest(req); return client.db(dbName); })();
 
     let query = {};
     if (domain) query.Domain = domain;
@@ -69,7 +69,7 @@ export async function POST(req) {
     }
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    const db = await (async () => { const { getDatabaseFromRequest } = await import("@/lib/db-helper"); const dbName = await getDatabaseFromRequest(req); return client.db(dbName); })();
 
     // Check for duplicate subject code in the same domain
     const existing = await db.collection("honours_domain_subjects").findOne({
@@ -108,5 +108,6 @@ export async function POST(req) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
 
 

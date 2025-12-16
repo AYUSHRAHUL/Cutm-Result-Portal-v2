@@ -31,7 +31,7 @@ export async function POST(req) {
 
     // Create user
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    const db = client.db("USER");
     
     const user = {
       name: storedData.name,

@@ -58,9 +58,9 @@ export async function POST(req) {
       );
     }
 
-    // Connect to MongoDB (uses cutm1 DB)
+    // Connect to MongoDB (uses USER DB for authentication)
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    const db = client.db("USER");
 
     // Check if the email already exists
     const existingUser = await db.collection("users").findOne({ email });

@@ -1,4 +1,5 @@
 "use client";
+import { appendSchoolParams } from "@/lib/api-helper";
 
 import { useState } from "react";
 
@@ -20,7 +21,8 @@ export default function DuplicateDataCleaner() {
     setStats(null);
 
     try {
-      const response = await fetch("/api/cleanup/scan", {
+      const url = appendSchoolParams("/api/cleanup/scan");
+      const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ batch: selectedBatch || "", semester: selectedSemester || "" })
@@ -47,7 +49,8 @@ export default function DuplicateDataCleaner() {
     setError("");
     setMessage("");
     try {
-      const response = await fetch("/api/cleanup/delete", {
+      const url = appendSchoolParams("/api/cleanup/delete");
+      const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ duplicates })
@@ -69,7 +72,8 @@ export default function DuplicateDataCleaner() {
     setError("");
     setMessage("");
     try {
-      const response = await fetch("/api/cleanup/delete-specific", {
+      const url = appendSchoolParams("/api/cleanup/delete-specific");
+      const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ duplicateGroup })

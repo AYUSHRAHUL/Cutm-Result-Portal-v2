@@ -2,21 +2,25 @@
 
 import Link from "next/link";
 import { useState, useEffect } from "react";
+import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
+import { useSearchParams } from "next/navigation";
 
 export default function AdminCBCSIndex() {
+  const searchParams = useSearchParams();
+  const isDiploma = searchParams.get("school") === "SOVET";
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadFile, setUploadFile] = useState(null);
   const [selectedSemester, setSelectedSemester] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
-  
+
   // Registration data management states
   const [showRegistrationViewer, setShowRegistrationViewer] = useState(false);
   const [registrationData, setRegistrationData] = useState([]);
   const [filteredData, setFilteredData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [dataStats, setDataStats] = useState(null);
-  
+
   // Filters
   const [semesterFilter, setSemesterFilter] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("");
@@ -30,7 +34,7 @@ export default function AdminCBCSIndex() {
   const [otpCode, setOtpCode] = useState("");
   const [otpStep, setOtpStep] = useState("idle"); // idle | sent | verifying
   const [otpMessage, setOtpMessage] = useState("");
-  
+
   // Edit and delete states
   const [selectedRecords, setSelectedRecords] = useState([]);
   const [editingRecord, setEditingRecord] = useState(null);
@@ -53,16 +57,17 @@ export default function AdminCBCSIndex() {
   const fetchRegistrationData = async () => {
     setLoading(true);
     setUploadMessage("");
-    
+
     try {
-      const response = await fetch('/api/registration-data');
+      const url = appendSchoolParams('/api/registration-data');
+      const response = await fetch(url);
       const result = await response.json();
-      
+
       if (response.ok) {
         setRegistrationData(result.data || []);
         setFilteredData(result.data || []);
         setDataStats(result.stats || null);
-        
+
         if (!result.data || result.data.length === 0) {
           setUploadMessage("No registration data found. Upload some data first.");
         }
@@ -91,7 +96,8 @@ export default function AdminCBCSIndex() {
     setLoading(true);
     setOtpMessage("");
     try {
-      const res = await fetch("/api/registration-data", {
+      const url = appendSchoolParams("/api/registration-data");
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "request-otp" }),
@@ -111,15 +117,16 @@ export default function AdminCBCSIndex() {
   };
 
   const verifyOtpAndDelete = async () => {
-      if (!otpCode) {
-        setOtpMessage("Please enter OTP");
+    if (!otpCode) {
+      setOtpMessage("Please enter OTP");
       return;
     }
     setOtpStep("verifying");
     setLoading(true);
     setOtpMessage("");
     try {
-      const res = await fetch("/api/registration-data", {
+      const url = appendSchoolParams("/api/registration-data");
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "verify-otp", otp: otpCode }),
@@ -146,8 +153,8 @@ export default function AdminCBCSIndex() {
 
   // Toggle record selection
   const toggleRecordSelection = (recordId) => {
-    setSelectedRecords(prev => 
-      prev.includes(recordId) 
+    setSelectedRecords(prev =>
+      prev.includes(recordId)
         ? prev.filter(id => id !== recordId)
         : [...prev, recordId]
     );
@@ -158,7 +165,7 @@ export default function AdminCBCSIndex() {
     const visibleRecords = filteredData
       .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
       .map(item => item._id);
-    
+
     if (visibleRecords.every(id => selectedRecords.includes(id))) {
       setSelectedRecords(prev => prev.filter(id => !visibleRecords.includes(id)));
     } else {
@@ -196,12 +203,13 @@ export default function AdminCBCSIndex() {
   const handleUpdateRecord = async (e) => {
     e.preventDefault();
     if (!editingRecord) return;
-    
+
     setLoading(true);
     setUploadMessage("");
 
     try {
-      const response = await fetch('/api/registration-data', {
+      const url = appendSchoolParams('/api/registration-data');
+      const response = await fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -211,7 +219,7 @@ export default function AdminCBCSIndex() {
       });
 
       const result = await response.json();
-      
+
       if (response.ok) {
         setUploadMessage(`Successfully updated record for ${editForm.Name}`);
         await fetchRegistrationData();
@@ -247,7 +255,7 @@ export default function AdminCBCSIndex() {
       });
 
       const result = await response.json();
-      
+
       if (response.ok) {
         setUploadMessage(`Successfully deleted ${result.deletedCount} record(s)`);
         setSelectedRecords([]);
@@ -271,23 +279,73 @@ export default function AdminCBCSIndex() {
       }
 
       let filtered = [...registrationData];
-      
+
       if (semesterFilter) {
         filtered = filtered.filter(item => {
           const sem = String(item.Sem || '');
           return sem === semesterFilter;
         });
       }
-      
+
       if (departmentFilter) {
         filtered = filtered.filter(item => {
           const regNo = String(item.Reg_No || '');
-          if (!regNo || regNo.length < 8) return false;
-          const deptCode = regNo.charAt(7);
-          return deptCode === departmentFilter;
+
+          if (isDiploma) {
+            // Diploma filtering - use index 5-7 for branch code
+            // Branch codes: 711=Electrical, 712=Mechanical, 713=Civil, 714=CSE, 715=Automobile, 716=Mining
+            if (regNo.length >= 8) {
+              const branchCode = regNo.slice(5, 8); // Index 5-7
+              const diplomaBranchMap = {
+                '711': 'Electrical',
+                '712': 'Mechanical',
+                '713': 'Civil',
+                '714': 'CSE',
+                '715': 'Automobile',
+                '716': 'Mining'
+              };
+              const branchName = diplomaBranchMap[branchCode];
+              if (branchName) {
+                return branchName.includes(departmentFilter) || departmentFilter.includes(branchName);
+              }
+            }
+            return false;
+          } else {
+            // B.Tech Legacy filtering - use index 5-7 for branch code
+            // Branch codes: 111=Civil, 112=CSE, 113=ECE, 115=EEE, 116=Mechanical, 117=CSE AIML
+            if (regNo.length >= 8) {
+              const branchCode = regNo.slice(5, 8); // Index 5-7
+              const btechBranchMap = {
+                '111': 'Civil',
+                '112': 'CSE',
+                '113': 'ECE',
+                '115': 'EEE',
+                '116': 'Mechanical',
+                '117': 'AIML'
+              };
+              const branchName = btechBranchMap[branchCode];
+              if (branchName) {
+                // Map department filter codes to branch names
+                const deptCodeMap = {
+                  '1': 'Civil',
+                  '2': 'CSE',
+                  '3': 'ECE',
+                  '5': 'EEE',
+                  '6': 'Mechanical',
+                  '7': 'AIML'
+                };
+                const filterBranch = deptCodeMap[departmentFilter] || departmentFilter;
+                return branchName === filterBranch || branchName.includes(filterBranch) || filterBranch.includes(branchName);
+              }
+            }
+            // Fallback to old method (position 7) for backward compatibility
+            if (regNo.length < 8) return false;
+            const deptCode = regNo.charAt(7);
+            return deptCode === departmentFilter;
+          }
         });
       }
-      
+
       if (studentFilter) {
         const searchTerm = studentFilter.toLowerCase();
         filtered = filtered.filter(item => {
@@ -303,7 +361,7 @@ export default function AdminCBCSIndex() {
           );
         });
       }
-      
+
       setFilteredData(filtered);
       setCurrentPage(1);
       // Clear selections when filters change
@@ -326,7 +384,7 @@ export default function AdminCBCSIndex() {
       setUploadMessage("Please select a file to upload");
       return;
     }
-    
+
     if (!selectedSemester) {
       setUploadMessage("Please select a semester for the registration data");
       return;
@@ -340,13 +398,14 @@ export default function AdminCBCSIndex() {
       formData.append('file', uploadFile);
       formData.append('semester', selectedSemester);
 
-      const response = await fetch('/api/upload/registration', {
+      const url = getSchoolApiUrl("upload") + "/registration";
+      const response = await fetch(url, {
         method: 'POST',
         body: formData,
       });
 
       const result = await response.json();
-      
+
       if (response.ok) {
         setUploadMessage(`Success! ${result.message}`);
         setUploadFile(null);
@@ -368,7 +427,7 @@ export default function AdminCBCSIndex() {
   };
 
   return (
-    <div 
+    <div
       className="min-h-screen pb-10"
       style={{
         background: "linear-gradient(to bottom, #F5F8FA 0%, #E8F4F8 50%, #D1E9F6 100%)",
@@ -377,7 +436,7 @@ export default function AdminCBCSIndex() {
       <div className="max-w-6xl mx-auto px-3 sm:px-4 lg:px-6 pt-6 sm:pt-8 lg:pt-12">
         {/* Header */}
         <div className="mb-6 sm:mb-8 text-center">
-          <h2 
+          <h2
             className="text-2xl sm:text-3xl md:text-4xl font-black mb-2"
             style={{
               background: "linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)",
@@ -392,11 +451,11 @@ export default function AdminCBCSIndex() {
             Manage CBCS subjects and registration data
           </p>
         </div>
-        
+
         {/* Management Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-6 sm:mb-8">
           {/* CBCS Management */}
-          <div 
+          <div
             className="rounded-xl sm:rounded-2xl border-2 p-4 sm:p-5 lg:p-6 shadow-lg"
             style={{ borderColor: "rgba(5,163,199,0.2)", background: "white" }}
           >
@@ -407,25 +466,35 @@ export default function AdminCBCSIndex() {
               Manage CBCS subjects and baskets
             </p>
             <div className="flex flex-col gap-2 sm:gap-3">
-              <Link 
-                href="/dashboard/admin/data/basket" 
+              <Link
+                href={`/dashboard/admin/data/basket?${searchParams.toString()}`}
                 className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-white text-sm font-bold transition-all hover:shadow-lg active:scale-95 min-h-[44px]"
                 style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
               >
                 🗂️ View Baskets
               </Link>
-              <Link 
-                href="/dashboard/admin/data/baskettrack" 
-                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-white text-sm font-bold transition-all hover:shadow-lg active:scale-95 min-h-[44px]"
-                style={{ background: "linear-gradient(135deg, #56ab2f, #a8e6cf)" }}
-              >
-                📊 Track Progress
-              </Link>
+              {isDiploma ? (
+                <Link
+                  href={`/dashboard/admin/data/baskettrack/diploma?${searchParams.toString()}`}
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-white text-sm font-bold transition-all hover:shadow-lg active:scale-95 min-h-[44px]"
+                  style={{ background: "linear-gradient(135deg, #FF9966, #FF5E62)" }}
+                >
+                  🎓 Track Progress (Diploma)
+                </Link>
+              ) : (
+                <Link
+                  href={`/dashboard/admin/data/baskettrack?${searchParams.toString()}`}
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-white text-sm font-bold transition-all hover:shadow-lg active:scale-95 min-h-[44px]"
+                  style={{ background: "linear-gradient(135deg, #56ab2f, #a8e6cf)" }}
+                >
+                  📊 Track Progress (B.Tech)
+                </Link>
+              )}
             </div>
           </div>
 
           {/* Registration Data Management */}
-          <div 
+          <div
             className="rounded-xl sm:rounded-2xl border-2 p-4 sm:p-5 lg:p-6 shadow-lg"
             style={{ borderColor: "rgba(5,163,199,0.2)", background: "white" }}
           >
@@ -455,7 +524,7 @@ export default function AdminCBCSIndex() {
         </div>
 
         {/* Info Section */}
-        <div 
+        <div
           className="rounded-xl sm:rounded-2xl border-2 p-4 sm:p-5 lg:p-6 mb-6 sm:mb-8 shadow-lg"
           style={{ borderColor: "rgba(5,163,199,0.2)", background: "rgba(5,163,199,0.05)" }}
         >
@@ -491,17 +560,17 @@ export default function AdminCBCSIndex() {
               <h3 className="text-lg sm:text-xl font-black text-[#1A1F29] mb-4 flex items-center gap-2">
                 📤 Upload Registration Data
               </h3>
-              
+
               <div className="mb-4 sm:mb-6">
                 <h4 className="font-bold text-[#1A1F29] mb-2 text-sm">📋 Expected Format:</h4>
-                <div 
+                <div
                   className="rounded-lg p-3 text-xs text-left overflow-x-auto"
                   style={{ background: "rgba(5,163,199,0.1)" }}
                 >
                   <div className="font-mono text-[10px] sm:text-xs whitespace-pre">
                     <div className="font-bold text-[#05A3C7]">Sr. | Rollno | Name | Subject | Code | Type | Credit</div>
                     <div className="text-[#5A6C7D] mt-2">
-                      Example:<br/>
+                      Example:<br />
                       1 | 220101120188 | Subrata Das | ROBOTIC AUTOMATION | CUTM1020 | PP | 1
                     </div>
                   </div>
@@ -545,9 +614,8 @@ export default function AdminCBCSIndex() {
                 </div>
 
                 {uploadMessage && (
-                  <div className={`mb-4 p-3 rounded-lg text-xs sm:text-sm whitespace-pre-line ${
-                    uploadMessage.includes('Success') ? 'bg-green-100 text-green-700 border-2 border-green-200' : 'bg-red-100 text-red-700 border-2 border-red-200'
-                  }`}>
+                  <div className={`mb-4 p-3 rounded-lg text-xs sm:text-sm whitespace-pre-line ${uploadMessage.includes('Success') ? 'bg-green-100 text-green-700 border-2 border-green-200' : 'bg-red-100 text-red-700 border-2 border-red-200'
+                    }`}>
                     {uploadMessage}
                   </div>
                 )}
@@ -608,7 +676,7 @@ export default function AdminCBCSIndex() {
               {/* Data Statistics */}
               {dataStats && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
-                  <div 
+                  <div
                     className="rounded-lg p-3 sm:p-4 text-center"
                     style={{ background: "rgba(5,163,199,0.1)" }}
                   >
@@ -632,31 +700,28 @@ export default function AdminCBCSIndex() {
 
               {/* Status Messages */}
               {uploadMessage && (
-                <div className={`rounded-lg p-3 sm:p-4 mb-4 sm:mb-6 ${
-                  uploadMessage.includes('Error') 
-                    ? 'bg-red-50 border-2 border-red-200' 
-                    : uploadMessage.includes('Success') 
+                <div className={`rounded-lg p-3 sm:p-4 mb-4 sm:mb-6 ${uploadMessage.includes('Error')
+                  ? 'bg-red-50 border-2 border-red-200'
+                  : uploadMessage.includes('Success')
                     ? 'bg-green-50 border-2 border-green-200'
                     : 'bg-blue-50 border-2 border-blue-200'
-                }`}>
-                  <div className={`font-bold text-sm sm:text-base ${
-                    uploadMessage.includes('Error') 
-                      ? 'text-red-800' 
-                      : uploadMessage.includes('Success') 
+                  }`}>
+                  <div className={`font-bold text-sm sm:text-base ${uploadMessage.includes('Error')
+                    ? 'text-red-800'
+                    : uploadMessage.includes('Success')
                       ? 'text-green-800'
                       : 'text-blue-800'
-                  }`}>
-                    {uploadMessage.includes('Error') ? '⚠️ Error' : 
-                     uploadMessage.includes('Success') ? '✅ Success' : 
-                     'ℹ️ Info'}
+                    }`}>
+                    {uploadMessage.includes('Error') ? '⚠️ Error' :
+                      uploadMessage.includes('Success') ? '✅ Success' :
+                        'ℹ️ Info'}
                   </div>
-                  <div className={`text-xs sm:text-sm mt-1 ${
-                    uploadMessage.includes('Error') 
-                      ? 'text-red-700' 
-                      : uploadMessage.includes('Success') 
+                  <div className={`text-xs sm:text-sm mt-1 ${uploadMessage.includes('Error')
+                    ? 'text-red-700'
+                    : uploadMessage.includes('Success')
                       ? 'text-green-700'
                       : 'text-blue-700'
-                  }`}>
+                    }`}>
                     {uploadMessage}
                   </div>
                 </div>
@@ -678,7 +743,7 @@ export default function AdminCBCSIndex() {
                     ))}
                   </select>
                 </div>
-                
+
                 <div>
                   <label className="block text-xs sm:text-sm font-bold text-[#1A1F29] mb-2">Department:</label>
                   <select
@@ -688,15 +753,29 @@ export default function AdminCBCSIndex() {
                     style={{ borderColor: "rgba(5,163,199,0.3)" }}
                   >
                     <option value="">All Departments</option>
-                    <option value="1">Civil</option>
-                    <option value="2">CSE</option>
-                    <option value="3">ECE</option>
-                    <option value="5">EEE</option>
-                    <option value="6">Mechanical</option>
-                    <option value="7">AIML</option>
+                    {isDiploma ? (
+                      <>
+                        <option value="Civil">Civil Engineering</option>
+                        <option value="CSE">Computer Science (CSE)</option>
+                        <option value="ECE">Electronics (ECE)</option>
+                        <option value="Electrical">Electrical (EE)</option>
+                        <option value="Mechanical">Mechanical (ME)</option>
+                        <option value="Automobile">Automobile (AE)</option>
+                        <option value="Mining">Mining</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="1">Civil</option>
+                        <option value="2">CSE</option>
+                        <option value="3">ECE</option>
+                        <option value="5">EEE</option>
+                        <option value="6">Mechanical</option>
+                        <option value="7">AIML</option>
+                      </>
+                    )}
                   </select>
                 </div>
-                
+
                 <div>
                   <label className="block text-xs sm:text-sm font-bold text-[#1A1F29] mb-2">Search (Reg/Name/Subject Code/Subject):</label>
                   <input
@@ -708,7 +787,7 @@ export default function AdminCBCSIndex() {
                     style={{ borderColor: "rgba(5,163,199,0.3)" }}
                   />
                 </div>
-                
+
                 <div className="flex flex-col gap-2">
                   <label className="block text-xs sm:text-sm font-bold text-[#1A1F29] mb-2">Actions:</label>
                   {selectedRecords.length > 0 && (
@@ -721,14 +800,14 @@ export default function AdminCBCSIndex() {
                       🗑️ Delete Selected ({selectedRecords.length})
                     </button>
                   )}
-                    <button
-                      onClick={clearAllRegistrationData}
-                      disabled={loading}
+                  <button
+                    onClick={clearAllRegistrationData}
+                    disabled={loading}
                     className="w-full px-2 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 font-bold transition-all active:scale-95 text-xs min-h-[44px]"
-                      title="Clear All"
-                    >
+                    title="Clear All"
+                  >
                     🗑️ Clear All
-                    </button>
+                  </button>
                 </div>
               </div>
 
@@ -737,7 +816,7 @@ export default function AdminCBCSIndex() {
                 {loading ? (
                   <div className="flex items-center justify-center h-64">
                     <div className="text-center">
-                      <div 
+                      <div
                         className="animate-spin rounded-full h-12 w-12 border-b-2 mx-auto mb-4"
                         style={{ borderColor: "#05A3C7" }}
                       ></div>
@@ -750,7 +829,7 @@ export default function AdminCBCSIndex() {
                       <div className="text-4xl sm:text-6xl mb-4">📊</div>
                       <p className="text-[#5A6C7D] font-medium text-sm sm:text-base">No registration data found</p>
                       <p className="text-xs sm:text-sm text-[#5A6C7D] mt-2">
-                        {registrationData.length === 0 
+                        {registrationData.length === 0
                           ? "Upload some registration data to get started"
                           : "Try adjusting your filters"
                         }
@@ -760,7 +839,7 @@ export default function AdminCBCSIndex() {
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs sm:text-sm">
-                      <thead 
+                      <thead
                         className="sticky top-0"
                         style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
                       >
@@ -788,38 +867,38 @@ export default function AdminCBCSIndex() {
                         {filteredData
                           .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
                           .map((item, index) => (
-                          <tr key={item._id || index} className="border-b-2 hover:bg-[#05A3C7]/5" style={{ borderColor: "rgba(5,163,199,0.1)" }}>
-                            <td className="px-1 sm:px-2 py-1.5 sm:py-2 text-center">
-                              <input
-                                type="checkbox"
-                                checked={selectedRecords.includes(item._id)}
-                                onChange={() => toggleRecordSelection(item._id)}
-                                className="w-4 h-4 rounded border-2 cursor-pointer"
-                                style={{ borderColor: "rgba(5,163,199,0.3)" }}
-                              />
-                            </td>
-                            <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 font-mono font-bold text-xs sm:text-sm" style={{ color: "#05A3C7" }}>{item.Reg_No}</td>
-                            <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-[#1A1F29] font-medium text-xs sm:text-sm">{item.Name}</td>
-                            <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 font-mono text-green-600 font-bold text-xs sm:text-sm">{item.Subject_Code}</td>
-                            <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-[#1A1F29] text-xs sm:text-sm">{item.Subject_Name}</td>
-                            <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-center font-bold text-[#1A1F29] text-xs sm:text-sm">{item.Credits}</td>
-                            <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-center">
-                              <span className="px-1.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold text-white" style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}>
-                                {item.Sem}
-                              </span>
-                            </td>
-                            <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-center">
-                              <button
-                                onClick={() => openEditModal(item)}
-                                className="px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg text-white font-bold text-[10px] sm:text-xs hover:shadow-md transition-all"
-                                style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
-                                title="Edit"
-                              >
-                                ✏️ Edit
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
+                            <tr key={item._id || index} className="border-b-2 hover:bg-[#05A3C7]/5" style={{ borderColor: "rgba(5,163,199,0.1)" }}>
+                              <td className="px-1 sm:px-2 py-1.5 sm:py-2 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedRecords.includes(item._id)}
+                                  onChange={() => toggleRecordSelection(item._id)}
+                                  className="w-4 h-4 rounded border-2 cursor-pointer"
+                                  style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                                />
+                              </td>
+                              <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 font-mono font-bold text-xs sm:text-sm" style={{ color: "#05A3C7" }}>{item.Reg_No}</td>
+                              <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-[#1A1F29] font-medium text-xs sm:text-sm">{item.Name}</td>
+                              <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 font-mono text-green-600 font-bold text-xs sm:text-sm">{item.Subject_Code}</td>
+                              <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-[#1A1F29] text-xs sm:text-sm">{item.Subject_Name}</td>
+                              <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-center font-bold text-[#1A1F29] text-xs sm:text-sm">{item.Credits}</td>
+                              <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-center">
+                                <span className="px-1.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold text-white" style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}>
+                                  {item.Sem}
+                                </span>
+                              </td>
+                              <td className="px-1.5 sm:px-2 py-1.5 sm:py-2 text-center">
+                                <button
+                                  onClick={() => openEditModal(item)}
+                                  className="px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg text-white font-bold text-[10px] sm:text-xs hover:shadow-md transition-all"
+                                  style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+                                  title="Edit"
+                                >
+                                  ✏️ Edit
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
                       </tbody>
                     </table>
                   </div>
@@ -959,11 +1038,10 @@ export default function AdminCBCSIndex() {
                 </div>
 
                 {uploadMessage && (
-                  <div className={`rounded-lg p-3 sm:p-4 ${
-                    uploadMessage.includes('Error') 
-                      ? 'bg-red-50 border-2 border-red-200 text-red-700' 
-                      : 'bg-green-50 border-2 border-green-200 text-green-700'
-                  }`}>
+                  <div className={`rounded-lg p-3 sm:p-4 ${uploadMessage.includes('Error')
+                    ? 'bg-red-50 border-2 border-red-200 text-red-700'
+                    : 'bg-green-50 border-2 border-green-200 text-green-700'
+                    }`}>
                     <div className="font-bold text-sm sm:text-base">
                       {uploadMessage.includes('Error') ? '⚠️ Error' : '✅ Success'}
                     </div>
@@ -995,7 +1073,7 @@ export default function AdminCBCSIndex() {
             </div>
           </div>
         )}
-        
+
         {/* OTP Modal for Clear All */}
         {showOtpModal && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -1060,7 +1138,7 @@ export default function AdminCBCSIndex() {
             </div>
           </div>
         )}
-    
+
       </div>
     </div>
   );

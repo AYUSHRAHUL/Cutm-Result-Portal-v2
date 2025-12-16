@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
 
 export default function TeacherResultsPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [registration, setRegistration] = useState("");
   const [semesters, setSemesters] = useState([]);
   const [semester, setSemester] = useState("");
@@ -20,33 +24,33 @@ export default function TeacherResultsPage() {
     const s = String(val).trim();
     if (s === "") return 0;
     if (/^\d+(\.\d+)?$/.test(s)) return parseFloat(s);
-    return s.split(/[+\s]+/).map(p => parseFloat(p) || 0).reduce((a,b)=>a+b,0);
+    return s.split(/[+\s]+/).map(p => parseFloat(p) || 0).reduce((a, b) => a + b, 0);
   }
   //update: Improve grade mapping as per institution's grading system
   function gradeToPoints(grade) {
     const g = String(grade || "").toUpperCase().trim();
-    const map = { "O":10, "E":9, "A":8, "B":7, "C":6, "D":5, "S":0, "F":2, "I":0, "M":0, "R":0 };
+    const map = { "O": 10, "E": 9, "A": 8, "B": 7, "C": 6, "D": 5, "S": 0, "F": 2, "I": 0, "M": 0, "R": 0 };
     return map[g] ?? 0;
   }
-  
-  function computeSgpa(list) {
-    const t = (list||[]).reduce((acc,s)=>{ const c=parseCredits(s.Credits); const p=gradeToPoints(s.Grade); acc.c+=c; acc.p+=c*p; return acc; }, {c:0,p:0});
-    return t.c>0 ? Number((t.p/t.c).toFixed(2)) : null;
-  }
-  
-  function displayCredits(val) { const n=parseCredits(val); return Number.isFinite(n)?String(n):String(val??""); }
-  
-  function isRedGrade(grade) { const g=String(grade||"").toUpperCase().trim(); return g==="F" || g==="S"; }
 
-  function escapeCsv(val) { const s=String(val ?? ""); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; }
+  function computeSgpa(list) {
+    const t = (list || []).reduce((acc, s) => { const c = parseCredits(s.Credits); const p = gradeToPoints(s.Grade); acc.c += c; acc.p += c * p; return acc; }, { c: 0, p: 0 });
+    return t.c > 0 ? Number((t.p / t.c).toFixed(2)) : null;
+  }
+
+  function displayCredits(val) { const n = parseCredits(val); return Number.isFinite(n) ? String(n) : String(val ?? ""); }
+
+  function isRedGrade(grade) { const g = String(grade || "").toUpperCase().trim(); return g === "F" || g === "S"; }
+
+  function escapeCsv(val) { const s = String(val ?? ""); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
 
   function exportCSV() {
     let rows = [];
     let header = [];
     if (allResults.length > 0) {
-      header = ["Semester","Code","Subject","Credits","Grade"];
+      header = ["Semester", "Code", "Subject", "Credits", "Grade"];
       allResults.forEach(r => {
-        (r.subjects||[]).forEach(s => {
+        (r.subjects || []).forEach(s => {
           rows.push([
             escapeCsv(String(r.semester)),
             escapeCsv(s.Subject_Code ?? ""),
@@ -58,7 +62,7 @@ export default function TeacherResultsPage() {
       });
     } else {
       if (subjects.length === 0) return;
-      header = ["Code","Subject","Credits","Grade"];
+      header = ["Code", "Subject", "Credits", "Grade"];
       rows = subjects.map(r => [
         escapeCsv(r.Subject_Code ?? ""),
         escapeCsv(r.Subject_Name ?? ""),
@@ -81,7 +85,8 @@ export default function TeacherResultsPage() {
   async function loadSemesters(reg) {
     setError(""); setSemesters([]); setSemester(""); setAllResults([]); setSubjects([]); setSgpa(null); setCgpa(null);
     try {
-      const res = await fetch("/api/semesters", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ registration: reg }) });
+      const url = getSchoolApiUrl("semesters");
+      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ registration: reg }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "No semesters found");
       setSemesters(data.semesters || []);
@@ -91,32 +96,38 @@ export default function TeacherResultsPage() {
   async function loadResult(e) {
     e.preventDefault();
     setError("");
-    if (!registration || !semester) { 
-      setError("Enter registration and choose a semester"); 
-      return; 
+    if (!registration || !semester) {
+      setError("Enter registration and choose a semester");
+      return;
     }
-    
+
     try {
       setLoading(true);
-      
+
       // Redirect to results view page
       // If semester is "ALL", pass all semesters as comma-separated string
       let semesterParam = semester;
       if (semester === "ALL" && semesters.length > 0) {
         semesterParam = semesters.join(',');
       }
-      
+
       const params = new URLSearchParams({
         reg: registration,
         sem: semesterParam
       });
-      
-      window.location.href = `/dashboard/teacher/results/view?${params.toString()}`;
-      
-    } catch (err) { 
-      setError(err.message); 
-    } finally { 
-      setLoading(false); 
+
+      // Propagate context
+      const school = searchParams.get('school');
+      const campus = searchParams.get('campus');
+      if (school) params.set('school', school);
+      if (campus) params.set('campus', campus);
+
+      router.push(`/dashboard/teacher/results/view?${params.toString()}`);
+
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -126,71 +137,71 @@ export default function TeacherResultsPage() {
   }, []);
 
   return (
-    <div 
+    <div
       className="min-h-screen pb-10"
       style={{
         background: "linear-gradient(to bottom, #F5F8FA 0%, #E8F4F8 50%, #D1E9F6 100%)",
       }}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-8 sm:pt-12">
-      {/* Header */}
-<div className="mb-6 sm:mb-8 text-center">
-  <h1 
-    className="text-2xl sm:text-3xl md:text-4xl font-black mb-2"
-    style={{
-      background: "linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)",
-      WebkitBackgroundClip: "text",
-      WebkitTextFillColor: "transparent",
-      backgroundClip: "text",
-    }}
-  >
-    Student Result Viewer
-  </h1>
-  <p className="text-sm sm:text-base text-[#5A6C7D] font-medium">
-    View and export student academic results
-  </p>
-</div>
+        {/* Header */}
+        <div className="mb-6 sm:mb-8 text-center">
+          <h1
+            className="text-2xl sm:text-3xl md:text-4xl font-black mb-2"
+            style={{
+              background: "linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+            }}
+          >
+            Student Result Viewer
+          </h1>
+          <p className="text-sm sm:text-base text-[#5A6C7D] font-medium">
+            View and export student academic results
+          </p>
+        </div>
 
 
         {/* Search Form */}
-        <form 
-          ref={formRef} 
-          onSubmit={loadResult} 
+        <form
+          ref={formRef}
+          onSubmit={loadResult}
           className="rounded-2xl border-2 bg-white p-4 sm:p-6 mb-6 shadow-lg"
           style={{ borderColor: "rgba(5,163,199,0.2)" }}
         >
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-            <input 
-              name="registration" 
+            <input
+              name="registration"
               className="rounded-xl border-2 bg-white px-4 py-3 outline-none focus:ring-4 focus:ring-[#05A3C7]/20 text-[#1A1F29] font-medium transition-all touch-manipulation"
-              style={{ 
+              style={{
                 borderColor: "rgba(5,163,199,0.3)",
                 minHeight: "48px"
               }}
-              placeholder="Registration (e.g., 220101130056)" 
-              value={registration} 
-              onChange={e => { 
-                const v = e.target.value.toUpperCase(); 
-                setRegistration(v); 
-                if (v.length >= 6) loadSemesters(v); 
-              }} 
+              placeholder="Registration (e.g., 220101130056)"
+              value={registration}
+              onChange={e => {
+                const v = e.target.value.toUpperCase();
+                setRegistration(v);
+                if (v.length >= 6) loadSemesters(v);
+              }}
             />
-            
-            <select 
-              className="rounded-xl border-2 bg-white px-4 py-3 text-[#1A1F29] font-medium focus:ring-4 focus:ring-[#05A3C7]/20 outline-none transition-all touch-manipulation" 
-              style={{ 
+
+            <select
+              className="rounded-xl border-2 bg-white px-4 py-3 text-[#1A1F29] font-medium focus:ring-4 focus:ring-[#05A3C7]/20 outline-none transition-all touch-manipulation"
+              style={{
                 borderColor: "rgba(5,163,199,0.3)",
                 minHeight: "48px"
               }}
-              value={semester} 
+              value={semester}
               onChange={e => setSemester(e.target.value)}
             >
               <option value="">Select Semester</option>
-              <option value="ALL" disabled={semesters.length===0}>ALL</option>
+              <option value="ALL" disabled={semesters.length === 0}>ALL</option>
               {semesters.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
-            
-            <button 
+
+            <button
               className="rounded-xl text-white font-black px-5 py-3 transition-all duration-300 hover:shadow-lg hover:scale-105 disabled:opacity-60 disabled:cursor-not-allowed touch-manipulation flex items-center justify-center"
               style={{
                 background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
@@ -205,8 +216,8 @@ export default function TeacherResultsPage() {
                 </span>
               ) : "View Result"}
             </button>
-            
-           
+
+
           </div>
         </form>
 
@@ -223,7 +234,7 @@ export default function TeacherResultsPage() {
         {/* Single Semester Results */}
         {subjects.length > 0 && (
           <div className="rounded-2xl overflow-hidden border-2 bg-white shadow-lg mb-6" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
-            <div 
+            <div
               className="text-white px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
               style={{
                 background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
@@ -241,10 +252,10 @@ export default function TeacherResultsPage() {
                 </span>
               </div>
             </div>
-            
+
             {/* Mobile Card View */}
             <div className="block sm:hidden">
-              {subjects.map((r,i) => (
+              {subjects.map((r, i) => (
                 <div key={i} className="border-b-2 border-[#05A3C7]/10 p-4 hover:bg-[#05A3C7]/5 transition-colors">
                   <div className="flex items-start justify-between mb-2">
                     <code className="text-[#05A3C7] bg-[#05A3C7]/10 px-2 py-1 rounded font-bold text-sm">
@@ -261,18 +272,18 @@ export default function TeacherResultsPage() {
                 </div>
               ))}
             </div>
-            
+
             {/* Desktop Table View */}
             <div className="hidden sm:block overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead>
-                  <tr 
+                  <tr
                     className="text-white"
                     style={{
                       background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
                     }}
                   >
-                    {['Code','Subject','Credits','Grade'].map(h => (
+                    {['Code', 'Subject', 'Credits', 'Grade'].map(h => (
                       <th key={h} className="px-4 py-3 text-left uppercase tracking-wider font-black text-xs">
                         {h}
                       </th>
@@ -280,7 +291,7 @@ export default function TeacherResultsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {subjects.map((r,i) => (
+                  {subjects.map((r, i) => (
                     <tr key={i} className="border-t-2 border-[#05A3C7]/10 hover:bg-[#05A3C7]/5 transition-colors">
                       <td className="px-4 py-3">
                         <code className="text-[#05A3C7] bg-[#05A3C7]/10 px-2 py-1 rounded font-bold">
@@ -307,7 +318,7 @@ export default function TeacherResultsPage() {
         )}
 
         {/* All Semesters Results */}
-        {allResults.length>0 && (
+        {allResults.length > 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4 sm:gap-6">
             {/* Sidebar */}
             <aside className="rounded-2xl border-2 bg-white p-4 max-h-[70vh] overflow-auto shadow-lg" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
@@ -333,12 +344,12 @@ export default function TeacherResultsPage() {
                 ))}
               </ul>
             </aside>
-            
+
             {/* Results Cards */}
             <div className="space-y-6">
               {allResults.map(r => (
                 <div key={r.semester} className="rounded-2xl overflow-hidden border-2 bg-white shadow-lg" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
-                  <div 
+                  <div
                     className="text-white px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                     style={{
                       background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
@@ -356,10 +367,10 @@ export default function TeacherResultsPage() {
                       </span>
                     </div>
                   </div>
-                  
+
                   {/* Mobile Card View */}
                   <div className="block sm:hidden">
-                    {r.subjects.map((s,i) => (
+                    {r.subjects.map((s, i) => (
                       <div key={i} className="border-b-2 border-[#05A3C7]/10 p-4 hover:bg-[#05A3C7]/5 transition-colors">
                         <div className="flex items-start justify-between mb-2">
                           <code className="text-[#05A3C7] bg-[#05A3C7]/10 px-2 py-1 rounded font-bold text-sm">
@@ -376,18 +387,18 @@ export default function TeacherResultsPage() {
                       </div>
                     ))}
                   </div>
-                  
+
                   {/* Desktop Table View */}
                   <div className="hidden sm:block overflow-x-auto">
                     <table className="min-w-full text-sm">
                       <thead>
-                        <tr 
+                        <tr
                           className="text-white"
                           style={{
                             background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
                           }}
                         >
-                          {['Code','Subject','Credits','Grade'].map(h => (
+                          {['Code', 'Subject', 'Credits', 'Grade'].map(h => (
                             <th key={h} className="px-4 py-3 text-left uppercase tracking-wider font-black text-xs">
                               {h}
                             </th>
@@ -395,7 +406,7 @@ export default function TeacherResultsPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {r.subjects.map((s,i) => (
+                        {r.subjects.map((s, i) => (
                           <tr key={i} className="border-t-2 border-[#05A3C7]/10 hover:bg-[#05A3C7]/5 transition-colors">
                             <td className="px-4 py-3">
                               <code className="text-[#05A3C7] bg-[#05A3C7]/10 px-2 py-1 rounded font-bold">

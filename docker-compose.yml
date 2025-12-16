@@ -26,7 +26,7 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
       MONGO_INITDB_ROOT_PASSWORD: password123
-      MONGO_INITDB_DATABASE: cutm1
+      MONGO_INITDB_DATABASE: CUTMPKD
     volumes:
       - mongodb_data:/data/db
       - ./mongo-init:/docker-entrypoint-initdb.d
@@ -45,7 +45,7 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-      - MONGO_URI=mongodb://admin:password123@mongodb:27017/cutm1?authSource=admin
+      - MONGO_URI=mongodb://admin:password123@mongodb:27017/CUTMPKD?authSource=admin
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=your-super-secret-jwt-key-change-in-production
       - EMAIL_USER=your-email@gmail.com

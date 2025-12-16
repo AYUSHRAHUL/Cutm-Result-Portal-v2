@@ -1,5 +1,8 @@
 "use client";
 
+import { getSchoolApiUrl } from "@/lib/api-helper";
+import { getSchoolFromRegistration } from "@/lib/campus";
+
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { FaGithub, FaLinkedinIn, FaTwitter, FaFacebookF } from "react-icons/fa";
@@ -124,7 +127,12 @@ export default function UserDashboard() {
     try {
       setLoading(true);
       setError("");
-      const res = await fetch("/api/semesters", {
+      
+      // For user panel, determine school from registration number
+      const school = getSchoolFromRegistration(reg);
+      const semestersApiUrl = school === 'SOVET' ? '/api/sovet/semesters' : '/api/soet/semesters';
+      
+      const res = await fetch(semestersApiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ registration: reg }),

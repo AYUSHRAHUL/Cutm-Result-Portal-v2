@@ -28,7 +28,7 @@ export async function DELETE(req) {
     }
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    const db = await (async () => { const { getDatabaseFromRequest } = await import("@/lib/db-helper"); const dbName = await getDatabaseFromRequest(req); return client.db(dbName); })();
 
     const result = await db.collection("honours_domain_subjects")
       .deleteMany({ _id: { $in: validIds } });
@@ -43,5 +43,6 @@ export async function DELETE(req) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
 
 

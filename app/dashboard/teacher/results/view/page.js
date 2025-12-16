@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
 
 function ResultPageContent() {
   const router = useRouter();
@@ -37,7 +38,8 @@ function ResultPageContent() {
           const semesterResults = {};
 
           for (const sem of semesters) {
-            const res = await fetch("/api/result", {
+            let resultUrl = getSchoolApiUrl("result");
+            const res = await fetch(resultUrl, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ registration, semester: sem.trim() }),
@@ -56,7 +58,8 @@ function ResultPageContent() {
           setActiveSemester(0); // Start with first semester
         } else {
           // Single semester
-          const res = await fetch("/api/result", {
+          let resultUrl = getSchoolApiUrl("result");
+          const res = await fetch(resultUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ registration, semester }),

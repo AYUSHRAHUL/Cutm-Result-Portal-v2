@@ -29,7 +29,7 @@ export async function GET(req) {
 
     // Check if user is admin
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    const db = client.db("USER");
     const currentUser = await db.collection("users").findOne({ email: payload.email });
     
     if (!currentUser || currentUser.role !== "admin") {
@@ -65,7 +65,7 @@ export async function PUT(req) {
 
     // Check if user is admin
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    const db = client.db("USER");
     const currentUser = await db.collection("users").findOne({ email: payload.email });
     
     if (!currentUser || currentUser.role !== "admin") {

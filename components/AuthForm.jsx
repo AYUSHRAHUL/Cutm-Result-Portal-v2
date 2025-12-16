@@ -47,11 +47,18 @@ export default function AuthForm({ type = "login" }) {
 
       if (type === "login") {
         const role = String(data?.user?.role || "user").toLowerCase();
-        const target = role === "admin"
-          ? "/dashboard/admin"
-          : role === "teacher"
-            ? "/dashboard/teacher"
-            : "/dashboard/user";
+        const campus = data?.user?.campus || null;
+        
+        let target;
+        if (role === "admin") {
+          target = "/dashboard/admin";
+        } else if (role === "teacher") {
+          // Dynamic import for campus helper
+          const { getTeacherDashboardPath } = await import("@/lib/campus");
+          target = getTeacherDashboardPath(campus);
+        } else {
+          target = "/dashboard/user";
+        }
 
         window.location.replace(target);
       } else {

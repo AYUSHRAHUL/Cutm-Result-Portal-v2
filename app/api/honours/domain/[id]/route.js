@@ -28,7 +28,15 @@ export async function PUT(req, { params }) {
     }
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    // Get database based on campus and school
+    const { searchParams } = new URL(req.url);
+    const campusParam = searchParams.get('campus');
+    const schoolParam = searchParams.get('school');
+    const campus = campusParam || payload.campus || null;
+    const school = schoolParam || payload.school || null;
+    const { getCampusSchoolDatabase } = await import("@/lib/campus");
+    const dbName = getCampusSchoolDatabase(campus, school);
+    const db = client.db(dbName);
 
     const update = {
       Domain,
@@ -77,7 +85,15 @@ export async function DELETE(req, { params }) {
     }
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
+    // Get database based on campus and school
+    const { searchParams } = new URL(req.url);
+    const campusParam = searchParams.get('campus');
+    const schoolParam = searchParams.get('school');
+    const campus = campusParam || payload.campus || null;
+    const school = schoolParam || payload.school || null;
+    const { getCampusSchoolDatabase } = await import("@/lib/campus");
+    const dbName = getCampusSchoolDatabase(campus, school);
+    const db = client.db(dbName);
 
     const result = await db.collection("honours_domain_subjects")
       .deleteOne({ _id: new ObjectId(id) });

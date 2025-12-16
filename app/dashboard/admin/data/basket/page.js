@@ -1,9 +1,33 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
 
 export default function AdminCBCSBasketPage() {
+  const searchParams = useSearchParams();
+  const school = searchParams.get('school');
+  const isDiploma = school?.toUpperCase() === 'SOVET' || school?.toUpperCase()?.includes('VOCATIONAL');
+
+  const btechBranches = [
+    { value: "CIVIL", label: "CIVIL" },
+    { value: "EEE", label: "EEE" },
+    { value: "ECE", label: "ECE" },
+    { value: "MECHANICAL", label: "MECHANICAL" },
+    { value: "CSE", label: "CSE" },
+    { value: "AIML", label: "AIML" }
+  ];
+  const diplomaBranches = [
+    { value: "CIVIL", label: "CIVIL" },
+    { value: "EE", label: "EE" },
+    { value: "MECHANICAL", label: "MECHANICAL" },
+    { value: "CSE", label: "CSE" },
+    { value: "MINING", label: "MINING" },
+    { value: "AUTOMOBILE", label: "AUTOMOBILE" }
+  ];
+  const branchOptions = isDiploma ? diplomaBranches : btechBranches;
+
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -34,7 +58,9 @@ export default function AdminCBCSBasketPage() {
     try {
       setLoading(true);
       const qs = new URLSearchParams({ branch, basket, search, limit: "0" }).toString();
-      const res = await fetch(`/api/cbcs?${qs}`);
+      const baseUrl = getSchoolApiUrl("cbcs");
+      const separator = baseUrl.includes('?') ? '&' : '?';
+      const res = await fetch(baseUrl + separator + qs);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load");
       setItems(data.items || []);
@@ -53,13 +79,13 @@ export default function AdminCBCSBasketPage() {
       return () => clearTimeout(t);
     }
   }, [success]);
-  
+
   // Trigger search when search term changes
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       fetchItems();
     }, 300); // Debounce search by 300ms
-    
+
     return () => clearTimeout(timeoutId);
   }, [search, branch, basket]);
 
@@ -81,7 +107,7 @@ export default function AdminCBCSBasketPage() {
 
   async function removeOne(id) {
     try {
-      const res = await fetch(`/api/cbcs/${id}`, { method: "DELETE" });
+      const res = await fetch(getSchoolApiUrl(`cbcs/${id}`), { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Delete failed");
       setSuccess("Deleted");
@@ -95,7 +121,7 @@ export default function AdminCBCSBasketPage() {
     if (selectedIds.size === 0) return;
     try {
       setLoading(true);
-      await Promise.all(Array.from(selectedIds).map(id => fetch(`/api/cbcs/${id}`, { method: "DELETE" })));
+      await Promise.all(Array.from(selectedIds).map(id => fetch(getSchoolApiUrl(`cbcs/${id}`), { method: "DELETE" })));
       setSuccess(`Deleted ${selectedIds.size} item(s)`);
       await fetchItems();
     } catch (err) {
@@ -137,7 +163,7 @@ export default function AdminCBCSBasketPage() {
       if (!payload.Branch || !payload.SubjectCode || !payload.SubjectName) {
         throw new Error("Branch, Subject Code and Subject Name are required");
       }
-      const res = await fetch(`/api/cbcs/${editModal.item._id}`, {
+      const res = await fetch(getSchoolApiUrl(`cbcs/${editModal.item._id}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -179,7 +205,8 @@ export default function AdminCBCSBasketPage() {
         SubjectName: (addForm.SubjectName || '').trim(),
         Credits: (addForm.Credits ?? '').toString().trim(),
       };
-      const res = await fetch("/api/cbcs", {
+      const cbcsUrl = getSchoolApiUrl("cbcs");
+      const res = await fetch(cbcsUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -199,24 +226,25 @@ export default function AdminCBCSBasketPage() {
     try {
       setLoading(true);
       setUploadProgress(0);
-      
+
       const formData = new FormData();
       formData.append("file", uploadFile);
-      
-      const res = await fetch("/api/upload", {
+
+      const uploadUrl = getSchoolApiUrl("upload/cbcs");
+      const res = await fetch(uploadUrl, {
         method: "POST",
         body: formData
       });
-      
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
-      
+
       setSuccess(`Successfully uploaded ${data.count || 0} subjects`);
       closeAddModal();
       await fetchItems();
     } catch (err) {
       setError(err.message);
-    } finally { 
+    } finally {
       setLoading(false);
       setUploadProgress(0);
     }
@@ -244,7 +272,7 @@ export default function AdminCBCSBasketPage() {
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-light text-[#2c3e50]">Basket</span>
+            <span className="text-2xl font-light text-[#2c3e50]">{isDiploma ? 'Diploma' : 'Basket'}</span>
             <h1 className="text-2xl md:text-3xl font-light text-[#2c3e50]">Subject Management</h1>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -294,11 +322,9 @@ export default function AdminCBCSBasketPage() {
                 <label>Branch</label>
                 <select value={branch} onChange={e => setBranch(e.target.value)} className="form-control">
                   <option value="">All Branches</option>
-                  <option value="CIVIL">CIVIL</option>
-                  <option value="EEE">EEE</option>
-                  <option value="ECE">ECE</option>
-                  <option value="MECHANICAL">MECHANICAL</option>
-                  <option value="CSE">CSE</option>
+                  {branchOptions.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
                 </select>
               </div>
               <div className="form-group">
@@ -382,29 +408,29 @@ export default function AdminCBCSBasketPage() {
               <div className="modal-body">
                 <div className="form-group">
                   <label>Branch</label>
-                  <select value={editForm.Branch} onChange={e => setEditForm({...editForm, Branch: e.target.value})} className="form-control">
+                  <select value={editForm.Branch} onChange={e => setEditForm({ ...editForm, Branch: e.target.value })} className="form-control">
                     <option value="">Select Branch</option>
                     {branches.map(b => <option key={b} value={b}>{b}</option>)}
                   </select>
                 </div>
                 <div className="form-group">
                   <label>Basket</label>
-                  <select value={editForm.Basket} onChange={e => setEditForm({...editForm, Basket: e.target.value})} className="form-control">
+                  <select value={editForm.Basket} onChange={e => setEditForm({ ...editForm, Basket: e.target.value })} className="form-control">
                     <option value="">Select Basket</option>
                     {baskets.map(b => <option key={b} value={b}>{b}</option>)}
                   </select>
                 </div>
                 <div className="form-group">
                   <label>Subject Code</label>
-                  <input value={editForm.SubjectCode} onChange={e => setEditForm({...editForm, SubjectCode: e.target.value})} className="form-control" />
+                  <input value={editForm.SubjectCode} onChange={e => setEditForm({ ...editForm, SubjectCode: e.target.value })} className="form-control" />
                 </div>
                 <div className="form-group">
                   <label>Subject Name</label>
-                  <input value={editForm.SubjectName} onChange={e => setEditForm({...editForm, SubjectName: e.target.value})} className="form-control" />
+                  <input value={editForm.SubjectName} onChange={e => setEditForm({ ...editForm, SubjectName: e.target.value })} className="form-control" />
                 </div>
                 <div className="form-group">
                   <label>Credits</label>
-                  <input value={editForm.Credits} onChange={e => setEditForm({...editForm, Credits: e.target.value})} className="form-control" placeholder="e.g., 3 or 1+2+0" />
+                  <input value={editForm.Credits} onChange={e => setEditForm({ ...editForm, Credits: e.target.value })} className="form-control" placeholder="e.g., 3 or 1+2+0" />
                   <small className="text-muted">You can use formats like 3 or 1+2+0</small>
                 </div>
               </div>
@@ -429,29 +455,29 @@ export default function AdminCBCSBasketPage() {
                   <>
                     <div className="form-group">
                       <label>Branch</label>
-                      <select value={addForm.Branch} onChange={e => setAddForm({...addForm, Branch: e.target.value})} className="form-control">
+                      <select value={addForm.Branch} onChange={e => setAddForm({ ...addForm, Branch: e.target.value })} className="form-control">
                         <option value="">Select Branch</option>
                         {branches.map(b => <option key={b} value={b}>{b}</option>)}
                       </select>
                     </div>
                     <div className="form-group">
                       <label>Basket</label>
-                      <select value={addForm.Basket} onChange={e => setAddForm({...addForm, Basket: e.target.value})} className="form-control">
+                      <select value={addForm.Basket} onChange={e => setAddForm({ ...addForm, Basket: e.target.value })} className="form-control">
                         <option value="">Select Basket</option>
                         {baskets.map(b => <option key={b} value={b}>{b}</option>)}
                       </select>
                     </div>
                     <div className="form-group">
                       <label>Subject Code</label>
-                      <input value={addForm.SubjectCode} onChange={e => setAddForm({...addForm, SubjectCode: e.target.value})} className="form-control" placeholder="e.g., CS101" />
+                      <input value={addForm.SubjectCode} onChange={e => setAddForm({ ...addForm, SubjectCode: e.target.value })} className="form-control" placeholder="e.g., CS101" />
                     </div>
                     <div className="form-group">
                       <label>Subject Name</label>
-                      <input value={addForm.SubjectName} onChange={e => setAddForm({...addForm, SubjectName: e.target.value})} className="form-control" placeholder="e.g., Data Structures" />
+                      <input value={addForm.SubjectName} onChange={e => setAddForm({ ...addForm, SubjectName: e.target.value })} className="form-control" placeholder="e.g., Data Structures" />
                     </div>
                     <div className="form-group">
                       <label>Credits</label>
-                      <input value={addForm.Credits} onChange={e => setAddForm({...addForm, Credits: e.target.value})} className="form-control" placeholder="e.g., 3 or 1+2+0" />
+                      <input value={addForm.Credits} onChange={e => setAddForm({ ...addForm, Credits: e.target.value })} className="form-control" placeholder="e.g., 3 or 1+2+0" />
                       <small className="text-muted">You can use formats like 3 or 1+2+0</small>
                     </div>
                   </>

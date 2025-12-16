@@ -45,12 +45,35 @@ function LoginForm() {
       setMessage("✅ Login successful! Redirecting...");
 
       const role = String(data?.user?.role || "user").toLowerCase();
-      const target =
-        role === "admin"
-          ? "/dashboard/admin"
-          : role === "teacher"
-          ? "/dashboard/teacher"
-          : "/dashboard/user";
+      const campus = data?.user?.campus;
+      const employeeId = data?.user?.employeeId;
+      
+      console.log('[LOGIN PAGE] Login response:', { role, campus, employeeId });
+      
+      // Store campus and employee ID for school selection page
+      if (role === "teacher") {
+        if (campus) {
+          localStorage.setItem('campus', campus);
+          console.log(`[LOGIN PAGE] Stored campus in localStorage: ${campus}`);
+        } else {
+          console.warn('[LOGIN PAGE] No campus returned from login API');
+        }
+        if (employeeId) {
+          localStorage.setItem('employeeId', employeeId);
+        }
+      }
+      
+      let target;
+      if (role === "admin") {
+        target = "/dashboard/admin";
+      } else if (role === "teacher") {
+        // Import campus helper dynamically
+        const { getTeacherDashboardPath } = await import("@/lib/campus");
+        target = getTeacherDashboardPath(campus);
+        console.log(`[LOGIN PAGE] Teacher redirect target: ${target}`);
+      } else {
+        target = "/dashboard/user";
+      }
 
       window.location.replace(target);
     } catch (err) {

@@ -16,8 +16,11 @@ export async function GET(request) {
     }
 
     const client = await clientPromise;
-    const db = client.db('CUTM1');
-    const cutmCollection = db.collection('CUTM1');
+    // Get database based on campus and school
+    const { getDatabaseFromRequest } = await import("@/lib/db-helper");
+    const dbName = await getDatabaseFromRequest(request);
+    const db = client.db(dbName);
+    const cutmCollection = db.collection('result');
     const registrationCollection = db.collection('RegistrationData');
 
     // Get all data for analysis
@@ -103,8 +106,7 @@ function analyzeDepartmentPerformance(records) {
   const deptStats = {};
   records.forEach(record => {
     if (record.Reg_No && record.Reg_No.length >= 8) {
-      const deptCode = record.Reg_No.charAt(7);
-      const deptName = deptMap[deptCode];
+      const deptName = getBranchFromRegistration(record.Reg_No);
       if (deptName) {
         if (!deptStats[deptName]) {
           deptStats[deptName] = { total: 0, passed: 0, failed: 0, grades: [] };
@@ -390,8 +392,7 @@ function checkPerformanceDrops(records) {
   const deptStats = {};
   records.forEach(record => {
     if (record.Reg_No && record.Reg_No.length >= 8) {
-      const deptCode = record.Reg_No.charAt(7);
-      const deptName = deptMap[deptCode];
+      const deptName = getBranchFromRegistration(record.Reg_No);
       if (deptName) {
         if (!deptStats[deptName]) {
           deptStats[deptName] = { total: 0, passed: 0 };
@@ -519,3 +520,4 @@ function checkCriticalStudents(records) {
 
   return alerts;
 }
+

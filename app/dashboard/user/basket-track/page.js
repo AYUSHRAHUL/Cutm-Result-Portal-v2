@@ -144,9 +144,21 @@ export default function UserBasketTrack() {
     const totalFailed = entries.reduce((sum, b) => sum + (Number(b?.failed_credits) || 0), 0);
     const totalCredits = totalEarned + totalFailed;
     
-    // Check if student is lateral entry
+    // Check if student is lateral entry / diploma from API data
     const isLateralEntry = studentData?.is_lateral_entry || false;
-    const totalRequired = isLateralEntry ? 120 : 160;
+    const apiTotalRequired = studentData?.overall_stats?.total_required_credits;
+    // Fallback logic only if API didn't send total_required_credits
+    const fallbackTotalRequired = (() => {
+      const isDiploma = studentData?.is_diploma || false;
+      if (isDiploma) {
+        // Diploma: 120 (regular) or 80 (lateral)
+        return isLateralEntry ? 80 : 120;
+      }
+      // B.Tech: 160 (regular) or 120 (lateral)
+      return isLateralEntry ? 120 : 160;
+    })();
+
+    const totalRequired = typeof apiTotalRequired === "number" ? apiTotalRequired : fallbackTotalRequired;
     const percentage = Math.min(100, Math.round((totalEarned / totalRequired) * 100));
     
     return { totalBaskets, basketsCompleted, totalEarned, totalFailed, totalCredits, totalRequired, percentage, isLateralEntry };
@@ -1120,7 +1132,11 @@ export default function UserBasketTrack() {
                       <tr className="border-b border-gray-200">
                         <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Student Type:</td>
                         <td className="px-4 py-3 text-gray-900">
-                          {studentData.is_lateral_entry ? (
+                          {studentData?.student_type ? (
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                              {studentData.student_type}
+                            </span>
+                          ) : studentData.is_lateral_entry ? (
                             <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
                               Lateral Entry Student
                             </span>
@@ -1134,9 +1150,16 @@ export default function UserBasketTrack() {
                       <tr className="border-b border-gray-200">
                         <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Total Required Credits:</td>
                         <td className="px-4 py-3 text-gray-900">
-                          <span className={studentData.is_lateral_entry ? "text-orange-600 font-semibold" : ""}>
-                            {studentData.is_lateral_entry ? "120 credits (Lateral Entry)" : "160 credits (Regular)"}
-                          </span>
+                          {studentData?.overall_stats?.total_required_credits ? (
+                            <span className={studentData.is_lateral_entry ? "text-orange-600 font-semibold" : ""}>
+                              {studentData.overall_stats.total_required_credits} credits
+                              {studentData?.student_type ? ` (${studentData.student_type})` : ""}
+                            </span>
+                          ) : (
+                            <span className={studentData.is_lateral_entry ? "text-orange-600 font-semibold" : ""}>
+                              {overallStats.totalRequired} credits
+                            </span>
+                          )}
                         </td>
                       </tr>
                       <tr>

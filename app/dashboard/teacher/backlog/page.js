@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
+import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
 
 // Helpers
 const branchMapFull = {
@@ -12,27 +14,19 @@ const branchMapFull = {
   'EEE': 'Electrical & Electronics Engineering',
   'Mechanical': 'Mechanical Engineering',
   'Civil': 'Civil Engineering',
-  'AIML': 'AIML'
+  'AIML': 'AIML',
+  'EE': 'Electrical Engineering',
+  'Mining': 'Mining Engineering',
+  'Automobile': 'Automobile Engineering'
 };
 
-const shortBranchFromCode = {
-  '1': 'Civil', '2': 'CSE', '3': 'ECE', '4': 'ECE',
-  '5': 'EEE', '6': 'Mechanical', '7': 'AIML',
-  '8': 'CSE', '9': 'Civil'
-};
+
 
 function getFullBranchName(shortBranch) {
   return branchMapFull[shortBranch] || shortBranch || "";
 }
 
-function getBranchFromRegNo(regNo = "") {
-  if (regNo.length < 8) return "";
-  const code = regNo.charAt(7);
-  const short = shortBranchFromCode[code] || "";
-  return short ? getFullBranchName(short) : "";
-}
-
-function deriveBatchFromReg(regNo = "") {
+function getBatchYear(regNo = "") {
   if (!regNo || regNo.length < 2) return "";
   const yy = regNo.slice(0, 2);
   return `20${yy}`;
@@ -40,10 +34,59 @@ function deriveBatchFromReg(regNo = "") {
 
 function pickBatch(preferredYear = "", regNo = "") {
   if (preferredYear && preferredYear !== "All") return preferredYear;
-  return deriveBatchFromReg(regNo);
+  return getBatchYear(regNo) || "";
+}
+
+// Helper function to get branch from registration number
+function getBranchFromRegistration(regNo = "", department = null) {
+  if (!regNo || regNo.length < 8) return department || "";
+  
+  // For Diploma (SOVET), use index 5-7
+  if (regNo.length >= 8) {
+    const branchCode = regNo.slice(5, 8); // Index 5-7
+    const diplomaBranchMap = {
+      '711': 'Electrical',
+      '712': 'Mechanical',
+      '713': 'Civil',
+      '714': 'CSE',
+      '715': 'Automobile',
+      '716': 'Mining'
+    };
+    const branchName = diplomaBranchMap[branchCode];
+    if (branchName) {
+      return getFullBranchName(branchName);
+    }
+  }
+  
+  // For B.Tech (SOET), use index 5-7
+  if (regNo.length >= 8) {
+    const branchCode = regNo.slice(5, 8); // Index 5-7
+    const btechBranchMap = {
+      '111': 'Civil',
+      '112': 'CSE',
+      '113': 'ECE',
+      '115': 'EEE',
+      '116': 'Mechanical',
+      '117': 'CSE AIML'
+    };
+    const branchName = btechBranchMap[branchCode];
+    if (branchName) {
+      return getFullBranchName(branchName);
+    }
+  }
+  
+  return department || "";
 }
 
 export default function TeacherBacklogPage() {
+  const searchParams = useSearchParams();
+  const school = searchParams.get('school');
+  const isDiploma = school?.toUpperCase() === 'SOVET' || school?.toUpperCase()?.includes('VOCATIONAL');
+
+  const btechBranches = ["Civil", "CSE", "ECE", "EEE", "Mechanical", "AIML"];
+  const diplomaBranches = ["Civil", "CSE", "EE", "Mechanical", "Mining", "Automobile"];
+  const branchList = isDiploma ? diplomaBranches : btechBranches;
+
   const [registration, setRegistration] = useState("");
   const [subjectCode, setSubjectCode] = useState("");
   const [branch, setBranch] = useState("");
@@ -72,39 +115,39 @@ export default function TeacherBacklogPage() {
   // CSV Export Function
   function exportCSV() {
     if (rows.length === 0) return;
-    
+
     // Determine if this is a subject search
     const isSubjectSearchExport = !selectedReg && !registration && (selectedSubject || subjectCode);
-    
+
     const headers = isSubjectSearchExport
       ? ["Name", "Registration No", "Branch", "Batch", "Subject Code", "Subject Name", "Semester", "Grade"]
       : ["Subject Code", "Subject Name", "Semester", "Grade"];
-    
+
     const csvRows = rows.map(b => {
       const rowData = isSubjectSearchExport
         ? [
-            b.Name || '',
-            b.Reg_No || b.registration || '',
-            b.Branch || '',
-            b.Batch || '',
-            b.Subject_Code || b.subject_code || '',
-            b.Subject_Name || '',
-            b.Sem || '',
-            b.Grade || ''
-          ]
+          b.Name || '',
+          b.Reg_No || b.registration || '',
+          b.Branch || '',
+          b.Batch || '',
+          b.Subject_Code || b.subject_code || '',
+          b.Subject_Name || '',
+          b.Sem || '',
+          b.Grade || ''
+        ]
         : [
-            b.Subject_Code || b.subject_code || '',
-            b.Subject_Name || '',
-            b.Sem || '',
-            b.Grade || ''
-          ];
-      
+          b.Subject_Code || b.subject_code || '',
+          b.Subject_Name || '',
+          b.Sem || '',
+          b.Grade || ''
+        ];
+
       return rowData.map(field => {
         const str = String(field).replace(/"/g, '""');
         return /[",\n]/.test(str) ? `"${str}"` : str;
       }).join(',');
     });
-    
+
     const csv = [headers.join(','), ...csvRows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -123,7 +166,7 @@ export default function TeacherBacklogPage() {
       alert("No data available to export.");
       return;
     }
-    
+
     try {
       const excelData = studentSummary.map((student, idx) => ({
         "S.No": idx + 1,
@@ -152,7 +195,6 @@ export default function TeacherBacklogPage() {
       const filename = `All_Students_Summary_${dateStr}.xlsx`;
       XLSX.writeFile(wb, filename);
     } catch (error) {
-      console.error("Excel export error:", error);
       alert("Failed to export to Excel. Please try again.");
     }
   }
@@ -160,7 +202,7 @@ export default function TeacherBacklogPage() {
   // Export Branch-wise Summary to Excel
   function exportBranchWiseToExcel() {
     if (!branchWiseCounts || branchWiseCounts.length === 0) return;
-    
+
     try {
       const excelData = branchWiseCounts.map((item, idx) => ({
         "S.No": idx + 1,
@@ -200,7 +242,7 @@ export default function TeacherBacklogPage() {
       alert("No data available to generate report.");
       return;
     }
-    
+
     try {
       // Check if jsPDF is available
       if (typeof jsPDF === 'undefined') {
@@ -209,18 +251,18 @@ export default function TeacherBacklogPage() {
       }
 
       const doc = new jsPDF();
-      
+
       // Add title
       doc.setFontSize(18);
       doc.setTextColor(30, 41, 59);
       doc.text("Branch-wise Backlog Summary Report", 14, 20);
-      
+
       // Add date and filters
       doc.setFontSize(10);
       doc.setTextColor(100, 100, 100);
-      const dateStr = new Date().toLocaleDateString('en-GB', { 
-        day: '2-digit', 
-        month: 'short', 
+      const dateStr = new Date().toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
         year: 'numeric',
         hour: '2-digit',
         minute: '2-digit'
@@ -249,16 +291,16 @@ export default function TeacherBacklogPage() {
         let yPos = 50;
         doc.setFontSize(9);
         doc.setTextColor(30, 41, 59);
-        
+
         // Headers
         doc.setFont(undefined, 'bold');
         doc.text("S.No", 14, yPos);
         doc.text("Batch & Branch", 25, yPos);
         doc.text("Number of Backlogs", 120, yPos);
-        
+
         yPos += 8;
         doc.setFont(undefined, 'normal');
-        
+
         tableData.forEach((row) => {
           if (yPos > 280) {
             doc.addPage();
@@ -300,7 +342,6 @@ export default function TeacherBacklogPage() {
       const filename = `Branch_Wise_Backlog_Summary_${dateStrFile}.pdf`;
       doc.save(filename);
     } catch (error) {
-      console.error("PDF generation error:", error);
       alert(`Failed to generate report: ${error.message || "Unknown error"}`);
     }
   }
@@ -311,7 +352,7 @@ export default function TeacherBacklogPage() {
       alert("No data available to export.");
       return;
     }
-    
+
     try {
       const excelData = detailedSubjectBreakdown.map((item, idx) => ({
         "S.No": idx + 1,
@@ -340,7 +381,6 @@ export default function TeacherBacklogPage() {
       const filename = `Detailed_Subject_Breakdown_${dateStr}.xlsx`;
       XLSX.writeFile(wb, filename);
     } catch (error) {
-      console.error("Excel export error:", error);
       alert("Failed to export to Excel. Please try again.");
     }
   }
@@ -351,7 +391,7 @@ export default function TeacherBacklogPage() {
       alert("No data available to generate report.");
       return;
     }
-    
+
     try {
       if (typeof jsPDF === 'undefined') {
         alert("PDF library not loaded. Please refresh the page.");
@@ -359,18 +399,18 @@ export default function TeacherBacklogPage() {
       }
 
       const doc = new jsPDF();
-      
+
       // Add title
       doc.setFontSize(18);
       doc.setTextColor(30, 41, 59);
       doc.text("Detailed Subject Breakdown Report", 14, 20);
-      
+
       // Add date and filters
       doc.setFontSize(10);
       doc.setTextColor(100, 100, 100);
-      const dateStr = new Date().toLocaleDateString('en-GB', { 
-        day: '2-digit', 
-        month: 'short', 
+      const dateStr = new Date().toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
         year: 'numeric',
         hour: '2-digit',
         minute: '2-digit'
@@ -427,7 +467,7 @@ export default function TeacherBacklogPage() {
         let yPos = 50;
         doc.setFontSize(7);
         doc.setTextColor(30, 41, 59);
-        
+
         // Headers
         doc.setFont(undefined, 'bold');
         doc.text("S.No", 14, yPos);
@@ -436,10 +476,10 @@ export default function TeacherBacklogPage() {
         doc.text("Subject Code", 70, yPos);
         doc.text("Subject Name", 95, yPos);
         doc.text("Count", 150, yPos);
-        
+
         yPos += 6;
         doc.setFont(undefined, 'normal');
-        
+
         tableData.forEach((row) => {
           if (yPos > 280) {
             doc.addPage();
@@ -459,7 +499,6 @@ export default function TeacherBacklogPage() {
       const filename = `Detailed_Subject_Breakdown_${dateStrFile}.pdf`;
       doc.save(filename);
     } catch (error) {
-      console.error("PDF generation error:", error);
       alert(`Failed to generate report: ${error.message || "Unknown error"}`);
     }
   }
@@ -467,14 +506,14 @@ export default function TeacherBacklogPage() {
   // Export Detailed Results to Excel
   function exportDetailedResultsToExcel() {
     if (filteredRows.length === 0) return;
-    
+
     try {
       const excelData = filteredRows.map((row, idx) => {
-        const branchName = row.Branch || getBranchFromRegNo(row.Reg_No || row.registration || "") || "Unknown";
-        const fullBranchName = branchName.length <= 5 && branchName !== "AIML" 
-          ? getFullBranchName(branchName) 
+        const branchName = getBranchFromRegistration(row.Reg_No || row.registration || "", row.Branch) || "Unknown";
+        const fullBranchName = branchName.length <= 5 && branchName !== "AIML"
+          ? getFullBranchName(branchName)
           : branchName;
-        
+
         // Remove "Sem" prefix if already present in the data
         let semValue = String(row.Sem || "");
         if (semValue.toLowerCase().startsWith("sem")) {
@@ -483,7 +522,7 @@ export default function TeacherBacklogPage() {
         if (semValue && !semValue.toLowerCase().startsWith("sem")) {
           semValue = `Sem ${semValue}`;
         }
-        
+
         return {
           "S.No": idx + 1,
           "Name": row.Name || "",
@@ -528,7 +567,7 @@ export default function TeacherBacklogPage() {
       alert("No data available to generate report.");
       return;
     }
-    
+
     try {
       // Check if jsPDF is available
       if (typeof jsPDF === 'undefined') {
@@ -537,18 +576,18 @@ export default function TeacherBacklogPage() {
       }
 
       const doc = new jsPDF();
-      
+
       // Add title
       doc.setFontSize(18);
       doc.setTextColor(30, 41, 59);
       doc.text("Detailed Backlog Results Report", 14, 20);
-      
+
       // Add date and filters
       doc.setFontSize(10);
       doc.setTextColor(100, 100, 100);
-      const dateStr = new Date().toLocaleDateString('en-GB', { 
-        day: '2-digit', 
-        month: 'short', 
+      const dateStr = new Date().toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
         year: 'numeric',
         hour: '2-digit',
         minute: '2-digit'
@@ -563,11 +602,11 @@ export default function TeacherBacklogPage() {
 
       // Prepare table data - ensure all values are strings
       const tableData = filteredRows.map((row, idx) => {
-        const branchName = row.Branch || getBranchFromRegNo(row.Reg_No || row.registration || "") || "Unknown";
-        const fullBranchName = branchName.length <= 5 && branchName !== "AIML" 
-          ? getFullBranchName(branchName) 
+        const branchName = getBranchFromRegistration(row.Reg_No || row.registration || "", row.Branch) || "Unknown";
+        const fullBranchName = branchName.length <= 5 && branchName !== "AIML"
+          ? getFullBranchName(branchName)
           : branchName;
-        
+
         // Remove "Sem" prefix if already present in the data
         let semValue = String(row.Sem || "");
         if (semValue.toLowerCase().startsWith("sem")) {
@@ -576,7 +615,7 @@ export default function TeacherBacklogPage() {
         if (semValue && !semValue.toLowerCase().startsWith("sem")) {
           semValue = `Sem ${semValue}`;
         }
-        
+
         return [
           String(idx + 1),
           String(row.Name || "").substring(0, 30),
@@ -594,7 +633,7 @@ export default function TeacherBacklogPage() {
         let yPos = 50;
         doc.setFontSize(7);
         doc.setTextColor(30, 41, 59);
-        
+
         // Headers
         doc.setFont(undefined, 'bold');
         doc.text("S.No", 14, yPos);
@@ -604,10 +643,10 @@ export default function TeacherBacklogPage() {
         doc.text("Batch", 110, yPos);
         doc.text("Sem", 125, yPos);
         doc.text("Grade", 140, yPos);
-        
+
         yPos += 6;
         doc.setFont(undefined, 'normal');
-        
+
         tableData.forEach((row) => {
           if (yPos > 280) {
             doc.addPage();
@@ -657,7 +696,6 @@ export default function TeacherBacklogPage() {
       const filename = `Detailed_Backlog_Results_${dateStrFile}.pdf`;
       doc.save(filename);
     } catch (error) {
-      console.error("PDF generation error:", error);
       alert(`Failed to generate report: ${error.message || "Unknown error"}`);
     }
   }
@@ -697,32 +735,32 @@ export default function TeacherBacklogPage() {
         setShowAllMode(true);
       } else if (regValue) {
         setShowAllMode(false);
-        
+
         // Find student info for selected registration
         const studentInfo = studentSummary.find(s => (s.Reg_No || "").toUpperCase() === regValueUpper);
         if (studentInfo) {
           // Student info already has full branch name from summary fetching
-        setSelectedStudentInfo((prev) => ({
-          Reg_No: (studentInfo.Reg_No || regValueUpper || "").toUpperCase(),
-          Name: studentInfo.Name || prev?.Name || "",
-          Branch: studentInfo.Branch || prev?.Branch || "",
-          Batch: studentInfo.Batch || prev?.Batch || pickBatch(year, regValueUpper)
-        }));
+          setSelectedStudentInfo((prev) => ({
+            Reg_No: (studentInfo.Reg_No || regValueUpper || "").toUpperCase(),
+            Name: studentInfo.Name || prev?.Name || "",
+            Branch: studentInfo.Branch || prev?.Branch || "",
+            Batch: studentInfo.Batch || prev?.Batch || pickBatch(year, regValueUpper)
+          }));
         } else {
           // Try to extract branch from registration number if not found
           let extractedBranch = "";
           if (regValueUpper.length >= 8) {
-            extractedBranch = getBranchFromRegNo(regValueUpper);
+            extractedBranch = getBranchFromRegistration(regValueUpper);
           }
           if (!extractedBranch && branch && branch !== "All") {
             extractedBranch = getFullBranchName(branch);
           }
-        setSelectedStudentInfo({
-          Reg_No: regValueUpper,
-          Name: selectedStudentInfo?.Name || "",
-          Branch: extractedBranch,
-          Batch: selectedStudentInfo?.Batch || pickBatch(year, regValueUpper)
-        });
+          setSelectedStudentInfo({
+            Reg_No: regValueUpper,
+            Name: selectedStudentInfo?.Name || "",
+            Branch: extractedBranch,
+            Batch: selectedStudentInfo?.Batch || pickBatch(year, regValueUpper)
+          });
         }
       }
       // Guard: avoid unfiltered query that could fetch whole data on first load
@@ -735,19 +773,20 @@ export default function TeacherBacklogPage() {
       const body = regValue
         ? { registration: regValueUpper }
         : {
-            subject_code: (subjValue || "").toUpperCase(),
-            branch: branch || "",
-            year: year || "",
-            allowAll: isAll ? true : undefined
-          };
+          subject_code: (subjValue || "").toUpperCase(),
+          branch: branch || "",
+          year: year || "",
+          allowAll: isAll ? true : undefined
+        };
       // Use AbortController to cancel previous slow requests when typing quickly
       if (search.controller) {
-        try { search.controller.abort(); } catch {}
+        try { search.controller.abort(); } catch { }
       }
       const reqId = Date.now();
       search.requestId = reqId;
       search.controller = new AbortController();
-      const res = await fetch("/api/backlogs", {
+      const url = getSchoolApiUrl("backlogs");
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: search.controller.signal,
@@ -761,7 +800,7 @@ export default function TeacherBacklogPage() {
       setRows(list);
       setCount(list.length);
       setMessage(data.message || "Results loaded");
-      
+
       // Update student info from results or fetch student record (handles zero-backlog cases)
       if (regValue && (!effectiveSelectedInfo || !effectiveSelectedInfo.Name || !effectiveSelectedInfo.Batch)) {
         let studentBranch = "";
@@ -788,14 +827,15 @@ export default function TeacherBacklogPage() {
 
         // Branch override
         try {
-          const overrideRes = await fetch(`/api/branch-change?reg=${regValueUpper}`);
+          const overrideUrl = appendSchoolParams(`/api/branch-change?reg=${regValueUpper}`);
+          const overrideRes = await fetch(overrideUrl);
           if (overrideRes.ok) {
             const overrideData = await overrideRes.json();
             if (overrideData.override) {
               studentBranch = overrideData.override;
             }
           }
-        } catch {}
+        } catch { }
 
         // Normalize branch
         if (studentBranch && studentBranch.length <= 5 && studentBranch !== "AIML") {
@@ -810,7 +850,8 @@ export default function TeacherBacklogPage() {
         // If name or batch missing, fetch student record
         if (!studentName || !studentBatch) {
           try {
-            const studentRes = await fetch("/api/students", {
+            const studentUrl = getSchoolApiUrl("students");
+            const studentRes = await fetch(studentUrl, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ registration: regValueUpper })
@@ -828,7 +869,7 @@ export default function TeacherBacklogPage() {
                 if (!studentBatch) studentBatch = pickBatch(year, regValueUpper);
               }
             }
-          } catch {}
+          } catch { }
         }
 
         setSelectedStudentInfo({
@@ -880,25 +921,27 @@ export default function TeacherBacklogPage() {
   useEffect(() => {
     const t = setTimeout(async () => {
       try {
-        if (regMode !== "list") { 
-          setRegList([]); 
+        if (regMode !== "list") {
+          setRegList([]);
           setSelectedReg("");
           setStudentSummary([]);
-          return; 
+          return;
         }
-        if (!branch && !year) { 
-          setRegList([]); 
+        if (!branch && !year) {
+          setRegList([]);
           setSelectedReg("");
           setStudentSummary([]);
-          return; 
+          return;
         }
-        
+
         // Use backend that includes branch_overrides for accurate lists
         if (loadRegsControllerRef.current) {
-          try { loadRegsControllerRef.current.abort(); } catch {}
+          try { loadRegsControllerRef.current.abort(); } catch { }
         }
         loadRegsControllerRef.current = new AbortController();
-        const res = await fetch("/api/batch", {
+        const baseBatchUrl = getSchoolApiUrl("batch");
+        const url = baseBatchUrl.includes('?') ? `${baseBatchUrl}&mode=list` : `${baseBatchUrl}?mode=list`;
+        const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: loadRegsControllerRef.current.signal,
@@ -920,12 +963,12 @@ export default function TeacherBacklogPage() {
           // Fetch branch overrides for all students in parallel
           const uniqueRegNos = Array.from(new Set(list));
           const overridePromises = uniqueRegNos.map(regNo =>
-            fetch(`/api/branch-change?reg=${regNo}`)
+            fetch(appendSchoolParams(`/api/branch-change?reg=${regNo}`))
               .then(res => res.ok ? res.json() : null)
               .then(data => data?.override ? { reg: regNo.toUpperCase(), branch: data.override } : null)
               .catch(() => null)
           );
-          
+
           const overrideResults = await Promise.all(overridePromises);
           const branchOverrides = new Map();
           overrideResults.forEach(ov => {
@@ -937,20 +980,21 @@ export default function TeacherBacklogPage() {
           // Fetch backlog counts for each student
           const summaryPromises = uniqueRegNos.map(async (regNo) => {
             try {
-              const backlogRes = await fetch("/api/backlogs", {
+              const backlogUrl = getSchoolApiUrl("backlogs");
+              const backlogRes = await fetch(backlogUrl, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ registration: regNo })
               });
               const backlogData = await backlogRes.json();
               const backlogs = backlogData.backlogs || backlogData.result || [];
-              
+
               // Find student info from batch data
               const studentInfo = students.find(s => (s.Reg_No || s.registration || "").toUpperCase() === regNo.toUpperCase());
-              
+
               // Get branch in priority order: override > student info > backlog data > reg number > filter
               let studentBranch = "";
-              
+
               // 1. Check branch overrides first
               if (branchOverrides.has(regNo.toUpperCase())) {
                 studentBranch = branchOverrides.get(regNo.toUpperCase());
@@ -982,13 +1026,13 @@ export default function TeacherBacklogPage() {
               if (!studentBranch && branch && branch !== "All") {
                 studentBranch = getFullBranchName(branch);
               }
-              
+
               // Get name from student info or backlog data
               let studentName = studentInfo?.Name || "";
               if (!studentName && backlogs.length > 0) {
                 studentName = backlogs[0]?.Name || "";
               }
-              
+
               return {
                 Reg_No: regNo,
                 Name: studentName,
@@ -1039,7 +1083,10 @@ export default function TeacherBacklogPage() {
         const params = new URLSearchParams();
         if (branch) params.set("branch", branch);
         params.set("limit", "0");
-        const res = await fetch(`/api/cbcs?${params.toString()}`);
+        const baseUrl = getSchoolApiUrl("cbcs");
+        const separator = baseUrl.includes('?') ? '&' : '?';
+        const url = baseUrl + separator + params.toString();
+        const res = await fetch(url);
         const data = await res.json();
         if (res.ok) {
           const items = data.items || [];
@@ -1071,34 +1118,34 @@ export default function TeacherBacklogPage() {
 
   const filteredRows = getFilteredRows();
   const uniqueGrades = Array.from(new Set(rows.map(r => r.Grade).filter(Boolean)));
-  
+
   // Determine if this is a subject search (not registration search)
   const isSubjectSearch = !selectedReg && !registration && (selectedSubject || subjectCode);
   const subjectResultCount = isSubjectSearch ? filteredRows.length : 0;
-  
+
   // Check if we should show branch-wise summary
   // Case 1: Subject search with branch=all and batch=all (show batch+branch combinations)
   // Case 2: Subject search with branch=all and specific batch selected (show branch-wise for that batch)
-  const showBranchWiseSummary = isSubjectSearch && 
-    (branch === "All" || branch === "" || !branch) && 
+  const showBranchWiseSummary = isSubjectSearch &&
+    (branch === "All" || branch === "" || !branch) &&
     filteredRows.length > 0;
-  
+
   // Check if both batch and branch are "All" - then show batch+branch combinations
-  const showBatchBranchCombinations = showBranchWiseSummary && 
+  const showBatchBranchCombinations = showBranchWiseSummary &&
     (year === "All" || year === "" || !year);
-  
+
   // Calculate branch-wise or batch+branch-wise backlog counts
   const branchWiseCounts = useMemo(() => {
     if (!showBranchWiseSummary) return [];
-    
+
     const countMap = new Map();
-    
+
     filteredRows.forEach(row => {
       const branchName = row.Branch || getBranchFromRegNo(row.Reg_No || row.registration || "") || "Unknown";
-      const fullBranchName = branchName.length <= 5 && branchName !== "AIML" 
-        ? getFullBranchName(branchName) 
+      const fullBranchName = branchName.length <= 5 && branchName !== "AIML"
+        ? getFullBranchName(branchName)
         : branchName;
-      
+
       // If both batch and branch are "All", group by batch+branch combination
       if (showBatchBranchCombinations) {
         const rowBatch = row.Batch || deriveBatchFromReg(row.Reg_No || row.registration || "") || "Unknown";
@@ -1111,7 +1158,7 @@ export default function TeacherBacklogPage() {
         countMap.set(fullBranchName, currentCount + 1);
       }
     });
-    
+
     // Convert to array and sort by count (descending)
     return Array.from(countMap.entries())
       .map(([label, count]) => ({ branch: label, count }))
@@ -1131,18 +1178,18 @@ export default function TeacherBacklogPage() {
   const detailedSubjectBreakdown = useMemo(() => {
     // Show breakdown when branch is "All" (regardless of batch selection)
     if (!showBranchWiseSummary || !isSubjectSearch) return [];
-    
+
     const breakdownMap = new Map();
-    
+
     filteredRows.forEach(row => {
       const branchName = row.Branch || getBranchFromRegNo(row.Reg_No || row.registration || "") || "Unknown";
-      const fullBranchName = branchName.length <= 5 && branchName !== "AIML" 
-        ? getFullBranchName(branchName) 
+      const fullBranchName = branchName.length <= 5 && branchName !== "AIML"
+        ? getFullBranchName(branchName)
         : branchName;
       const rowBatch = row.Batch || deriveBatchFromReg(row.Reg_No || row.registration || "") || "Unknown";
       const subjectCode = row.Subject_Code || row.subject_code || "Unknown";
       const subjectName = row.Subject_Name || "";
-      
+
       const key = `${rowBatch}|${fullBranchName}|${subjectCode}`;
       const existing = breakdownMap.get(key) || {
         batch: rowBatch,
@@ -1154,7 +1201,7 @@ export default function TeacherBacklogPage() {
       existing.count += 1;
       breakdownMap.set(key, existing);
     });
-    
+
     // Convert to array and sort
     return Array.from(breakdownMap.values())
       .sort((a, b) => {
@@ -1186,433 +1233,426 @@ export default function TeacherBacklogPage() {
           }
         }
       `}</style>
-      <div 
+      <div
         className="min-h-screen pb-10"
         style={{
           background: "linear-gradient(to bottom, #F5F8FA 0%, #E8F4F8 50%, #D1E9F6 100%)",
         }}
       >
-      <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 pt-6 sm:pt-8 lg:pt-12">
-        {/* Header */}
-        <div className="mb-4 sm:mb-6 text-center">
-          <h1 
-            className="text-2xl sm:text-3xl md:text-4xl font-black inline-flex items-center justify-center gap-2 sm:gap-3"
-            style={{
-              background: "linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              backgroundClip: "text",
-            }}
-          >
-            Backlog Management
-          </h1>
-          <p className="text-[#5A6C7D] text-sm sm:text-base font-medium mt-2">
-            Track and manage student backlogs
-          </p>
-        </div>
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 pt-6 sm:pt-8 lg:pt-12">
+          {/* Header */}
+          <div className="mb-4 sm:mb-6 text-center">
+            <h1
+              className="text-2xl sm:text-3xl md:text-4xl font-black inline-flex items-center justify-center gap-2 sm:gap-3"
+              style={{
+                background: "linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
+              }}
+            >
+              Backlog Management
+            </h1>
+            <p className="text-[#5A6C7D] text-sm sm:text-base font-medium mt-2">
+              Track and manage student backlogs
+            </p>
+          </div>
 
-        {/* Search Forms */}
-        <form ref={formRef} onSubmit={search} className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 mb-4 sm:mb-6">
-          <div className="rounded-xl sm:rounded-2xl border-2 bg-white p-3 sm:p-4 lg:p-5 shadow-lg" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
-            <h2 className="text-[#1A1F29] font-black mb-2 sm:mb-3 flex items-center gap-2 text-sm sm:text-base lg:text-lg">
-              🔎 Search by Registration
-            </h2>
-            <div className="mb-2 sm:mb-3">
-              <select 
-                className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]" 
-                style={{ borderColor: "rgba(5,163,199,0.3)" }}
-                value={regMode} 
-                onChange={e=>setRegMode(e.target.value)}
-              >
-                <option value="manual">Enter Manually</option>
-                <option value="list">Choose from List</option>
-              </select>
-            </div>
-            {regMode === "manual" ? (
-              <div className="flex flex-col gap-2 sm:gap-3">
-                <input 
-                  name="registration" 
-                  className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 sm:px-4 py-2.5 sm:py-3 outline-none focus:ring-4 focus:ring-[#05A3C7]/20 text-[#1A1F29] font-medium transition-all text-sm sm:text-base min-h-[44px]" 
+          {/* Search Forms */}
+          <form ref={formRef} onSubmit={search} className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 mb-4 sm:mb-6">
+            <div className="rounded-xl sm:rounded-2xl border-2 bg-white p-3 sm:p-4 lg:p-5 shadow-lg" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
+              <h2 className="text-[#1A1F29] font-black mb-2 sm:mb-3 flex items-center gap-2 text-sm sm:text-base lg:text-lg">
+                🔎 Search by Registration
+              </h2>
+              <div className="mb-2 sm:mb-3">
+                <select
+                  className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
                   style={{ borderColor: "rgba(5,163,199,0.3)" }}
-                  placeholder="e.g., 220101130056" 
-                  value={registration} 
-                  onChange={e => setRegistration(e.target.value.toUpperCase())} 
-                />
-                <button 
-                  type="submit"
-                  disabled={loading}
+                  value={regMode}
+                  onChange={e => setRegMode(e.target.value)}
+                >
+                  <option value="manual">Enter Manually</option>
+                  <option value="list">Choose from List</option>
+                </select>
+              </div>
+              {regMode === "manual" ? (
+                <div className="flex flex-col gap-2 sm:gap-3">
+                  <input
+                    name="registration"
+                    className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 sm:px-4 py-2.5 sm:py-3 outline-none focus:ring-4 focus:ring-[#05A3C7]/20 text-[#1A1F29] font-medium transition-all text-sm sm:text-base min-h-[44px]"
+                    style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                    placeholder="e.g., 220101130056"
+                    value={registration}
+                    onChange={e => setRegistration(e.target.value.toUpperCase())}
+                  />
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className={`w-full rounded-lg sm:rounded-xl text-white font-black px-4 sm:px-5 py-3 sm:py-3.5 transition-all duration-300 hover:shadow-lg active:scale-95 text-sm sm:text-base min-h-[44px] ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    style={{
+                      background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
+                    }}
+                  >
+                    {loading ? 'Loading...' : 'Search'}
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 mb-2 sm:mb-3">
+                    <select
+                      className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
+                      style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                      value={year}
+                      onChange={e => setYear(e.target.value)}
+                    >
+                      <option value="">Batch (Year)</option>
+                      <option value="All">All</option>
+                      {["2020", "2021", "2022", "2023", "2024", "2025"].map(y => <option key={y} value={y}>{y}</option>)}
+                    </select>
+                    <select
+                      className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
+                      style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                      value={branch}
+                      onChange={e => setBranch(e.target.value)}
+                    >
+                      <option value="">Branch</option>
+                      <option value="All">All</option>
+                      {branchList.map(b => (
+                        <option key={b} value={b}>{b}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-2 sm:gap-3">
+                    <select
+                      className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
+                      style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                      value={selectedReg}
+                      onChange={e => setSelectedReg(e.target.value)}
+                    >
+                      <option value="">{regList.length === 0 ? (branch && year ? "No students found" : "Select batch & branch") : `Select Registration (${regList.length})`}</option>
+                      {(branch === "All" && year === "All") && <option value="ALL">All</option>}
+                      {studentSummary.length > 0 && <option value="ALL">All ({studentSummary.length} students)</option>}
+                      {regList.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                    <button
+                      type="submit"
+                      className="w-full rounded-lg sm:rounded-xl text-white font-black px-4 sm:px-5 py-3 sm:py-3.5 transition-all duration-300 hover:shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base min-h-[44px]"
+                      style={{
+                        background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
+                      }}
+                      disabled={!selectedReg || loading}
+                    >
+                      {loading ? 'Loading...' : (selectedReg ? "Search" : "Select First")}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="rounded-xl sm:rounded-2xl border-2 bg-white p-3 sm:p-4 lg:p-5 shadow-lg" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
+              <h2 className="text-[#1A1F29] font-black mb-2 sm:mb-3 flex items-center gap-2 text-sm sm:text-base lg:text-lg">
+                🎯 Search by Subject + Filters
+              </h2>
+              <div className="mb-2 sm:mb-3">
+                <select
+                  className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
+                  style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                  value={subjectMode}
+                  onChange={e => setSubjectMode(e.target.value)}
+                >
+                  <option value="manual">Enter Subject Manually</option>
+                  <option value="list">Choose Subject from List</option>
+                </select>
+              </div>
+              <div className="space-y-2 sm:space-y-3">
+                {subjectMode === "manual" ? (
+                  <input
+                    className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 sm:px-4 py-2.5 sm:py-3 outline-none focus:ring-4 focus:ring-[#05A3C7]/20 text-[#1A1F29] font-medium transition-all text-sm sm:text-base min-h-[44px]"
+                    style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                    placeholder="Subject code (e.g., CS101)"
+                    value={subjectCode}
+                    onChange={e => setSubjectCode(e.target.value.toUpperCase())}
+                  />
+                ) : (
+                  <select
+                    className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
+                    style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                    value={selectedSubject}
+                    onChange={e => setSelectedSubject(e.target.value)}
+                  >
+                    <option value="">Select Subject from CBCS</option>
+                    <option value="ALL">All</option>
+                    {subjectList.map(s => <option key={s.code} value={s.code}>{`${s.code}${s.name ? ` — ${s.name}` : ''}`}</option>)}
+                  </select>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
+                  <select
+                    className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
+                    style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                    value={branch}
+                    onChange={e => setBranch(e.target.value)}
+                  >
+                    <option value="">All Branches</option>
+                    <option value="All">All</option>
+                    {branchList.map(b => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                  </select>
+                  <select
+                    className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
+                    style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                    value={year}
+                    onChange={e => setYear(e.target.value)}
+                  >
+                    <option value="">All Batches</option>
+                    <option value="All">All</option>
+                    {["2020", "2021", "2022", "2023", "2024", "2025"].map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  onClick={search}
+                  disabled={loading || (!subjectCode && !selectedSubject && !branch && !year)}
                   className={`w-full rounded-lg sm:rounded-xl text-white font-black px-4 sm:px-5 py-3 sm:py-3.5 transition-all duration-300 hover:shadow-lg active:scale-95 text-sm sm:text-base min-h-[44px] ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
                   style={{
                     background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
                   }}
                 >
-                  {loading ? 'Loading...' : 'Search'}
+                  {loading ? 'Loading...' : 'Search with Filters'}
                 </button>
               </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 mb-2 sm:mb-3">
-                  <select 
-                    className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]" 
-                    style={{ borderColor: "rgba(5,163,199,0.3)" }}
-                    value={year} 
-                    onChange={e=>setYear(e.target.value)}
-                  >
-                    <option value="">Batch (Year)</option>
-                    <option value="All">All</option>
-                    {["2020","2021","2022","2023","2024","2025"].map(y=> <option key={y} value={y}>{y}</option>)}
-                  </select>
-                  <select 
-                    className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]" 
-                    style={{ borderColor: "rgba(5,163,199,0.3)" }}
-                    value={branch} 
-                    onChange={e=>setBranch(e.target.value)}
-                  >
-                    <option value="">Branch</option>
-                    <option value="All">All</option>
-                    <option value="Civil">Civil</option>
-                    <option value="CSE">CSE</option>
-                    <option value="ECE">ECE</option>
-                    <option value="EEE">EEE</option>
-                    <option value="Mechanical">Mechanical</option>
-                    <option value="AIML">AIML</option>
-                  </select>
-                </div>
-                <div className="flex flex-col gap-2 sm:gap-3">
-                  <select 
-                    className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]" 
-                    style={{ borderColor: "rgba(5,163,199,0.3)" }}
-                    value={selectedReg} 
-                    onChange={e=>setSelectedReg(e.target.value)}
-                  >
-                    <option value="">{regList.length === 0 ? (branch && year ? "No students found" : "Select batch & branch") : `Select Registration (${regList.length})`}</option>
-                    {(branch === "All" && year === "All") && <option value="ALL">All</option>}
-                    {studentSummary.length > 0 && <option value="ALL">All ({studentSummary.length} students)</option>}
-                    {regList.map(r=> <option key={r} value={r}>{r}</option>)}
-                  </select>
-                  <button 
-                    type="submit"
-                    className="w-full rounded-lg sm:rounded-xl text-white font-black px-4 sm:px-5 py-3 sm:py-3.5 transition-all duration-300 hover:shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base min-h-[44px]"
-                    style={{
-                      background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
-                    }}
-                    disabled={!selectedReg || loading}
-                  >
-                    {loading ? 'Loading...' : (selectedReg ? "Search" : "Select First")}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-
-          <div className="rounded-xl sm:rounded-2xl border-2 bg-white p-3 sm:p-4 lg:p-5 shadow-lg" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
-            <h2 className="text-[#1A1F29] font-black mb-2 sm:mb-3 flex items-center gap-2 text-sm sm:text-base lg:text-lg">
-              🎯 Search by Subject + Filters
-            </h2>
-            <div className="mb-2 sm:mb-3">
-              <select 
-                className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]" 
-                style={{ borderColor: "rgba(5,163,199,0.3)" }}
-                value={subjectMode} 
-                onChange={e=>setSubjectMode(e.target.value)}
-              >
-                <option value="manual">Enter Subject Manually</option>
-                <option value="list">Choose Subject from List</option>
-              </select>
             </div>
-            <div className="space-y-2 sm:space-y-3">
-              {subjectMode === "manual" ? (
-                <input 
-                  className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 sm:px-4 py-2.5 sm:py-3 outline-none focus:ring-4 focus:ring-[#05A3C7]/20 text-[#1A1F29] font-medium transition-all text-sm sm:text-base min-h-[44px]" 
-                  style={{ borderColor: "rgba(5,163,199,0.3)" }}
-                  placeholder="Subject code (e.g., CS101)" 
-                  value={subjectCode} 
-                  onChange={e => setSubjectCode(e.target.value.toUpperCase())} 
-                />
-              ) : (
-                <select 
-                  className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]" 
-                  style={{ borderColor: "rgba(5,163,199,0.3)" }}
-                  value={selectedSubject} 
-                  onChange={e=>setSelectedSubject(e.target.value)}
+          </form>
+
+          {/* Alerts */}
+          {message && (
+            <div className="mb-3 sm:mb-4 rounded-lg sm:rounded-xl border-2 border-green-200 bg-green-50 text-green-700 px-3 sm:px-4 py-2.5 sm:py-3 font-medium flex items-center gap-2 sm:gap-3 text-sm sm:text-base">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0">
+                <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm13.36-1.814a.75.75 0 10-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.14-.094l3.75-5.25z" clipRule="evenodd" />
+              </svg>
+              {message}
+            </div>
+          )}
+          {error && (
+            <div className="mb-3 sm:mb-4 rounded-lg sm:rounded-xl border-2 border-red-200 bg-red-50 text-red-700 px-3 sm:px-4 py-2.5 sm:py-3 font-medium flex items-center gap-2 sm:gap-3 text-sm sm:text-base">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0">
+                <path fillRule="evenodd" d="M9.401 3.003c1.155-2 4.043-2 5.197 0l7.355 12.748c1.154 2-.29 4.5-2.599 4.5H4.645c-2.309 0-3.752-2.5-2.598-4.5L9.4 3.003zM12 8.25a.75.75 0 01.75.75v3.75a.75.75 0 01-1.5 0V9a.75.75 0 01.75-.75zm0 8.25a.75.75 0 100-1.5.75.75 0 000 1.5z" clipRule="evenodd" />
+              </svg>
+              {error}
+            </div>
+          )}
+
+          {/* Subject search result count with filter context */}
+          {isSubjectSearch && (
+            <div className="mb-3 sm:mb-4 rounded-lg sm:rounded-xl border-2 border-[#05A3C7]/20 bg-[#05A3C7]/5 text-[#023945] px-3 sm:px-4 py-2.5 sm:py-3 font-semibold text-sm sm:text-base flex items-center gap-2 flex-wrap">
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#05A3C7] text-white text-xs font-black">
+                #
+              </span>
+              <span className="font-black text-[#05A3C7]">{subjectResultCount}</span>
+              <span className="text-[#023945] font-medium">backlogs for</span>
+              <span className="px-2 py-1 rounded-lg bg-white text-[#023945] font-bold border border-[#05A3C7]/30">
+                {subjectNameDisplay} ({selectedSubject || subjectCode || "code"})
+              </span>
+              <span className="px-2 py-1 rounded-lg bg-white text-[#023945] font-semibold border border-[#05A3C7]/20">
+                Branch: {branch || "All"}
+              </span>
+              <span className="px-2 py-1 rounded-lg bg-white text-[#023945] font-semibold border border-[#05A3C7]/20">
+                Batch: {year || "All"}
+              </span>
+            </div>
+          )}
+
+          {/* Student Info Card - Show when specific student is selected */}
+          {selectedStudentInfo && !showAllMode && (
+            <div className="mb-4 sm:mb-6 rounded-xl sm:rounded-2xl border-2 bg-white p-4 sm:p-5 shadow-lg" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                <h3 className="text-[#1A1F29] font-black text-base sm:text-lg">Student Information</h3>
+                <button
+                  onClick={() => {
+                    if (!selectedStudentInfo || rows.length === 0) {
+                      alert("No data available to generate report.");
+                      return;
+                    }
+
+                    try {
+                      if (typeof jsPDF === 'undefined') {
+                        alert("PDF library not loaded. Please refresh the page.");
+                        return;
+                      }
+
+                      const doc = new jsPDF();
+
+                      // Add title
+                      doc.setFontSize(18);
+                      doc.setTextColor(30, 41, 59);
+                      doc.text("Student Backlog Report", 14, 20);
+
+                      // Add student information
+                      doc.setFontSize(12);
+                      doc.setTextColor(5, 163, 199);
+                      doc.text("Student Information", 14, 32);
+
+                      doc.setFontSize(10);
+                      doc.setTextColor(60, 60, 60);
+                      let yPos = 40;
+                      doc.text(`Name: ${selectedStudentInfo.Name || "N/A"}`, 14, yPos);
+                      yPos += 7;
+                      doc.text(`Registration Number: ${selectedStudentInfo.Reg_No || "N/A"}`, 14, yPos);
+                      yPos += 7;
+                      doc.text(`Branch: ${selectedStudentInfo.Branch || "N/A"}`, 14, yPos);
+                      yPos += 7;
+                      doc.text(`Batch: ${selectedStudentInfo.Batch || "N/A"}`, 14, yPos);
+                      yPos += 7;
+                      doc.text(`Total Backlogs: ${rows.length}`, 14, yPos);
+                      yPos += 7;
+
+                      // Add date
+                      doc.setFontSize(9);
+                      doc.setTextColor(100, 100, 100);
+                      doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}`, 14, yPos + 5);
+
+                      // Prepare table data
+                      const tableData = rows.map((row, idx) => {
+                        // Remove "Sem" prefix if already present
+                        let semValue = String(row.Sem || "");
+                        if (semValue.toLowerCase().startsWith("sem")) {
+                          semValue = semValue.substring(3).trim();
+                        }
+                        if (semValue && !semValue.toLowerCase().startsWith("sem")) {
+                          semValue = `Sem ${semValue}`;
+                        }
+
+                        return [
+                          String(idx + 1),
+                          String(row.Subject_Code || row.subject_code || ""),
+                          String(row.Subject_Name || "").substring(0, 40),
+                          semValue || "",
+                          String(row.Grade || "")
+                        ];
+                      });
+
+                      // Add table
+                      if (typeof doc.autoTable !== 'undefined') {
+                        doc.autoTable({
+                          startY: yPos + 12,
+                          head: [["S.No", "Subject Code", "Subject Name", "Semester", "Grade"]],
+                          body: tableData,
+                          theme: "striped",
+                          headStyles: {
+                            fillColor: [5, 163, 199],
+                            textColor: [255, 255, 255],
+                            fontStyle: "bold"
+                          },
+                          alternateRowStyles: {
+                            fillColor: [245, 247, 250]
+                          },
+                          styles: {
+                            fontSize: 9,
+                            cellPadding: 3
+                          },
+                          columnStyles: {
+                            0: { cellWidth: 15 },
+                            1: { cellWidth: 30 },
+                            2: { cellWidth: 80 },
+                            3: { cellWidth: 25 },
+                            4: { cellWidth: 20, halign: 'center' }
+                          }
+                        });
+                      } else {
+                        // Fallback: Create simple table
+                        let tableY = yPos + 15;
+                        doc.setFontSize(9);
+                        doc.setTextColor(30, 41, 59);
+
+                        // Headers
+                        doc.setFont(undefined, 'bold');
+                        doc.text("S.No", 14, tableY);
+                        doc.text("Subject Code", 25, tableY);
+                        doc.text("Subject Name", 55, tableY);
+                        doc.text("Semester", 120, tableY);
+                        doc.text("Grade", 150, tableY);
+
+                        tableY += 7;
+                        doc.setFont(undefined, 'normal');
+
+                        tableData.forEach((row) => {
+                          if (tableY > 280) {
+                            doc.addPage();
+                            tableY = 20;
+                          }
+                          doc.text(String(row[0]), 14, tableY);
+                          doc.text(String(row[1]), 25, tableY);
+                          doc.text(String(row[2]), 55, tableY);
+                          doc.text(String(row[3]), 120, tableY);
+                          doc.text(String(row[4]), 150, tableY);
+                          tableY += 6;
+                        });
+                      }
+
+                      const dateStr = new Date().toISOString().split('T')[0];
+                      const filename = `Student_Backlog_Report_${selectedStudentInfo.Reg_No || "student"}_${dateStr}.pdf`;
+                      doc.save(filename);
+                    } catch (error) {
+                      alert(`Failed to generate report: ${error.message || "Unknown error"}`);
+                    }
+                  }}
+                  className="px-4 py-2 rounded-lg text-white font-bold text-sm hover:shadow-md transition-all flex items-center gap-2"
+                  style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
                 >
-                  <option value="">Select Subject from CBCS</option>
-                  <option value="ALL">All</option>
-                  {subjectList.map(s=> <option key={s.code} value={s.code}>{`${s.code}${s.name?` — ${s.name}`:''}`}</option>)}
-                </select>
-              )}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
-                <select 
-                  className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]" 
-                  style={{ borderColor: "rgba(5,163,199,0.3)" }}
-                  value={branch} 
-                  onChange={e => setBranch(e.target.value)}
-                >
-                  <option value="">All Branches</option>
-                  <option value="All">All</option>
-                  <option value="Civil">Civil</option>
-                  <option value="CSE">CSE</option>
-                  <option value="ECE">ECE</option>
-                  <option value="EEE">EEE</option>
-                  <option value="Mechanical">Mechanical</option>
-                  <option value="AIML">AIML</option>
-                </select>
-                <select 
-                  className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]" 
-                  style={{ borderColor: "rgba(5,163,199,0.3)" }}
-                  value={year} 
-                  onChange={e => setYear(e.target.value)}
-                >
-                  <option value="">All Batches</option>
-                  <option value="All">All</option>
-                  {["2020","2021","2022","2023","2024","2025"].map(y => <option key={y} value={y}>{y}</option>)}
-                </select>
+                  <span>📄</span>
+                  <span>Download Report (PDF)</span>
+                </button>
               </div>
-              <button 
-                type="button"
-                onClick={search} 
-                disabled={loading || (!subjectCode && !selectedSubject && !branch && !year)}
-                className={`w-full rounded-lg sm:rounded-xl text-white font-black px-4 sm:px-5 py-3 sm:py-3.5 transition-all duration-300 hover:shadow-lg active:scale-95 text-sm sm:text-base min-h-[44px] ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                <div>
+                  <div className="text-xs sm:text-sm text-[#5A6C7D] font-medium mb-1">Name</div>
+                  <div className="text-sm sm:text-base text-[#1A1F29] font-bold">{selectedStudentInfo.Name || "-"}</div>
+                </div>
+                <div>
+                  <div className="text-xs sm:text-sm text-[#5A6C7D] font-medium mb-1">Registration Number</div>
+                  <div className="text-sm sm:text-base font-bold" style={{ color: "#05A3C7" }}>{selectedStudentInfo.Reg_No || "-"}</div>
+                </div>
+                <div>
+                  <div className="text-xs sm:text-sm text-[#5A6C7D] font-medium mb-1">Branch</div>
+                  <div className="text-sm sm:text-base text-[#1A1F29] font-bold">{selectedStudentInfo.Branch || "-"}</div>
+                </div>
+                <div>
+                  <div className="text-xs sm:text-sm text-[#5A6C7D] font-medium mb-1">Batch</div>
+                  <div className="text-sm sm:text-base text-[#1A1F29] font-bold">{selectedStudentInfo.Batch || "-"}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* All Students Summary Table - Show when "All" is selected */}
+          {showAllMode && studentSummary.length > 0 && (
+            <div className="mb-4 sm:mb-6 rounded-xl sm:rounded-2xl border-2 bg-white shadow-lg" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
+              <div
+                className="text-white px-3 sm:px-4 lg:px-6 py-3 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3"
                 style={{
                   background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
                 }}
               >
-                {loading ? 'Loading...' : 'Search with Filters'}
-              </button>
-            </div>
-          </div>
-        </form>
-
-        {/* Alerts */}
-        {message && (
-          <div className="mb-3 sm:mb-4 rounded-lg sm:rounded-xl border-2 border-green-200 bg-green-50 text-green-700 px-3 sm:px-4 py-2.5 sm:py-3 font-medium flex items-center gap-2 sm:gap-3 text-sm sm:text-base">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0">
-              <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm13.36-1.814a.75.75 0 10-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.14-.094l3.75-5.25z" clipRule="evenodd" />
-            </svg>
-            {message}
-          </div>
-        )}
-        {error && (
-          <div className="mb-3 sm:mb-4 rounded-lg sm:rounded-xl border-2 border-red-200 bg-red-50 text-red-700 px-3 sm:px-4 py-2.5 sm:py-3 font-medium flex items-center gap-2 sm:gap-3 text-sm sm:text-base">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0">
-              <path fillRule="evenodd" d="M9.401 3.003c1.155-2 4.043-2 5.197 0l7.355 12.748c1.154 2-.29 4.5-2.599 4.5H4.645c-2.309 0-3.752-2.5-2.598-4.5L9.4 3.003zM12 8.25a.75.75 0 01.75.75v3.75a.75.75 0 01-1.5 0V9a.75.75 0 01.75-.75zm0 8.25a.75.75 0 100-1.5.75.75 0 000 1.5z" clipRule="evenodd" />
-            </svg>
-            {error}
-          </div>
-        )}
-
-        {/* Subject search result count with filter context */}
-        {isSubjectSearch && (
-          <div className="mb-3 sm:mb-4 rounded-lg sm:rounded-xl border-2 border-[#05A3C7]/20 bg-[#05A3C7]/5 text-[#023945] px-3 sm:px-4 py-2.5 sm:py-3 font-semibold text-sm sm:text-base flex items-center gap-2 flex-wrap">
-            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#05A3C7] text-white text-xs font-black">
-              #
-            </span>
-            <span className="font-black text-[#05A3C7]">{subjectResultCount}</span>
-            <span className="text-[#023945] font-medium">backlogs for</span>
-            <span className="px-2 py-1 rounded-lg bg-white text-[#023945] font-bold border border-[#05A3C7]/30">
-              {subjectNameDisplay} ({selectedSubject || subjectCode || "code"})
-            </span>
-            <span className="px-2 py-1 rounded-lg bg-white text-[#023945] font-semibold border border-[#05A3C7]/20">
-              Branch: {branch || "All"}
-            </span>
-            <span className="px-2 py-1 rounded-lg bg-white text-[#023945] font-semibold border border-[#05A3C7]/20">
-              Batch: {year || "All"}
-            </span>
-          </div>
-        )}
-
-        {/* Student Info Card - Show when specific student is selected */}
-        {selectedStudentInfo && !showAllMode && (
-          <div className="mb-4 sm:mb-6 rounded-xl sm:rounded-2xl border-2 bg-white p-4 sm:p-5 shadow-lg" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
-              <h3 className="text-[#1A1F29] font-black text-base sm:text-lg">Student Information</h3>
-              <button
-                onClick={() => {
-                  if (!selectedStudentInfo || rows.length === 0) {
-                    alert("No data available to generate report.");
-                    return;
-                  }
-                  
-                  try {
-                    if (typeof jsPDF === 'undefined') {
-                      alert("PDF library not loaded. Please refresh the page.");
-                      return;
-                    }
-
-                    const doc = new jsPDF();
-                    
-                    // Add title
-                    doc.setFontSize(18);
-                    doc.setTextColor(30, 41, 59);
-                    doc.text("Student Backlog Report", 14, 20);
-                    
-                    // Add student information
-                    doc.setFontSize(12);
-                    doc.setTextColor(5, 163, 199);
-                    doc.text("Student Information", 14, 32);
-                    
-                    doc.setFontSize(10);
-                    doc.setTextColor(60, 60, 60);
-                    let yPos = 40;
-                    doc.text(`Name: ${selectedStudentInfo.Name || "N/A"}`, 14, yPos);
-                    yPos += 7;
-                    doc.text(`Registration Number: ${selectedStudentInfo.Reg_No || "N/A"}`, 14, yPos);
-                    yPos += 7;
-                    doc.text(`Branch: ${selectedStudentInfo.Branch || "N/A"}`, 14, yPos);
-                    yPos += 7;
-                    doc.text(`Batch: ${selectedStudentInfo.Batch || "N/A"}`, 14, yPos);
-                    yPos += 7;
-                    doc.text(`Total Backlogs: ${rows.length}`, 14, yPos);
-                    yPos += 7;
-                    
-                    // Add date
-                    doc.setFontSize(9);
-                    doc.setTextColor(100, 100, 100);
-                    doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB', { 
-                      day: '2-digit', 
-                      month: 'short', 
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}`, 14, yPos + 5);
-
-                    // Prepare table data
-                    const tableData = rows.map((row, idx) => {
-                      // Remove "Sem" prefix if already present
-                      let semValue = String(row.Sem || "");
-                      if (semValue.toLowerCase().startsWith("sem")) {
-                        semValue = semValue.substring(3).trim();
-                      }
-                      if (semValue && !semValue.toLowerCase().startsWith("sem")) {
-                        semValue = `Sem ${semValue}`;
-                      }
-                      
-                      return [
-                        String(idx + 1),
-                        String(row.Subject_Code || row.subject_code || ""),
-                        String(row.Subject_Name || "").substring(0, 40),
-                        semValue || "",
-                        String(row.Grade || "")
-                      ];
-                    });
-
-                    // Add table
-                    if (typeof doc.autoTable !== 'undefined') {
-                      doc.autoTable({
-                        startY: yPos + 12,
-                        head: [["S.No", "Subject Code", "Subject Name", "Semester", "Grade"]],
-                        body: tableData,
-                        theme: "striped",
-                        headStyles: {
-                          fillColor: [5, 163, 199],
-                          textColor: [255, 255, 255],
-                          fontStyle: "bold"
-                        },
-                        alternateRowStyles: {
-                          fillColor: [245, 247, 250]
-                        },
-                        styles: {
-                          fontSize: 9,
-                          cellPadding: 3
-                        },
-                        columnStyles: {
-                          0: { cellWidth: 15 },
-                          1: { cellWidth: 30 },
-                          2: { cellWidth: 80 },
-                          3: { cellWidth: 25 },
-                          4: { cellWidth: 20, halign: 'center' }
-                        }
-                      });
-                    } else {
-                      // Fallback: Create simple table
-                      let tableY = yPos + 15;
-                      doc.setFontSize(9);
-                      doc.setTextColor(30, 41, 59);
-                      
-                      // Headers
-                      doc.setFont(undefined, 'bold');
-                      doc.text("S.No", 14, tableY);
-                      doc.text("Subject Code", 25, tableY);
-                      doc.text("Subject Name", 55, tableY);
-                      doc.text("Semester", 120, tableY);
-                      doc.text("Grade", 150, tableY);
-                      
-                      tableY += 7;
-                      doc.setFont(undefined, 'normal');
-                      
-                      tableData.forEach((row) => {
-                        if (tableY > 280) {
-                          doc.addPage();
-                          tableY = 20;
-                        }
-                        doc.text(String(row[0]), 14, tableY);
-                        doc.text(String(row[1]), 25, tableY);
-                        doc.text(String(row[2]), 55, tableY);
-                        doc.text(String(row[3]), 120, tableY);
-                        doc.text(String(row[4]), 150, tableY);
-                        tableY += 6;
-                      });
-                    }
-
-                    const dateStr = new Date().toISOString().split('T')[0];
-                    const filename = `Student_Backlog_Report_${selectedStudentInfo.Reg_No || "student"}_${dateStr}.pdf`;
-                    doc.save(filename);
-                  } catch (error) {
-                    console.error("PDF generation error:", error);
-                    alert(`Failed to generate report: ${error.message || "Unknown error"}`);
-                  }
-                }}
-                className="px-4 py-2 rounded-lg text-white font-bold text-sm hover:shadow-md transition-all flex items-center gap-2"
-                style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
-              >
-                <span>📄</span>
-                <span>Download Report (PDF)</span>
-              </button>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              <div>
-                <div className="text-xs sm:text-sm text-[#5A6C7D] font-medium mb-1">Name</div>
-                <div className="text-sm sm:text-base text-[#1A1F29] font-bold">{selectedStudentInfo.Name || "-"}</div>
-              </div>
-              <div>
-                <div className="text-xs sm:text-sm text-[#5A6C7D] font-medium mb-1">Registration Number</div>
-                <div className="text-sm sm:text-base font-bold" style={{ color: "#05A3C7" }}>{selectedStudentInfo.Reg_No || "-"}</div>
-              </div>
-              <div>
-                <div className="text-xs sm:text-sm text-[#5A6C7D] font-medium mb-1">Branch</div>
-                <div className="text-sm sm:text-base text-[#1A1F29] font-bold">{selectedStudentInfo.Branch || "-"}</div>
-              </div>
-              <div>
-                <div className="text-xs sm:text-sm text-[#5A6C7D] font-medium mb-1">Batch</div>
-                <div className="text-sm sm:text-base text-[#1A1F29] font-bold">{selectedStudentInfo.Batch || "-"}</div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* All Students Summary Table - Show when "All" is selected */}
-        {showAllMode && studentSummary.length > 0 && (
-          <div className="mb-4 sm:mb-6 rounded-xl sm:rounded-2xl border-2 bg-white shadow-lg" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
-            <div 
-              className="text-white px-3 sm:px-4 lg:px-6 py-3 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3"
-              style={{
-                background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
-              }}
-            >
-              <h3 className="font-black text-sm sm:text-base lg:text-lg">All Students Summary ({studentSummary.length} students)</h3>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={exportAllStudentsSummaryToExcel}
-                  className="px-3 py-1.5 sm:py-2 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
-                >
-                  <span className="text-base">📥</span>
-                  <span className="hidden xs:inline">Export Excel</span>
-                  <span className="xs:hidden">Excel</span>
-                </button>
-                <button
-                  onClick={() => {
-                  // Create table without Actions column
-                  const tableRows = studentSummary.map((student, idx) => `
+                <h3 className="font-black text-sm sm:text-base lg:text-lg">All Students Summary ({studentSummary.length} students)</h3>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={exportAllStudentsSummaryToExcel}
+                    className="px-3 py-1.5 sm:py-2 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
+                  >
+                    <span className="text-base">📥</span>
+                    <span className="hidden xs:inline">Export Excel</span>
+                    <span className="xs:hidden">Excel</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      // Create table without Actions column
+                      const tableRows = studentSummary.map((student, idx) => `
                     <tr>
                       <td>${idx + 1}</td>
                       <td>${student.Name || "-"}</td>
@@ -1622,9 +1662,9 @@ export default function TeacherBacklogPage() {
                       <td style="text-align: center;">${student.TotalBacklogs || 0}</td>
                     </tr>
                   `).join('');
-                  
-                  const printWindow = window.open('', '_blank');
-                  printWindow.document.write(`
+
+                      const printWindow = window.open('', '_blank');
+                      printWindow.document.write(`
                     <html>
                       <head>
                         <title>All Students Summary</title>
@@ -1676,491 +1716,491 @@ export default function TeacherBacklogPage() {
                       </body>
                     </html>
                   `);
-                  printWindow.document.close();
-                  setTimeout(() => {
-                    printWindow.print();
-                  }, 250);
-                  }}
-                  className="px-3 py-1.5 sm:py-2 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
-                >
-                  <span className="text-base">🖨️</span>
-                  <span className="hidden xs:inline">Print</span>
-                </button>
+                      printWindow.document.close();
+                      setTimeout(() => {
+                        printWindow.print();
+                      }, 250);
+                    }}
+                    className="px-3 py-1.5 sm:py-2 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
+                  >
+                    <span className="text-base">🖨️</span>
+                    <span className="hidden xs:inline">Print</span>
+                  </button>
+                </div>
               </div>
-            </div>
-            <div className="overflow-x-auto" id="all-students-summary-table">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr style={{ background: "rgba(5,163,199,0.1)" }}>
-                    <th className="px-3 sm:px-4 py-2 sm:py-3 text-left font-black text-xs uppercase">S.No</th>
-                    <th className="px-3 sm:px-4 py-2 sm:py-3 text-left font-black text-xs uppercase">Name</th>
-                    <th className="px-3 sm:px-4 py-2 sm:py-3 text-left font-black text-xs uppercase">Registration No</th>
-                    <th className="px-3 sm:px-4 py-2 sm:py-3 text-left font-black text-xs uppercase">Branch</th>
-                    <th className="px-3 sm:px-4 py-2 sm:py-3 text-left font-black text-xs uppercase">Batch</th>
-                    <th className="px-3 sm:px-4 py-2 sm:py-3 text-center font-black text-xs uppercase">Total Backlogs</th>
-                    <th className="px-3 sm:px-4 py-2 sm:py-3 text-center font-black text-xs uppercase no-print">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {studentSummary.map((student, idx) => (
-                    <tr 
-                      key={student.Reg_No || idx} 
-                      className="border-t-2 border-[#05A3C7]/10 hover:bg-[#05A3C7]/5 transition-colors"
-                    >
-                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-[#1A1F29] font-medium">{idx + 1}</td>
-                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-[#1A1F29] font-medium">{student.Name || "-"}</td>
-                      <td className="px-3 sm:px-4 py-2 sm:py-3 font-bold" style={{ color: "#05A3C7" }}>{student.Reg_No}</td>
-                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-[#1A1F29] font-medium">{student.Branch || "-"}</td>
-                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-[#1A1F29] font-medium">{student.Batch || "-"}</td>
-                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-center font-bold text-[#1A1F29]">{student.TotalBacklogs}</td>
-                      <td className="px-3 sm:px-4 py-2 sm:py-3 text-center no-print">
-                        <button
-                          onClick={() => {
-                            setSelectedReg(student.Reg_No);
-                            setShowAllMode(false);
-                            // Set student info immediately
-                            setSelectedStudentInfo({
-                              Reg_No: student.Reg_No,
-                              Name: student.Name || "",
-                              Branch: student.Branch || "",
-                              Batch: student.Batch || ""
-                            });
-                            setTimeout(() => search(), 100);
-                          }}
-                          className="px-3 py-1 rounded-lg text-white font-bold text-xs hover:shadow-md transition-all"
-                          style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
-                        >
-                          View Details
-                        </button>
-                      </td>
+              <div className="overflow-x-auto" id="all-students-summary-table">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr style={{ background: "rgba(5,163,199,0.1)" }}>
+                      <th className="px-3 sm:px-4 py-2 sm:py-3 text-left font-black text-xs uppercase">S.No</th>
+                      <th className="px-3 sm:px-4 py-2 sm:py-3 text-left font-black text-xs uppercase">Name</th>
+                      <th className="px-3 sm:px-4 py-2 sm:py-3 text-left font-black text-xs uppercase">Registration No</th>
+                      <th className="px-3 sm:px-4 py-2 sm:py-3 text-left font-black text-xs uppercase">Branch</th>
+                      <th className="px-3 sm:px-4 py-2 sm:py-3 text-left font-black text-xs uppercase">Batch</th>
+                      <th className="px-3 sm:px-4 py-2 sm:py-3 text-center font-black text-xs uppercase">Total Backlogs</th>
+                      <th className="px-3 sm:px-4 py-2 sm:py-3 text-center font-black text-xs uppercase no-print">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {studentSummary.map((student, idx) => (
+                      <tr
+                        key={student.Reg_No || idx}
+                        className="border-t-2 border-[#05A3C7]/10 hover:bg-[#05A3C7]/5 transition-colors"
+                      >
+                        <td className="px-3 sm:px-4 py-2 sm:py-3 text-[#1A1F29] font-medium">{idx + 1}</td>
+                        <td className="px-3 sm:px-4 py-2 sm:py-3 text-[#1A1F29] font-medium">{student.Name || "-"}</td>
+                        <td className="px-3 sm:px-4 py-2 sm:py-3 font-bold" style={{ color: "#05A3C7" }}>{student.Reg_No}</td>
+                        <td className="px-3 sm:px-4 py-2 sm:py-3 text-[#1A1F29] font-medium">{student.Branch || "-"}</td>
+                        <td className="px-3 sm:px-4 py-2 sm:py-3 text-[#1A1F29] font-medium">{student.Batch || "-"}</td>
+                        <td className="px-3 sm:px-4 py-2 sm:py-3 text-center font-bold text-[#1A1F29]">{student.TotalBacklogs}</td>
+                        <td className="px-3 sm:px-4 py-2 sm:py-3 text-center no-print">
+                          <button
+                            onClick={() => {
+                              setSelectedReg(student.Reg_No);
+                              setShowAllMode(false);
+                              // Set student info immediately
+                              setSelectedStudentInfo({
+                                Reg_No: student.Reg_No,
+                                Name: student.Name || "",
+                                Branch: student.Branch || "",
+                                Batch: student.Batch || ""
+                              });
+                              setTimeout(() => search(), 100);
+                            }}
+                            className="px-3 py-1 rounded-lg text-white font-bold text-xs hover:shadow-md transition-all"
+                            style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+                          >
+                            View Details
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Filter and Sort */}
-        {rows.length > 0 && !showAllMode && (
-          <div className="mb-3 sm:mb-4 flex flex-col sm:flex-row gap-2 sm:gap-3">
-            <select 
-              className="w-full sm:w-auto rounded-lg border-2 bg-white px-3 py-2 sm:py-2.5 text-[#1A1F29] text-sm font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
-              style={{ borderColor: "rgba(5,163,199,0.3)" }}
-              value={sortBy}
-              onChange={e => setSortBy(e.target.value)}
-            >
-              <option value="">Sort by...</option>
-              <option value="name">Name</option>
-              <option value="reg">Registration</option>
-            </select>
-            
-            <select 
-              className="w-full sm:w-auto rounded-lg border-2 bg-white px-3 py-2 sm:py-2.5 text-[#1A1F29] text-sm font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
-              style={{ borderColor: "rgba(5,163,199,0.3)" }}
-              value={filterGrade}
-              onChange={e => setFilterGrade(e.target.value)}
-            >
-              <option value="">All Grades</option>
-              {uniqueGrades.map(g => <option key={g} value={g}>{g}</option>)}
-            </select>
-          </div>
-        )}
+          {/* Filter and Sort */}
+          {rows.length > 0 && !showAllMode && (
+            <div className="mb-3 sm:mb-4 flex flex-col sm:flex-row gap-2 sm:gap-3">
+              <select
+                className="w-full sm:w-auto rounded-lg border-2 bg-white px-3 py-2 sm:py-2.5 text-[#1A1F29] text-sm font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
+                style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value)}
+              >
+                <option value="">Sort by...</option>
+                <option value="name">Name</option>
+                <option value="reg">Registration</option>
+              </select>
 
-
-        {/* Results - Hide when in "All" mode */}
-        {!showAllMode && (
-        <div className="rounded-xl sm:rounded-2xl overflow-hidden border-2 bg-white shadow-lg" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
-          <div 
-            className="text-white px-3 sm:px-4 lg:px-6 py-3 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3"
-            style={{
-              background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
-            }}
-          >
-            <span className="font-black text-sm sm:text-base lg:text-lg">Backlog Results</span>
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs sm:text-sm lg:text-base">
-              <span className="font-bold">{filteredRows.length} record{filteredRows.length === 1 ? "" : "s"}</span>
-              {count > 0 && !isSubjectSearch && (
-                <button 
-                  onClick={exportCSV}
-                  className="px-3 py-1.5 sm:py-2 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold min-h-[36px]"
-                >
-                  <span className="text-base sm:text-lg">📥</span>
-                  <span className="hidden xs:inline">Export CSV</span>
-                  <span className="xs:hidden">Export</span>
-                </button>
-              )}
+              <select
+                className="w-full sm:w-auto rounded-lg border-2 bg-white px-3 py-2 sm:py-2.5 text-[#1A1F29] text-sm font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
+                style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                value={filterGrade}
+                onChange={e => setFilterGrade(e.target.value)}
+              >
+                <option value="">All Grades</option>
+                {uniqueGrades.map(g => <option key={g} value={g}>{g}</option>)}
+              </select>
             </div>
-          </div>
-          
-          {/* If subject search, show summary with branch-wise breakdown if applicable */}
-          {isSubjectSearch ? (
-            <div className="p-4 sm:p-5 space-y-4">
-              <div className="rounded-xl border-2 border-[#05A3C7]/20 bg-[#05A3C7]/5 p-4 sm:p-5 flex flex-col gap-2">
-                <div className="flex flex-wrap gap-2 items-center">
-                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#05A3C7] text-white font-black text-sm">
-                    #
-                  </span>
-                  <div className="text-lg sm:text-xl font-black text-[#05A3C7]">{subjectResultCount} backlogs</div>
-                </div>
-                <div className="flex flex-wrap gap-2 text-sm sm:text-base text-[#023945] font-semibold">
-                  <span className="px-2 py-1 rounded-lg bg-white border border-[#05A3C7]/30">
-                    Subject: {subjectNameDisplay} ({selectedSubject || subjectCode || "code"})
-                  </span>
-                  <span className="px-2 py-1 rounded-lg bg-white border border-[#05A3C7]/20">
-                    Branch: {branch || "All"}
-                  </span>
-                  <span className="px-2 py-1 rounded-lg bg-white border border-[#05A3C7]/20">
-                    Batch: {year || "All"}
-                  </span>
+          )}
+
+
+          {/* Results - Hide when in "All" mode */}
+          {!showAllMode && (
+            <div className="rounded-xl sm:rounded-2xl overflow-hidden border-2 bg-white shadow-lg" style={{ borderColor: "rgba(5,163,199,0.2)" }}>
+              <div
+                className="text-white px-3 sm:px-4 lg:px-6 py-3 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3"
+                style={{
+                  background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
+                }}
+              >
+                <span className="font-black text-sm sm:text-base lg:text-lg">Backlog Results</span>
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs sm:text-sm lg:text-base">
+                  <span className="font-bold">{filteredRows.length} record{filteredRows.length === 1 ? "" : "s"}</span>
+                  {count > 0 && !isSubjectSearch && (
+                    <button
+                      onClick={exportCSV}
+                      className="px-3 py-1.5 sm:py-2 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold min-h-[36px]"
+                    >
+                      <span className="text-base sm:text-lg">📥</span>
+                      <span className="hidden xs:inline">Export CSV</span>
+                      <span className="xs:hidden">Export</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {/* Branch-wise Summary Table */}
-              {showBranchWiseSummary && branchWiseCounts.length > 0 && (
-                <div className="rounded-xl border-2 border-[#05A3C7]/20 bg-white overflow-hidden">
-                  <div 
-                    className="text-white px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3"
-                    style={{
-                      background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
-                    }}
-                  >
-                    <h3 className="font-black text-base sm:text-lg">
-                      {showBatchBranchCombinations
-                        ? "Batch & Branch-wise Backlog Count"
-                        : year && year !== "All" 
-                          ? `${year} Batch - Branch-wise Backlog Count`
-                          : "Branch-wise Backlog Count"}
-                    </h3>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={exportBranchWiseToExcel}
-                        className="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
-                      >
-                        <span className="text-base">📥</span>
-                        <span className="hidden xs:inline">Export Excel</span>
-                        <span className="xs:hidden">Excel</span>
-                      </button>
-                      <button
-                        onClick={downloadBranchWiseReport}
-                        className="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
-                      >
-                        <span className="text-base">📄</span>
-                        <span className="hidden xs:inline">Download PDF</span>
-                        <span className="xs:hidden">PDF</span>
-                      </button>
+              {/* If subject search, show summary with branch-wise breakdown if applicable */}
+              {isSubjectSearch ? (
+                <div className="p-4 sm:p-5 space-y-4">
+                  <div className="rounded-xl border-2 border-[#05A3C7]/20 bg-[#05A3C7]/5 p-4 sm:p-5 flex flex-col gap-2">
+                    <div className="flex flex-wrap gap-2 items-center">
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#05A3C7] text-white font-black text-sm">
+                        #
+                      </span>
+                      <div className="text-lg sm:text-xl font-black text-[#05A3C7]">{subjectResultCount} backlogs</div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-sm sm:text-base text-[#023945] font-semibold">
+                      <span className="px-2 py-1 rounded-lg bg-white border border-[#05A3C7]/30">
+                        Subject: {subjectNameDisplay} ({selectedSubject || subjectCode || "code"})
+                      </span>
+                      <span className="px-2 py-1 rounded-lg bg-white border border-[#05A3C7]/20">
+                        Branch: {branch || "All"}
+                      </span>
+                      <span className="px-2 py-1 rounded-lg bg-white border border-[#05A3C7]/20">
+                        Batch: {year || "All"}
+                      </span>
                     </div>
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                      <thead>
-                        <tr style={{ background: "rgba(5,163,199,0.1)" }}>
-                          <th className="px-4 py-3 text-left font-black text-xs uppercase">
-                            {showBatchBranchCombinations ? "Batch & Branch" : "Branch"}
-                          </th>
-                          <th className="px-4 py-3 text-center font-black text-xs uppercase">Number of Backlogs</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {branchWiseCounts.map((item, idx) => (
-                          <tr 
-                            key={idx} 
-                            className="border-t-2 border-[#05A3C7]/10 hover:bg-[#05A3C7]/5 transition-colors"
-                          >
-                            <td className="px-4 py-3 text-[#1A1F29] font-bold">
-                              {item.branch || "Unknown"}
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              <span className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-[#05A3C7] text-white font-black text-base">
-                                {item.count}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                        <tr className="border-t-2 border-[#05A3C7]/30 bg-[#05A3C7]/5">
-                          <td className="px-4 py-3 text-[#1A1F29] font-black text-base">Total</td>
-                          <td className="px-4 py-3 text-center">
-                            <span className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-[#04748F] text-white font-black text-base">
-                              {subjectResultCount}
-                            </span>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
 
-              {/* Detailed Subject Breakdown Table - Shows Batch + Branch + Subject breakdown */}
-              {showBranchWiseSummary && detailedSubjectBreakdown.length > 0 && (
-                <div className="rounded-xl border-2 border-[#05A3C7]/20 bg-white overflow-hidden">
-                  <div 
-                    className="text-white px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3"
-                    style={{
-                      background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
-                    }}
-                  >
-                    <h3 className="font-black text-base sm:text-lg">
-                      Detailed Breakdown: Batch, Branch & Subject
-                    </h3>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={exportDetailedSubjectBreakdownToExcel}
-                        className="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
+                  {/* Branch-wise Summary Table */}
+                  {showBranchWiseSummary && branchWiseCounts.length > 0 && (
+                    <div className="rounded-xl border-2 border-[#05A3C7]/20 bg-white overflow-hidden">
+                      <div
+                        className="text-white px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3"
+                        style={{
+                          background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
+                        }}
                       >
-                        <span className="text-base">📥</span>
-                        <span className="hidden xs:inline">Export Excel</span>
-                        <span className="xs:hidden">Excel</span>
-                      </button>
-                      <button
-                        onClick={downloadDetailedSubjectBreakdownReport}
-                        className="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
-                      >
-                        <span className="text-base">📄</span>
-                        <span className="hidden xs:inline">Download PDF</span>
-                        <span className="xs:hidden">PDF</span>
-                      </button>
-                    </div>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                      <thead>
-                        <tr style={{ background: "rgba(5,163,199,0.1)" }}>
-                          <th className="px-4 py-3 text-left font-black text-xs uppercase">S.No</th>
-                          <th className="px-4 py-3 text-left font-black text-xs uppercase">Batch</th>
-                          <th className="px-4 py-3 text-left font-black text-xs uppercase">Branch</th>
-                          <th className="px-4 py-3 text-left font-black text-xs uppercase">Subject Code</th>
-                          <th className="px-4 py-3 text-left font-black text-xs uppercase">Subject Name</th>
-                          <th className="px-4 py-3 text-center font-black text-xs uppercase">Backlog Count</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detailedSubjectBreakdown.map((item, idx) => (
-                          <tr 
-                            key={idx} 
-                            className="border-t-2 border-[#05A3C7]/10 hover:bg-[#05A3C7]/5 transition-colors"
+                        <h3 className="font-black text-base sm:text-lg">
+                          {showBatchBranchCombinations
+                            ? "Batch & Branch-wise Backlog Count"
+                            : year && year !== "All"
+                              ? `${year} Batch - Branch-wise Backlog Count`
+                              : "Branch-wise Backlog Count"}
+                        </h3>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={exportBranchWiseToExcel}
+                            className="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
                           >
-                            <td className="px-4 py-3 text-[#1A1F29] font-medium">{idx + 1}</td>
-                            <td className="px-4 py-3 text-[#1A1F29] font-bold">{item.batch || "-"}</td>
-                            <td className="px-4 py-3 text-[#1A1F29] font-medium">{item.branch || "-"}</td>
-                            <td className="px-4 py-3 font-bold" style={{ color: "#05A3C7" }}>
-                              {item.subjectCode || "-"}
-                            </td>
-                            <td className="px-4 py-3 text-[#1A1F29] font-medium">{item.subjectName || "-"}</td>
-                            <td className="px-4 py-3 text-center">
-                              <span className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-[#05A3C7] text-white font-black text-base">
-                                {item.count}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                        <tr className="border-t-2 border-[#05A3C7]/30 bg-[#05A3C7]/5">
-                          <td colSpan={5} className="px-4 py-3 text-[#1A1F29] font-black text-base">Total</td>
-                          <td className="px-4 py-3 text-center">
-                            <span className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-[#04748F] text-white font-black text-base">
-                              {subjectResultCount}
-                            </span>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* Detailed Results Table */}
-              {filteredRows.length > 0 && (
-                <div className="rounded-xl border-2 border-[#05A3C7]/20 bg-white overflow-hidden">
-                  <div 
-                    className="text-white px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3"
-                    style={{
-                      background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
-                    }}
-                  >
-                    <h3 className="font-black text-base sm:text-lg">Detailed Results ({filteredRows.length} records)</h3>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={exportDetailedResultsToExcel}
-                        className="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
-                      >
-                        <span className="text-base">📥</span>
-                        <span className="hidden xs:inline">Export Excel</span>
-                        <span className="xs:hidden">Excel</span>
-                      </button>
-                      <button
-                        onClick={downloadDetailedResultsReport}
-                        className="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
-                      >
-                        <span className="text-base">📄</span>
-                        <span className="hidden xs:inline">Download PDF</span>
-                        <span className="xs:hidden">PDF</span>
-                      </button>
-                    </div>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                      <thead>
-                        <tr style={{ background: "rgba(5,163,199,0.1)" }}>
-                          <th className="px-4 py-3 text-left font-black text-xs uppercase">Name</th>
-                          <th className="px-4 py-3 text-left font-black text-xs uppercase">Registration No</th>
-                          <th className="px-4 py-3 text-left font-black text-xs uppercase">Branch</th>
-                          <th className="px-4 py-3 text-left font-black text-xs uppercase">Batch</th>
-                          <th className="px-4 py-3 text-left font-black text-xs uppercase">Semester</th>
-                          <th className="px-4 py-3 text-center font-black text-xs uppercase">Grade</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredRows.map((row, idx) => {
-                          const branchName = row.Branch || getBranchFromRegNo(row.Reg_No || row.registration || "") || "Unknown";
-                          const fullBranchName = branchName.length <= 5 && branchName !== "AIML" 
-                            ? getFullBranchName(branchName) 
-                            : branchName;
-                          
-                          // Remove "Sem" prefix if already present in the data
-                          let semValue = String(row.Sem || "");
-                          if (semValue.toLowerCase().startsWith("sem")) {
-                            semValue = semValue.substring(3).trim();
-                          }
-                          if (semValue && !semValue.toLowerCase().startsWith("sem")) {
-                            semValue = `Sem ${semValue}`;
-                          }
-                          if (!semValue) semValue = "-";
-                          
-                          return (
-                            <tr 
-                              key={idx} 
-                              className="border-t-2 border-[#05A3C7]/10 hover:bg-[#05A3C7]/5 transition-colors"
-                            >
-                              <td className="px-4 py-3 text-[#1A1F29] font-medium">{row.Name || "-"}</td>
-                              <td className="px-4 py-3 font-bold" style={{ color: "#05A3C7" }}>
-                                {row.Reg_No || row.registration || "-"}
-                              </td>
-                              <td className="px-4 py-3 text-[#1A1F29] font-medium">{fullBranchName}</td>
-                              <td className="px-4 py-3 text-[#1A1F29] font-medium">{row.Batch || "-"}</td>
-                              <td className="px-4 py-3 text-[#1A1F29] font-medium">{semValue}</td>
+                            <span className="text-base">📥</span>
+                            <span className="hidden xs:inline">Export Excel</span>
+                            <span className="xs:hidden">Excel</span>
+                          </button>
+                          <button
+                            onClick={downloadBranchWiseReport}
+                            className="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
+                          >
+                            <span className="text-base">📄</span>
+                            <span className="hidden xs:inline">Download PDF</span>
+                            <span className="xs:hidden">PDF</span>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-sm">
+                          <thead>
+                            <tr style={{ background: "rgba(5,163,199,0.1)" }}>
+                              <th className="px-4 py-3 text-left font-black text-xs uppercase">
+                                {showBatchBranchCombinations ? "Batch & Branch" : "Branch"}
+                              </th>
+                              <th className="px-4 py-3 text-center font-black text-xs uppercase">Number of Backlogs</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {branchWiseCounts.map((item, idx) => (
+                              <tr
+                                key={idx}
+                                className="border-t-2 border-[#05A3C7]/10 hover:bg-[#05A3C7]/5 transition-colors"
+                              >
+                                <td className="px-4 py-3 text-[#1A1F29] font-bold">
+                                  {item.branch || "Unknown"}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-[#05A3C7] text-white font-black text-base">
+                                    {item.count}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                            <tr className="border-t-2 border-[#05A3C7]/30 bg-[#05A3C7]/5">
+                              <td className="px-4 py-3 text-[#1A1F29] font-black text-base">Total</td>
                               <td className="px-4 py-3 text-center">
-                                <span className="px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">
-                                  {row.Grade || "-"}
+                                <span className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-[#04748F] text-white font-black text-base">
+                                  {subjectResultCount}
                                 </span>
                               </td>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <>
-              {/* Mobile Card View */}
-              <div className="block md:hidden">
-                {filteredRows.length === 0 ? (
-                  <div className="px-3 py-8 sm:py-10 text-center text-[#5A6C7D] font-medium text-sm">
-                    {rows.length === 0 ? "No backlog results" : "No results match filters"}
-                  </div>
-                ) : (
-                  <div className="divide-y-2 divide-[#05A3C7]/10">
-                    {filteredRows.map((b, i) => (
-                      <div key={i} className="p-3 sm:p-4 hover:bg-[#05A3C7]/5 active:bg-[#05A3C7]/10 transition-colors">
-                        <div className="flex justify-between items-start gap-2 mb-2">
-                          <div className="flex-1 min-w-0">
-                            <div className="text-[#1A1F29] font-bold text-sm sm:text-base truncate">{b.Name || '-'}</div>
-                            <div className="text-[#5A6C7D] text-xs sm:text-sm font-medium">{b.Reg_No || b.registration || '-'}</div>
-                          </div>
-                          <span className="px-2 sm:px-2.5 py-1 rounded-lg text-xs sm:text-sm font-bold bg-red-100 text-red-700 flex-shrink-0">
-                            {b.Grade || '-'}
-                          </span>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Detailed Subject Breakdown Table - Shows Batch + Branch + Subject breakdown */}
+                  {showBranchWiseSummary && detailedSubjectBreakdown.length > 0 && (
+                    <div className="rounded-xl border-2 border-[#05A3C7]/20 bg-white overflow-hidden">
+                      <div
+                        className="text-white px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3"
+                        style={{
+                          background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
+                        }}
+                      >
+                        <h3 className="font-black text-base sm:text-lg">
+                          Detailed Breakdown: Batch, Branch & Subject
+                        </h3>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={exportDetailedSubjectBreakdownToExcel}
+                            className="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
+                          >
+                            <span className="text-base">📥</span>
+                            <span className="hidden xs:inline">Export Excel</span>
+                            <span className="xs:hidden">Excel</span>
+                          </button>
+                          <button
+                            onClick={downloadDetailedSubjectBreakdownReport}
+                            className="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
+                          >
+                            <span className="text-base">📄</span>
+                            <span className="hidden xs:inline">Download PDF</span>
+                            <span className="xs:hidden">PDF</span>
+                          </button>
                         </div>
-                        <div className="text-[#1A1F29] font-medium mb-2 text-xs sm:text-sm leading-snug">{b.Subject_Name || '-'}</div>
-                        <div className="flex flex-wrap gap-2 text-xs">
-                          <code className="text-[#05A3C7] bg-[#05A3C7]/10 px-2 py-1 rounded font-bold">
-                            {b.Subject_Code || b.subject_code}
-                          </code>
-                          <span className="px-2 py-1 rounded-full bg-[#05A3C7]/10 text-[#05A3C7] font-bold">
-                            {(() => {
-                              let semValue = String(b.Sem || "");
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-sm">
+                          <thead>
+                            <tr style={{ background: "rgba(5,163,199,0.1)" }}>
+                              <th className="px-4 py-3 text-left font-black text-xs uppercase">S.No</th>
+                              <th className="px-4 py-3 text-left font-black text-xs uppercase">Batch</th>
+                              <th className="px-4 py-3 text-left font-black text-xs uppercase">Branch</th>
+                              <th className="px-4 py-3 text-left font-black text-xs uppercase">Subject Code</th>
+                              <th className="px-4 py-3 text-left font-black text-xs uppercase">Subject Name</th>
+                              <th className="px-4 py-3 text-center font-black text-xs uppercase">Backlog Count</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {detailedSubjectBreakdown.map((item, idx) => (
+                              <tr
+                                key={idx}
+                                className="border-t-2 border-[#05A3C7]/10 hover:bg-[#05A3C7]/5 transition-colors"
+                              >
+                                <td className="px-4 py-3 text-[#1A1F29] font-medium">{idx + 1}</td>
+                                <td className="px-4 py-3 text-[#1A1F29] font-bold">{item.batch || "-"}</td>
+                                <td className="px-4 py-3 text-[#1A1F29] font-medium">{item.branch || "-"}</td>
+                                <td className="px-4 py-3 font-bold" style={{ color: "#05A3C7" }}>
+                                  {item.subjectCode || "-"}
+                                </td>
+                                <td className="px-4 py-3 text-[#1A1F29] font-medium">{item.subjectName || "-"}</td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-[#05A3C7] text-white font-black text-base">
+                                    {item.count}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                            <tr className="border-t-2 border-[#05A3C7]/30 bg-[#05A3C7]/5">
+                              <td colSpan={5} className="px-4 py-3 text-[#1A1F29] font-black text-base">Total</td>
+                              <td className="px-4 py-3 text-center">
+                                <span className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-[#04748F] text-white font-black text-base">
+                                  {subjectResultCount}
+                                </span>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Detailed Results Table */}
+                  {filteredRows.length > 0 && (
+                    <div className="rounded-xl border-2 border-[#05A3C7]/20 bg-white overflow-hidden">
+                      <div
+                        className="text-white px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3"
+                        style={{
+                          background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
+                        }}
+                      >
+                        <h3 className="font-black text-base sm:text-lg">Detailed Results ({filteredRows.length} records)</h3>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={exportDetailedResultsToExcel}
+                            className="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
+                          >
+                            <span className="text-base">📥</span>
+                            <span className="hidden xs:inline">Export Excel</span>
+                            <span className="xs:hidden">Excel</span>
+                          </button>
+                          <button
+                            onClick={downloadDetailedResultsReport}
+                            className="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
+                          >
+                            <span className="text-base">📄</span>
+                            <span className="hidden xs:inline">Download PDF</span>
+                            <span className="xs:hidden">PDF</span>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-sm">
+                          <thead>
+                            <tr style={{ background: "rgba(5,163,199,0.1)" }}>
+                              <th className="px-4 py-3 text-left font-black text-xs uppercase">Name</th>
+                              <th className="px-4 py-3 text-left font-black text-xs uppercase">Registration No</th>
+                              <th className="px-4 py-3 text-left font-black text-xs uppercase">Branch</th>
+                              <th className="px-4 py-3 text-left font-black text-xs uppercase">Batch</th>
+                              <th className="px-4 py-3 text-left font-black text-xs uppercase">Semester</th>
+                              <th className="px-4 py-3 text-center font-black text-xs uppercase">Grade</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredRows.map((row, idx) => {
+                              const branchName = row.Branch || getBranchFromRegNo(row.Reg_No || row.registration || "") || "Unknown";
+                              const fullBranchName = branchName.length <= 5 && branchName !== "AIML"
+                                ? getFullBranchName(branchName)
+                                : branchName;
+
+                              // Remove "Sem" prefix if already present in the data
+                              let semValue = String(row.Sem || "");
                               if (semValue.toLowerCase().startsWith("sem")) {
                                 semValue = semValue.substring(3).trim();
                               }
                               if (semValue && !semValue.toLowerCase().startsWith("sem")) {
                                 semValue = `Sem ${semValue}`;
                               }
-                              return semValue || "-";
-                            })()}
-                          </span>
-                        </div>
+                              if (!semValue) semValue = "-";
+
+                              return (
+                                <tr
+                                  key={idx}
+                                  className="border-t-2 border-[#05A3C7]/10 hover:bg-[#05A3C7]/5 transition-colors"
+                                >
+                                  <td className="px-4 py-3 text-[#1A1F29] font-medium">{row.Name || "-"}</td>
+                                  <td className="px-4 py-3 font-bold" style={{ color: "#05A3C7" }}>
+                                    {row.Reg_No || row.registration || "-"}
+                                  </td>
+                                  <td className="px-4 py-3 text-[#1A1F29] font-medium">{fullBranchName}</td>
+                                  <td className="px-4 py-3 text-[#1A1F29] font-medium">{row.Batch || "-"}</td>
+                                  <td className="px-4 py-3 text-[#1A1F29] font-medium">{semValue}</td>
+                                  <td className="px-4 py-3 text-center">
+                                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">
+                                      {row.Grade || "-"}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              
-              {/* Desktop Table View */}
-              <div className="hidden md:block overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr 
-                      className="text-white"
-                      style={{
-                        background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
-                      }}
-                    >
-                      {["Subject Code","Subject Name","Semester","Grade"].map(h => (
-                        <th key={h} className="px-4 py-3 text-left uppercase tracking-wider font-black text-xs whitespace-nowrap">
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredRows.length === 0 && (
-                      <tr>
-                        <td colSpan={4} className="px-3 py-8 lg:py-10 text-center text-[#5A6C7D] font-medium">
-                          {rows.length === 0 ? "No backlog results" : "No results match filters"}
-                        </td>
-                      </tr>
-                    )}
-                    {filteredRows.map((b, i) => (
-                      <tr key={i} className="border-t-2 border-[#05A3C7]/10 hover:bg-[#05A3C7]/5 transition-colors">
-                        {[b.Subject_Code || b.subject_code || '-', b.Subject_Name || '-', b.Sem || '-', b.Grade || '-'].map((val, idx2) => (
-                          <td key={idx2} className="px-4 py-3 whitespace-nowrap text-[#1A1F29] font-medium">
-                            {idx2 === 3 ? (
-                              <span className="px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 whitespace-nowrap">
-                                {val}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  {/* Mobile Card View */}
+                  <div className="block md:hidden">
+                    {filteredRows.length === 0 ? (
+                      <div className="px-3 py-8 sm:py-10 text-center text-[#5A6C7D] font-medium text-sm">
+                        {rows.length === 0 ? "No backlog results" : "No results match filters"}
+                      </div>
+                    ) : (
+                      <div className="divide-y-2 divide-[#05A3C7]/10">
+                        {filteredRows.map((b, i) => (
+                          <div key={i} className="p-3 sm:p-4 hover:bg-[#05A3C7]/5 active:bg-[#05A3C7]/10 transition-colors">
+                            <div className="flex justify-between items-start gap-2 mb-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[#1A1F29] font-bold text-sm sm:text-base truncate">{b.Name || '-'}</div>
+                                <div className="text-[#5A6C7D] text-xs sm:text-sm font-medium">{b.Reg_No || b.registration || '-'}</div>
+                              </div>
+                              <span className="px-2 sm:px-2.5 py-1 rounded-lg text-xs sm:text-sm font-bold bg-red-100 text-red-700 flex-shrink-0">
+                                {b.Grade || '-'}
                               </span>
-                            ) : (
-                              val
-                            )}
-                          </td>
+                            </div>
+                            <div className="text-[#1A1F29] font-medium mb-2 text-xs sm:text-sm leading-snug">{b.Subject_Name || '-'}</div>
+                            <div className="flex flex-wrap gap-2 text-xs">
+                              <code className="text-[#05A3C7] bg-[#05A3C7]/10 px-2 py-1 rounded font-bold">
+                                {b.Subject_Code || b.subject_code}
+                              </code>
+                              <span className="px-2 py-1 rounded-full bg-[#05A3C7]/10 text-[#05A3C7] font-bold">
+                                {(() => {
+                                  let semValue = String(b.Sem || "");
+                                  if (semValue.toLowerCase().startsWith("sem")) {
+                                    semValue = semValue.substring(3).trim();
+                                  }
+                                  if (semValue && !semValue.toLowerCase().startsWith("sem")) {
+                                    semValue = `Sem ${semValue}`;
+                                  }
+                                  return semValue || "-";
+                                })()}
+                              </span>
+                            </div>
+                          </div>
                         ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Desktop Table View */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr
+                          className="text-white"
+                          style={{
+                            background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
+                          }}
+                        >
+                          {["Subject Code", "Subject Name", "Semester", "Grade"].map(h => (
+                            <th key={h} className="px-4 py-3 text-left uppercase tracking-wider font-black text-xs whitespace-nowrap">
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredRows.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className="px-3 py-8 lg:py-10 text-center text-[#5A6C7D] font-medium">
+                              {rows.length === 0 ? "No backlog results" : "No results match filters"}
+                            </td>
+                          </tr>
+                        )}
+                        {filteredRows.map((b, i) => (
+                          <tr key={i} className="border-t-2 border-[#05A3C7]/10 hover:bg-[#05A3C7]/5 transition-colors">
+                            {[b.Subject_Code || b.subject_code || '-', b.Subject_Name || '-', b.Sem || '-', b.Grade || '-'].map((val, idx2) => (
+                              <td key={idx2} className="px-4 py-3 whitespace-nowrap text-[#1A1F29] font-medium">
+                                {idx2 === 3 ? (
+                                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 whitespace-nowrap">
+                                    {val}
+                                  </span>
+                                ) : (
+                                  val
+                                )}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Loading Overlay */}
+          {loading && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 px-4">
+              <div
+                className="rounded-xl sm:rounded-2xl p-4 sm:p-6 flex items-center gap-3 shadow-2xl max-w-sm w-full"
+                style={{
+                  background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
+                }}
+              >
+                <div className="w-5 h-5 sm:w-6 sm:h-6 border-3 border-white/30 border-t-white rounded-full animate-spin flex-shrink-0"></div>
+                <span className="text-white font-bold text-sm sm:text-base">Loading backlog data...</span>
               </div>
-            </>
+            </div>
           )}
         </div>
-        )}
-
-        {/* Loading Overlay */}
-        {loading && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-            <div 
-              className="rounded-xl sm:rounded-2xl p-4 sm:p-6 flex items-center gap-3 shadow-2xl max-w-sm w-full"
-              style={{
-                background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
-              }}
-            >
-              <div className="w-5 h-5 sm:w-6 sm:h-6 border-3 border-white/30 border-t-white rounded-full animate-spin flex-shrink-0"></div>
-              <span className="text-white font-bold text-sm sm:text-base">Loading backlog data...</span>
-            </div>
-          </div>
-        )}
       </div>
-    </div>
     </>
   );
 }

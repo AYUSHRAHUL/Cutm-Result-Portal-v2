@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { appendSchoolParams } from "@/lib/api-helper";
 
-const BRANCHES = [
+const BTECH_BRANCHES = [
   "Civil Engineering",
   "Computer Science Engineering",
   "Electronics & Communication Engineering",
@@ -12,9 +14,23 @@ const BRANCHES = [
   "AIML",
 ];
 
+const DIPLOMA_BRANCHES = [
+  "Civil Engineering",
+  "Computer Science Engineering",
+  "Electrical Engineering",
+  "Mechanical Engineering",
+  "Automobile Engineering",
+  "Mining Engineering"
+];
+
 const BATCHES = ["2022", "2023", "2024", "2025", "2026", "2027", "2028"];
 
 export default function BranchChangePage() {
+  const searchParams = useSearchParams();
+  const school = searchParams.get("school");
+  const isDiploma = school === "SOVET";
+  const branchOptions = isDiploma ? DIPLOMA_BRANCHES : BTECH_BRANCHES;
+
   const [reg, setReg] = useState("");
   const [loading, setLoading] = useState(false);
   const [info, setInfo] = useState(null);
@@ -32,7 +48,8 @@ export default function BranchChangePage() {
     if (!reg) { setErr("Enter registration number"); return; }
     try {
       setLoading(true);
-      const res = await fetch(`/api/branch-change?reg=${encodeURIComponent(reg)}`);
+      const url = appendSchoolParams(`/api/branch-change?reg=${encodeURIComponent(reg)}`);
+      const res = await fetch(url);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Lookup failed");
       setInfo(data);
@@ -48,7 +65,8 @@ export default function BranchChangePage() {
     try {
       setLoadingOverrides(true);
       setOverridesError("");
-      const res = await fetch("/api/branch-change?all=1");
+      const url = appendSchoolParams("/api/branch-change?all=1");
+      const res = await fetch(url);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load overrides");
       setOverrides(data.overrides || []);
@@ -68,13 +86,13 @@ export default function BranchChangePage() {
     e.preventDefault();
     setErr(""); setMsg("");
     if (!reg) { setErr("Enter registration number"); return; }
-    
+
     // Check if both are set to "-" (No Change)
     if (target === "-" && targetBatch === "-") {
       setErr("Please select a branch or batch to change, or choose a different option");
       return;
     }
-    
+
     try {
       setLoading(true);
       // Send fields - "-" means no change (don't send), other values mean update
@@ -85,15 +103,16 @@ export default function BranchChangePage() {
         // "-" means remove override (set to null)
         payload.newBranch = null;
       }
-      
+
       if (targetBatch !== "-" && targetBatch !== "") {
         payload.newBatch = targetBatch;
       } else if (targetBatch === "-") {
         // "-" means remove override (set to null)
         payload.newBatch = null;
       }
-      
-      const res = await fetch("/api/branch-change", {
+
+      const url = appendSchoolParams("/api/branch-change");
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -101,8 +120,8 @@ export default function BranchChangePage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Update failed");
       setMsg("Override saved successfully.");
-      setInfo(prev => ({ 
-        ...prev, 
+      setInfo(prev => ({
+        ...prev,
         override: target === "-" ? null : (target !== "-" && target ? target : prev?.override || null),
         overrideBatch: targetBatch === "-" ? null : (targetBatch !== "-" && targetBatch ? targetBatch : prev?.overrideBatch || null)
       }));
@@ -131,7 +150,7 @@ export default function BranchChangePage() {
           <label className="block text-sm font-medium">Registration No</label>
           <input
             value={reg}
-            onChange={e=>setReg(e.target.value.toUpperCase())}
+            onChange={e => setReg(e.target.value.toUpperCase())}
             placeholder="e.g., 220101130056"
             className="w-full rounded-md border px-3 py-2"
           />
@@ -231,14 +250,14 @@ export default function BranchChangePage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium">Set New Branch</label>
-                  <select value={target} onChange={e=>setTarget(e.target.value)} className="w-full rounded-md border px-3 py-2">
+                  <select value={target} onChange={e => setTarget(e.target.value)} className="w-full rounded-md border px-3 py-2">
                     <option value="-">— (No Change)</option>
-                    {BRANCHES.map(b => <option key={b} value={b}>{b}</option>)}
+                    {branchOptions.map(b => <option key={b} value={b}>{b}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium">Set New Batch</label>
-                  <select value={targetBatch} onChange={e=>setTargetBatch(e.target.value)} className="w-full rounded-md border px-3 py-2">
+                  <select value={targetBatch} onChange={e => setTargetBatch(e.target.value)} className="w-full rounded-md border px-3 py-2">
                     <option value="-">— (No Change)</option>
                     {BATCHES.map(b => <option key={b} value={b}>{b}</option>)}
                   </select>

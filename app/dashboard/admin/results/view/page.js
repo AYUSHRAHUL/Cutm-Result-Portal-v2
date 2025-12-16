@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
 
 function ResultPageContent() {
   const router = useRouter();
@@ -37,7 +38,8 @@ function ResultPageContent() {
           const semesterResults = {};
 
           for (const sem of semesters) {
-            const res = await fetch("/api/result", {
+            let resultUrl = getSchoolApiUrl("result");
+            const res = await fetch(resultUrl, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ registration, semester: sem.trim() }),
@@ -56,7 +58,8 @@ function ResultPageContent() {
           setActiveSemester(0); // Start with first semester
         } else {
           // Single semester
-          const res = await fetch("/api/result", {
+          let resultUrl = getSchoolApiUrl("result");
+          const res = await fetch(resultUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ registration, semester }),
@@ -250,9 +253,9 @@ function ResultPageContent() {
               <div className="text-left sm:text-right">
                 <div className="text-sm text-gray-500">Generated on</div>
                 <div className="text-sm font-semibold text-gray-700">
-                  {new Date().toLocaleDateString('en-GB', { 
-                    day: '2-digit', 
-                    month: 'short', 
+                  {new Date().toLocaleDateString('en-GB', {
+                    day: '2-digit',
+                    month: 'short',
                     year: 'numeric',
                     hour: '2-digit',
                     minute: '2-digit'
@@ -279,7 +282,7 @@ function ResultPageContent() {
                 Centurion University of Technology and Management
               </h1>
               <h2 className="text-lg font-semibold text-gray-800 mb-1">
-                School Of Engineering & Technology, Paralakhemundi
+                {result.schoolName || "School Of Engineering & Technology"}, Paralakhemundi
               </h2>
               <p className="text-base text-gray-700">Paralakhemundi Campus</p>
               <h3 className="text-xl font-bold text-gray-900 mt-4">
@@ -387,23 +390,20 @@ function ResultPageContent() {
                   <button
                     key={sem}
                     onClick={() => setActiveSemester(index)}
-                    className={`w-full text-left p-3 rounded-lg transition-all duration-200 ${
-                      activeSemester === index
+                    className={`w-full text-left p-3 rounded-lg transition-all duration-200 ${activeSemester === index
                         ? 'bg-blue-600 text-white shadow-md'
                         : 'bg-gray-50 hover:bg-gray-100 text-gray-700'
-                    }`}
+                      }`}
                   >
                     <div className="font-semibold text-sm">{sem.replace('Semester ', 'Sem ')}</div>
-                    <div className={`text-xs mt-1 ${
-                      activeSemester === index ? 'text-blue-100' : 'text-gray-500'
-                    }`}>
+                    <div className={`text-xs mt-1 ${activeSemester === index ? 'text-blue-100' : 'text-gray-500'
+                      }`}>
                       <span className="block sm:inline">SGPA: <span className="font-semibold">{data.sgpa || 'N/A'}</span></span>
                       <span className="hidden sm:inline"> • </span>
                       <span className="block sm:inline">CGPA: <span className="font-semibold">{data.cgpa || data.cumulativeCgpa || 'N/A'}</span></span>
                     </div>
-                    <div className={`text-xs mt-1 ${
-                      activeSemester === index ? 'text-blue-100' : 'text-gray-500'
-                    }`}>
+                    <div className={`text-xs mt-1 ${activeSemester === index ? 'text-blue-100' : 'text-gray-500'
+                      }`}>
                       <span className="block sm:inline">{data.subjects.length} Subjects</span>
                       <span className="hidden sm:inline"> • </span>
                       <span className="block sm:inline">{data.subjects.reduce((sum, s) => sum + parseCredits(s?.Credits), 0)} Credits</span>
@@ -411,7 +411,7 @@ function ResultPageContent() {
                   </button>
                 ))}
               </div>
-              
+
               {/* Quick Stats */}
               <div className="mt-6 p-3 bg-gray-50 rounded-lg">
                 <h4 className="font-semibold text-gray-900 text-sm mb-2">Overall Summary</h4>
@@ -451,11 +451,10 @@ function ResultPageContent() {
             {/* Main Content Area */}
             <div className="flex-1 order-1 lg:order-2">
               {Object.entries(allResults).map(([sem, data], index) => (
-                <div 
-                  key={sem} 
-                  className={`print-area bg-white shadow-lg rounded-lg p-8 ${
-                    activeSemester === index ? 'block' : 'hidden'
-                  }`}
+                <div
+                  key={sem}
+                  className={`print-area bg-white shadow-lg rounded-lg p-8 ${activeSemester === index ? 'block' : 'hidden'
+                    }`}
                 >
                   {/* Header for each semester */}
                   <div className="text-center mb-6">
@@ -470,7 +469,7 @@ function ResultPageContent() {
                       Centurion University of Technology and Management
                     </h1>
                     <h2 className="text-lg font-semibold text-gray-800 mb-1">
-                      School Of Engineering & Technology, Paralakhemundi
+                      {data.schoolName || "School Of Engineering & Technology"}, Paralakhemundi
                     </h2>
                     <p className="text-base text-gray-700">Paralakhemundi Campus</p>
                     <h3 className="text-xl font-bold text-gray-900 mt-4">
@@ -569,7 +568,7 @@ function ResultPageContent() {
                     Centurion University of Technology and Management
                   </h1>
                   <h2 className="text-lg font-semibold text-gray-800 mb-1">
-                    School Of Engineering & Technology, Paralakhemundi
+                    {data.schoolName || "School Of Engineering & Technology"}, Paralakhemundi
                   </h2>
                   <p className="text-base text-gray-700">Paralakhemundi Campus</p>
                   <h3 className="text-xl font-bold text-gray-900 mt-4">

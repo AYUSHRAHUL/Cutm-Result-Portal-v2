@@ -28,8 +28,16 @@ export async function POST(request) {
     if (!regNo || !subjectCode) return NextResponse.json({ error: "regNo and subjectCode required" }, { status: 400 });
 
     const client = await clientPromise;
-    const db = client.db("cutm1");
-    const collection = db.collection("CUTM1");
+    const { getCampusSchoolDatabase, getSchoolFromRequest, getCampusFromRequest } = await import("@/lib/campus");
+    const { searchParams } = new URL(request.url);
+    const campusParam = searchParams.get('campus');
+    const schoolParam = searchParams.get('school');
+    const campus = campusParam || payload.campus || await getCampusFromRequest(request);
+    const school = schoolParam || payload.school || await getSchoolFromRequest(request);
+    const dbName = getCampusSchoolDatabase(campus, school);
+    console.log(`[Cleanup Delete Specific] Database selection: campus=${campus}, school=${school}, dbName=${dbName}`);
+    const db = client.db(dbName);
+    const collection = db.collection("result");
 
     const docs = await collection.find({ Reg_No: regNo, Subject_Code: subjectCode }).toArray();
     if (docs.length <= 1) return NextResponse.json({ success: true, deletedCount: 0 });
@@ -43,5 +51,6 @@ export async function POST(request) {
     return NextResponse.json({ error: "Failed to delete duplicate group", details: err.message }, { status: 500 });
   }
 }
+
 
 

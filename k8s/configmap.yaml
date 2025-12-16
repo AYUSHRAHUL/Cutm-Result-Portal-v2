@@ -7,7 +7,7 @@ data:
   NODE_ENV: "production"
   PORT: "3000"
   HOSTNAME: "0.0.0.0"
-  MONGO_URI: "mongodb://mongodb-service:27017/cutm1"
+  MONGO_URI: "mongodb://mongodb-service:27017/CUTMPKD"
   REDIS_URL: "redis://redis-service:6379"
   JWT_SECRET: "your-super-secret-jwt-key-change-in-production"
   EMAIL_USER: "your-email@gmail.com"

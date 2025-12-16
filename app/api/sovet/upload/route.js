@@ -1,0 +1,243 @@
+import { NextResponse } from "next/server";
+import { clientPromise } from "@/lib/mongodb";
+import { jwtVerify } from "jose";
+import * as XLSX from 'xlsx';
+
+async function verifyToken(token) {
+  try {
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET || "dev-secret");
+    const { payload } = await jwtVerify(token, secret);
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function allowedFile(filename) {
+  const allowedExtensions = ['.csv', '.xls', '.xlsx'];
+  const ext = filename.toLowerCase().substring(filename.lastIndexOf('.'));
+  return allowedExtensions.includes(ext);
+}
+
+function parseCSV(content) {
+  const lines = content.split('\n').filter(line => line.trim());
+  if (lines.length < 2) return { headers: [], data: [] };
+  
+  const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+  const data = [];
+  
+  for (let i = 1; i < lines.length; i++) {
+    const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+    if (values.length >= headers.length) {
+      const row = {};
+      headers.forEach((header, index) => {
+        row[header] = values[index] || '';
+      });
+      data.push(row);
+    }
+  }
+  
+  return { headers, data };
+}
+
+function parseExcel(buffer) {
+  const workbook = XLSX.read(buffer, { type: 'buffer' });
+  const sheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[sheetName];
+  const jsonData = XLSX.utils.sheet_to_json(worksheet);
+  
+  if (jsonData.length === 0) return { headers: [], data: [] };
+  
+  const headers = Object.keys(jsonData[0]);
+  return { headers, data: jsonData };
+}
+
+function findColumn(headers, ...names) {
+  for (const name of names) {
+    const found = headers.find(h => h.toLowerCase().trim() === name.toLowerCase());
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * SOVET Upload Route - Diploma students only
+ */
+export async function POST(req) {
+  try {
+    const token = req.cookies.get("token")?.value;
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized - Please login first" }, { status: 401 });
+    }
+
+    const payload = await verifyToken(token);
+    if (!payload?.email) {
+      return NextResponse.json({ error: "Unauthorized - Invalid token" }, { status: 401 });
+    }
+
+    const userRole = payload.role?.toLowerCase();
+    if (userRole !== 'admin') {
+      return NextResponse.json({ 
+        error: "Access denied - Only admins can upload data" 
+      }, { status: 403 });
+    }
+
+    const formData = await req.formData();
+    const files = formData.getAll("files");
+    
+    if (!files || files.length === 0) {
+      return NextResponse.json({ error: "No files provided" }, { status: 400 });
+    }
+
+    let totalUpdated = 0;
+    let totalInserted = 0;
+    const errors = [];
+    const results = [];
+
+    const client = await clientPromise;
+    const { searchParams } = new URL(req.url);
+    const campusParam = searchParams.get('campus');
+    const campus = campusParam || payload.campus || null;
+    
+    // Force school to SOVET
+    const school = 'SOVET';
+    const { getCampusSchoolDatabase } = await import("@/lib/campus");
+    const dbName = getCampusSchoolDatabase(campus, school);
+    const db = client.db(dbName);
+    const cutmCollection = db.collection("result");
+
+    // Import parser to verify Diploma students
+    const { parseDiplomaRegistration } = await import('../parse-registration/route');
+
+    for (const file of files) {
+      if (!file || !allowedFile(file.name)) {
+        errors.push(`Invalid file: ${file.name}`);
+        continue;
+      }
+
+      try {
+        const buffer = await file.arrayBuffer();
+        let headers, data;
+
+        if (file.name.toLowerCase().endsWith('.csv')) {
+          const content = Buffer.from(buffer).toString('utf-8');
+          const parsed = parseCSV(content);
+          headers = parsed.headers;
+          data = parsed.data;
+        } else {
+          const parsed = parseExcel(buffer);
+          headers = parsed.headers;
+          data = parsed.data;
+        }
+
+        if (data.length === 0) {
+          errors.push(`No data found in file: ${file.name}`);
+          continue;
+        }
+
+        const regNoCol = findColumn(headers, 'Reg_No', 'Registration No.', 'Registration Number');
+        const subjectCodeCol = findColumn(headers, 'Subject_Code', 'Subject Code');
+        const subjectNameCol = findColumn(headers, 'Subject_Name', 'Subject Name');
+        const nameCol = findColumn(headers, 'Name', 'Student Name');
+        const semCol = findColumn(headers, 'Sem', 'Semester');
+        const creditsCol = findColumn(headers, 'Credits', 'Credit');
+        const gradeCol = findColumn(headers, 'Grade', 'Grade Point');
+        const subjectTypeCol = findColumn(headers, 'Subject_Type', 'Subject Type');
+
+        if (!regNoCol || !subjectCodeCol) {
+          errors.push(`Missing required columns in ${file.name}. Need: Reg_No, Subject_Code`);
+          continue;
+        }
+
+        let fileUpdated = 0;
+        let fileInserted = 0;
+        let skippedNonDiploma = 0;
+
+        for (const row of data) {
+          const regNo = String(row[regNoCol] || "").trim().toUpperCase();
+          const subjectCode = String(row[subjectCodeCol] || "").trim().toUpperCase();
+          
+          if (!regNo || !subjectCode) continue;
+
+          // Verify this is a Diploma student
+          const parsed = parseDiplomaRegistration(regNo);
+          if (!parsed || !parsed.isValid || !parsed.isDiploma) {
+            skippedNonDiploma++;
+            continue; // Skip non-Diploma students
+          }
+
+          const subjectName = String(row[subjectNameCol] || "").trim();
+          const name = String(row[nameCol] || "").trim();
+          const sem = String(row[semCol] || "").trim();
+          const credits = String(row[creditsCol] || "").trim();
+          const grade = String(row[gradeCol] || "").trim().toUpperCase();
+          const subjectType = String(row[subjectTypeCol] || "").trim();
+          
+          const semValue = sem && sem.match(/^\d+$/) ? `Sem ${sem}` : sem;
+
+          const existingRecord = await cutmCollection.findOne(
+            { Reg_No: regNo, Subject_Code: subjectCode },
+            { projection: { Grade: 1 } }
+          );
+
+          if (existingRecord) {
+            const currentGrade = existingRecord.Grade || '';
+            if (['F', 'S', 'M', 'I', 'R', ''].includes(currentGrade)) {
+              await cutmCollection.updateOne(
+                { Reg_No: regNo, Subject_Code: subjectCode },
+                { $set: { Grade: grade } }
+              );
+              fileUpdated++;
+            }
+          } else {
+            await cutmCollection.insertOne({
+              Reg_No: regNo,
+              Subject_Code: subjectCode,
+              Grade: grade,
+              Name: name,
+              Sem: semValue,
+              Subject_Name: subjectName,
+              Subject_Type: subjectType,
+              Credits: credits
+            });
+            fileInserted++;
+          }
+        }
+
+        totalUpdated += fileUpdated;
+        totalInserted += fileInserted;
+        
+        results.push({
+          filename: file.name,
+          updated: fileUpdated,
+          inserted: fileInserted,
+          skipped: skippedNonDiploma,
+          total: fileUpdated + fileInserted
+        });
+
+      } catch (fileError) {
+        console.error(`Error processing file ${file.name}:`, fileError);
+        errors.push(`Error processing ${file.name}: ${fileError.message}`);
+      }
+    }
+
+    const message = `SOVET (Diploma) files processed! Updated: ${totalUpdated}, Inserted: ${totalInserted}`;
+    
+    return NextResponse.json({
+      success: true,
+      message,
+      updated: totalUpdated,
+      inserted: totalInserted,
+      total: totalUpdated + totalInserted,
+      results,
+      errors: errors.length > 0 ? errors : undefined,
+      school: 'SOVET'
+    });
+
+  } catch (err) {
+    console.error("SOVET Upload error:", err);
+    return NextResponse.json({ 
+      error: `Upload failed: ${err.message}` 
+    }, { status: 500 });
+  }
+}
