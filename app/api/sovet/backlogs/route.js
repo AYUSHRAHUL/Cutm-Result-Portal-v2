@@ -55,7 +55,7 @@ export async function POST(req) {
       dbName = getCampusSchoolDatabase(campus, school);
     }
     
-    console.log(`[SOVET Backlogs] Database selection: dbName=${dbName}, userRole=${userRole}`);
+    // Removed console.log to reduce overhead
     
     const db = client.db(dbName);
     const cutm = db.collection("result");
@@ -78,7 +78,7 @@ export async function POST(req) {
       }
     } else if (userRole === 'teacher' || userRole === 'admin') {
       // Teachers and admins can view any student's backlog data
-      console.log(`Access granted to ${userRole}: ${payload.email} accessing SOVET backlog data`);
+      // Removed console.log to reduce overhead
     } else {
       return NextResponse.json({
         error: "Access denied - Invalid user role"
@@ -143,7 +143,7 @@ export async function POST(req) {
       query.Reg_No = { $regex: `^${yy}` };
     }
 
-    console.log("SOVET Backlog search query:", JSON.stringify(query));
+    // Removed console.log to reduce overhead
 
     // Build cursor with projection and sort
     let cursor = cutm.find(query).project({
@@ -230,7 +230,7 @@ export async function POST(req) {
     // Clean up internal _parsed property before returning
     const finalBacklogs = filteredBacklogs.map(({ _parsed, ...rest }) => rest);
 
-    console.log(`Found ${finalBacklogs.length} SOVET backlog records after filtering`);
+    // Removed console.log to reduce overhead
 
     return NextResponse.json({
       backlogs: finalBacklogs,
@@ -239,7 +239,7 @@ export async function POST(req) {
       school: 'SOVET'
     });
   } catch (err) {
-    console.error("/api/sovet/backlogs error", err);
+    // Removed console.error to reduce overhead
     return NextResponse.json({ error: "Server error: " + err.message }, { status: 500 });
   }
 }

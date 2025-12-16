@@ -221,7 +221,9 @@ export async function POST(req) {
       });
     }
 
-    const allRecords = await cutm.find(query).sort({ Reg_No: 1, Sem: 1, Subject_Code: 1 }).project(projection).toArray();
+    // Add safety limit to prevent excessive data loading
+    const MAX_BATCH_RECORDS = 100000; // Safety limit for batch queries
+    const allRecords = await cutm.find(query).sort({ Reg_No: 1, Sem: 1, Subject_Code: 1 }).project(projection).limit(MAX_BATCH_RECORDS).toArray();
 
     // Import unified CUTM parser
     const { parseBTechRegistration } = await import('../parse-registration/route');

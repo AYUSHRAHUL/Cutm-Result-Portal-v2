@@ -54,7 +54,7 @@ export async function GET(req) {
     const school = 'SOVET';
     const dbName = getCampusSchoolDatabase(campus, school);
     
-    console.log(`[SOVET Subject Students] Database selection: campus=${campus}, school=${school}, dbName=${dbName}`);
+    // Removed console.log to reduce overhead
     
     const db = client.db(dbName);
     const cutm = db.collection("result");
@@ -88,8 +88,9 @@ export async function GET(req) {
       ];
     }
 
-    // Fetch records
-    let records = await cutm.find(query).toArray();
+    // Fetch records with limit to prevent excessive MongoDB connections
+    const MAX_SUBJECT_STUDENTS_RECORDS = 10000; // Limit to 10k records
+    let records = await cutm.find(query).limit(MAX_SUBJECT_STUDENTS_RECORDS).toArray();
 
     // Filter for Diploma students
     records = records.filter(record => {
@@ -157,7 +158,7 @@ export async function GET(req) {
     });
 
   } catch (error) {
-    console.error('SOVET Subject Students API error:', error);
+    // Removed console.error to reduce overhead
     return NextResponse.json({
       error: `Failed to fetch subject students: ${error.message}`
     }, { status: 500 });

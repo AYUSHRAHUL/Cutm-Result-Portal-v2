@@ -633,7 +633,7 @@ export default function AnalyticsDashboard() {
 
           // Wait for all combinations to fetch (use Promise.allSettled to handle individual failures)
           // OPTIMIZATION: Limit concurrent requests to avoid overwhelming the server
-          const MAX_CONCURRENT = 10; // Process 10 requests at a time
+          const MAX_CONCURRENT = 3; // CRITICAL: Reduced to 3 to prevent MongoDB connection limit issues
           try {
             if (combinationPromises.length === 0) {
               setFilteredPassingStatsByCombination([]);
@@ -648,9 +648,9 @@ export default function AnalyticsDashboard() {
                 const batchResults = await Promise.allSettled(batch);
                 combinationResults.push(...batchResults);
 
-                // Small delay between batches to avoid overwhelming the server
+                // Increased delay between batches to prevent MongoDB connection exhaustion
                 if (i + MAX_CONCURRENT < combinationPromises.length && !abortController.signal.aborted) {
-                  await new Promise(resolve => setTimeout(resolve, 50));
+                  await new Promise(resolve => setTimeout(resolve, 300));
                 }
               }
 

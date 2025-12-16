@@ -178,7 +178,7 @@ export async function GET(req) {
     });
 
   } catch (error) {
-    console.error('SOET Subjects API error:', error);
+    // Removed console.error to reduce overhead
     return NextResponse.json({
       error: `Failed to fetch subjects: ${error.message}`
     }, { status: 500 });

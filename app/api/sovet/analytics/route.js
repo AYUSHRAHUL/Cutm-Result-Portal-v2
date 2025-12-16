@@ -50,7 +50,7 @@ export async function GET(req) {
     const school = 'SOVET';
     const dbName = getCampusSchoolDatabase(campus, school);
     
-    console.log(`[SOVET Analytics] Database selection: campus=${campus}, school=${school}, dbName=${dbName}`);
+    // Removed console.log to reduce overhead
     
     const db = client.db(dbName);
 
@@ -64,18 +64,21 @@ export async function GET(req) {
     });
 
   } catch (error) {
-    console.error('SOVET Analytics API error:', error);
+    // Only log error message, not full error object to reduce overhead
     return NextResponse.json({
       error: `Analytics failed: ${error.message}`
     }, { status: 500 });
   }
 }
 
+// CRITICAL: Maximum records to fetch to prevent MongoDB connection exhaustion
+const MAX_ANALYTICS_RECORDS = 50000; // Limit to 50k records max per analytics request
+
 async function getAnalyticsData(db, batchFilter = null, branchFilter = null, semesterFilter = null, school = null) {
   // Optimize: Only fetch essential fields. Keep DB match minimal to avoid over-filtering to zero.
   const collection = db.collection("result");
 
-  console.log(`[SOVET Analytics] Starting optimized data fetch with DB-level filters...`);
+  // Removed console.log to reduce overhead
 
   // Normalize filters into arrays for downstream JS filtering
   const batchFilters = Array.isArray(batchFilter) ? batchFilter : (batchFilter ? [batchFilter] : []);
@@ -94,8 +97,9 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     }
   };
 
-  console.log("[SOVET Analytics] Mongo match (minimal):", JSON.stringify(match));
+  // Removed console.log to reduce overhead
 
+  // CRITICAL: Limit records to prevent MongoDB connection exhaustion and memory issues
   const cursor = collection.find(match, {
     projection: {
       Reg_No: 1,
@@ -111,14 +115,12 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
       Sem: 1,
       _id: 0
     }
-  });
+  }).limit(MAX_ANALYTICS_RECORDS); // CRITICAL: Limit to prevent excessive data loading
 
-  let cutm1Data = [];
-  for await (const record of cursor) {
-    cutm1Data.push(record);
-  }
+  // Use toArray() with limit instead of for await loop - more efficient
+  const cutm1Data = await cursor.toArray();
 
-  console.log(`[SOVET Analytics] Total records fetched after DB-level filters: ${cutm1Data.length}`);
+  // Removed console.log to reduce overhead
 
   // Filter for Diploma students only - Optimized with caching
   const { parseDiplomaRegistration } = await import('../parse-registration/route');

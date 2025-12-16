@@ -91,7 +91,9 @@ export async function GET(req) {
     }
 
     // Fetch records
-    let records = await cutm.find(baseQuery).toArray();
+    // Limit records to prevent excessive MongoDB connections
+    const MAX_SUBJECT_COMPARISON_RECORDS = 10000; // Limit to 10k records
+    let records = await cutm.find(baseQuery).limit(MAX_SUBJECT_COMPARISON_RECORDS).toArray();
 
     // Filter for B.Tech students
     const { parseBTechRegistration } = await import('../../parse-registration/route');
@@ -169,7 +171,7 @@ export async function GET(req) {
     });
 
   } catch (error) {
-    console.error('SOET Subject Comparison API error:', error);
+    // Removed console.error to reduce overhead
     return NextResponse.json({
       error: `Failed to compare subjects: ${error.message}`
     }, { status: 500 });

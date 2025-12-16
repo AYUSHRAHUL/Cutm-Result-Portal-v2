@@ -30,7 +30,7 @@ export async function POST(req) {
     const school = 'SOVET';
     const dbName = getCampusSchoolDatabase(campus, school);
     
-    console.log(`[SOVET Batch] Database selection: campus=${campus}, school=${school}, dbName=${dbName}`);
+    // Removed console.log to reduce overhead
 
     const db = client.db(dbName);
     const cutm = db.collection("result");
@@ -49,7 +49,8 @@ export async function POST(req) {
       };
     }
 
-    // Use projection to fetch only necessary fields
+    // Use projection to fetch only necessary fields with safety limit
+    const MAX_BATCH_RECORDS = 100000; // Safety limit for batch queries
     const allRecords = await cutm.find(query).project({
       Reg_No: 1,
       Name: 1,
@@ -58,7 +59,7 @@ export async function POST(req) {
       Credits: 1,
       Grade: 1,
       Sem: 1
-    }).toArray();
+    }).limit(MAX_BATCH_RECORDS).toArray();
 
     // Import unified CUTM parser
     const { parseDiplomaRegistration } = await import('../parse-registration/route');
@@ -175,7 +176,7 @@ export async function POST(req) {
     });
 
   } catch (err) {
-    console.error("/api/sovet/batch error", err);
+    // Removed console.error to reduce overhead
     return NextResponse.json({ error: "Server error: " + err.message }, { status: 500 });
   }
 }

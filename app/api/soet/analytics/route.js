@@ -54,13 +54,7 @@ export async function GET(req) {
     // Get analytics data (B.Tech only)
     const analytics = await getAnalyticsData(db, batchFilter, branchFilter, semesterFilter, school);
 
-    console.log(`[SOET Analytics API] Returning analytics data:`, {
-      totalStudents: analytics.totalStudents,
-      totalRecords: analytics.totalRecords,
-      departmentStatsCount: analytics.departmentStats?.length || 0,
-      semesterStatsCount: analytics.semesterStats?.length || 0,
-      batchStatsCount: analytics.batchStats?.length || 0
-    });
+    // Removed console.log to reduce overhead
 
     return NextResponse.json({
       success: true,
@@ -69,12 +63,15 @@ export async function GET(req) {
     });
 
   } catch (error) {
-    console.error('SOET Analytics API error:', error);
+    // Only log error message, not full error object to reduce overhead
     return NextResponse.json({
       error: `Analytics failed: ${error.message}`
     }, { status: 500 });
   }
 }
+
+// CRITICAL: Maximum records to fetch to prevent MongoDB connection exhaustion
+const MAX_ANALYTICS_RECORDS = 50000; // Limit to 50k records max per analytics request
 
 async function getAnalyticsData(db, batchFilter = null, branchFilter = null, semesterFilter = null, school = null) {
   const { parseBTechRegistration } = await import('../parse-registration/route');
@@ -86,7 +83,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
   // Use MongoDB match to aggressively filter data before JS processing
   const collection = db.collection("result");
 
-  console.log(`[SOET Analytics] Starting optimized data fetch with DB-level filters...`);
+  // Removed console.log to reduce overhead
 
   const match = {
     Reg_No: { $type: "string" },
@@ -155,9 +152,9 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     }
   }
 
-  console.log("[SOET Analytics] Mongo match:", JSON.stringify(match));
+  // Removed console.log to reduce overhead
 
-  // Stream records instead of loading the entire collection into memory
+  // CRITICAL: Limit records to prevent MongoDB connection exhaustion and memory issues
   const cursor = collection.find(match, {
     projection: {
       Reg_No: 1,
@@ -172,14 +169,12 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
       Sem: 1,
       _id: 0
     }
-  });
+  }).limit(MAX_ANALYTICS_RECORDS); // CRITICAL: Limit to prevent excessive data loading
 
-  const allRecords = [];
-  for await (const record of cursor) {
-    allRecords.push(record);
-  }
+  // Use toArray() with limit instead of for await loop - more efficient
+  const allRecords = await cursor.toArray();
 
-  console.log(`[SOET Analytics] Total records fetched after DB-level filters: ${allRecords.length}`);
+  // Removed console.log to reduce overhead
 
   // Filter for B.Tech students only - additional safety with parser & cache
   const beforeFilterCount = allRecords.length;

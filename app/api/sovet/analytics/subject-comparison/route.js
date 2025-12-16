@@ -60,7 +60,7 @@ export async function GET(req) {
     const school = 'SOVET';
     const dbName = getCampusSchoolDatabase(campus, school);
     
-    console.log(`[SOVET Subject Comparison] Database selection: campus=${campus}, school=${school}, dbName=${dbName}`);
+    // Removed console.log to reduce overhead
     
     const db = client.db(dbName);
     const cutm = db.collection("result");
@@ -91,7 +91,9 @@ export async function GET(req) {
     }
 
     // Fetch records
-    let records = await cutm.find(baseQuery).toArray();
+    // Limit records to prevent excessive MongoDB connections
+    const MAX_SUBJECT_COMPARISON_RECORDS = 10000; // Limit to 10k records
+    let records = await cutm.find(baseQuery).limit(MAX_SUBJECT_COMPARISON_RECORDS).toArray();
 
     // Filter for Diploma students
     const { parseDiplomaRegistration } = await import('../../parse-registration/route');
@@ -166,7 +168,7 @@ export async function GET(req) {
     });
 
   } catch (error) {
-    console.error('SOVET Subject Comparison API error:', error);
+    // Removed console.error to reduce overhead
     return NextResponse.json({
       error: `Failed to compare subjects: ${error.message}`
     }, { status: 500 });

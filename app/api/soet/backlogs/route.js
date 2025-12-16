@@ -139,7 +139,7 @@ export async function POST(req) {
       query.Reg_No = { $regex: `^${yy}` };
     }
 
-    console.log("SOET Backlog search query:", JSON.stringify(query));
+    // Removed console.log to reduce overhead
 
     // Build cursor with projection and sort
     let cursor = cutm.find(query).project({
@@ -226,7 +226,7 @@ export async function POST(req) {
       school: 'SOET'
     });
   } catch (err) {
-    console.error("/api/soet/backlogs error", err);
+    // Removed console.error to reduce overhead
     return NextResponse.json({ error: "Server error: " + err.message }, { status: 500 });
   }
 }

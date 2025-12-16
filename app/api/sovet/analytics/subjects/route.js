@@ -48,7 +48,7 @@ export async function GET(req) {
     const school = 'SOVET';
     const dbName = getCampusSchoolDatabase(campus, school);
     
-    console.log(`[SOVET Analytics Subjects] Database selection: campus=${campus}, school=${school}, dbName=${dbName}`);
+    // Removed console.log to reduce overhead
     
     const db = client.db(dbName);
     const cutm = db.collection("result");
@@ -173,7 +173,7 @@ export async function GET(req) {
     });
 
   } catch (error) {
-    console.error('SOVET Subjects API error:', error);
+    // Removed console.error to reduce overhead
     return NextResponse.json({
       error: `Failed to fetch subjects: ${error.message}`
     }, { status: 500 });
