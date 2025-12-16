@@ -88,26 +88,63 @@ export async function POST(req) {
       // Check branch match (Diploma branches only)
       // Use branch codes from index 5-7: 711=Electrical, 712=Mechanical, 713=Civil, 714=CSE, 715=Automobile, 716=Mining
       if (branch && branch !== 'All') {
+        // Normalize branch input: remove "(Diploma)" suffix and "Engineering" variations
+        const normalizedBranch = branch
+          .replace(/\s*\(Diploma\)/gi, '')
+          .replace(/\s*Engineering\s*/gi, ' ')
+          .trim();
+        
         // Map branch names to branch codes (index 5-7)
+        // Handle various formats: "Electrical", "Electrical Engineering", "Electrical Engineering (Diploma)", etc.
         const branchCodeMap = {
+          // Electrical variations
           'Electrical': '711',
-          'Mechanical': '712',
-          'Civil': '713',
-          'CSE': '714',
-          'Automobile': '715',
-          'Mining': '716',
-          // Also handle old format for backward compatibility
+          'Electrical Engineering': '711',
+          'Electrical Engineering (Diploma)': '711',
+          'EE': '711',
           'Diploma-EE': '711',
+          // Mechanical variations
+          'Mechanical': '712',
+          'Mechanical Engineering': '712',
+          'Mechanical Engineering (Diploma)': '712',
           'Diploma-ME': '712',
+          // Civil variations
+          'Civil': '713',
+          'Civil Engineering': '713',
+          'Civil Engineering (Diploma)': '713',
           'Diploma-CE': '713',
+          // CSE variations
+          'CSE': '714',
+          'Computer Science Engineering': '714',
+          'Computer Science Engineering (Diploma)': '714',
           'Diploma-CSE': '714',
+          // Automobile variations
+          'Automobile': '715',
+          'Automobile Engineering': '715',
+          'Automobile Engineering (Diploma)': '715',
           'Diploma-AE': '715',
+          // Mining variations
+          'Mining': '716',
+          'Mining Engineering': '716',
+          'Mining Engineering (Diploma)': '716',
+          'ME': '716', // Note: ME is also used for Mining in some places
           'Diploma-MiE': '716'
         };
 
-        // Handle "Diploma-" prefix
-        const branchKey = branch.startsWith('Diploma-') ? branch : branch;
-        const expectedBranchCode = branchCodeMap[branchKey] || branchCodeMap[branch];
+        // Try exact match first
+        let expectedBranchCode = branchCodeMap[branch] || branchCodeMap[normalizedBranch];
+        
+        // Try case-insensitive match if exact match failed
+        if (!expectedBranchCode) {
+          const branchLower = branch.toLowerCase();
+          const normalizedLower = normalizedBranch.toLowerCase();
+          for (const [key, code] of Object.entries(branchCodeMap)) {
+            if (key.toLowerCase() === branchLower || key.toLowerCase() === normalizedLower) {
+              expectedBranchCode = code;
+              break;
+            }
+          }
+        }
         
         if (expectedBranchCode) {
           return parsed.branchCode === expectedBranchCode;
@@ -115,7 +152,10 @@ export async function POST(req) {
 
         // Fallback: match by branch name from parsed data
         const parsedBranchName = parsed.branch || '';
-        const branchLower = branch.toLowerCase().replace('diploma-', '').replace('diploma in ', '');
+        const branchLower = branch.toLowerCase()
+          .replace(/\s*\(diploma\)/g, '')
+          .replace(/\s*engineering\s*/g, ' ')
+          .trim();
         return parsedBranchName.toLowerCase().includes(branchLower);
       }
 

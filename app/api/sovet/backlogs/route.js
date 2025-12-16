@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import { verifyToken } from "@/lib/auth";
 import { getCampusSchoolDatabase, getDatabaseFromRegistration } from "@/lib/campus";
+
+// Hard safety cap for very broad admin queries
+const MAX_BACKLOG_ROWS = 2000;
 import { parseDiplomaRegistration } from "../parse-registration/route";
 
 /**
@@ -136,15 +139,14 @@ export async function POST(req) {
     // Filter by year if provided (Database level optimization)
     if (year && year !== 'All') {
       const yy = year.length === 4 ? year.slice(-2) : year;
-      const batchYearFull = year.length === 4 ? year : `20${year}`;
-      // Match both YY (numeric) and YYYY (alphanumeric) starts
-      query.Reg_No = { $regex: `^${yy}|^${batchYearFull}` };
+      // Match registrations starting with the 2-digit batch year (index friendly prefix)
+      query.Reg_No = { $regex: `^${yy}` };
     }
 
     console.log("SOVET Backlog search query:", JSON.stringify(query));
 
-    // Get backlogs with Name and Branch fields
-    const backlogs = await cutm.find(query).project({
+    // Build cursor with projection and sort
+    let cursor = cutm.find(query).project({
       _id: 0,
       Reg_No: 1,
       Name: 1,
@@ -153,7 +155,14 @@ export async function POST(req) {
       Subject_Code: 1,
       Subject_Name: 1,
       Grade: 1
-    }).sort({ Sem: 1, Subject_Code: 1 }).toArray();
+    }).sort({ Sem: 1, Subject_Code: 1 });
+
+    // For very broad "allowAll" admin queries, cap rows for performance
+    if (!registration && !subject_code && allowAll && (userRole === 'admin' || userRole === 'teacher')) {
+      cursor = cursor.limit(MAX_BACKLOG_ROWS);
+    }
+
+    const backlogs = await cursor.toArray();
 
     // Parse and enrich records (Diploma only)
     const processedBacklogs = backlogs.map(record => {

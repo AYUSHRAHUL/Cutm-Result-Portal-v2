@@ -999,6 +999,15 @@ function BacklogContent() {
           setRegList(uniqueRegNos);
           setSelectedReg("");
 
+          // If not in "Show All" mode, stop here so registration list loads instantly
+          if (!showAllMode) {
+            if (!cancelled) {
+              setStudentSummary([]);
+            }
+            return;
+          }
+
+          // In Show All mode, build branch overrides and per-student backlog summary
           const overridePromises = uniqueRegNos.map(regNo =>
             fetch(`/api/branch-change?reg=${regNo}`)
               .then(res => res.ok ? res.json() : null)
@@ -1080,7 +1089,7 @@ function BacklogContent() {
 
           const summaries = await Promise.all(summaryPromises);
           if (!cancelled) {
-          setStudentSummary(summaries);
+            setStudentSummary(summaries);
           }
         } else if (!cancelled) {
           setRegList([]);
@@ -1103,7 +1112,7 @@ function BacklogContent() {
         try { loadRegsControllerRef.current.abort(); } catch { }
       }
     };
-  }, [branch, year, regMode]);
+  }, [branch, year, regMode, showAllMode]);
 
   useEffect(() => {
     if (regMode === "list" && selectedReg) {
@@ -1382,10 +1391,22 @@ function BacklogContent() {
                       value={selectedReg}
                       onChange={e => setSelectedReg(e.target.value)}
                     >
-                      <option value="">{regList.length === 0 ? (branch && year ? "No students found" : "Select batch & branch") : `Select Registration (${regList.length})`}</option>
-                      {(branch === "All" && year === "All") && <option value="ALL">All</option>}
-                      {studentSummary.length > 0 && <option value="ALL">All ({studentSummary.length} students)</option>}
-                      {regList.map(r => <option key={r} value={r}>{r}</option>)}
+                      <option value="">
+                        {regList.length === 0
+                          ? (branch && year ? "No students found" : "Select batch & branch")
+                          : `Select Registration (${regList.length})`}
+                      </option>
+                      {/* Always offer an 'All' option for convenience */}
+                      <option value="ALL">
+                        {regList.length > 0
+                          ? `All (${regList.length} students)`
+                          : "All"}
+                      </option>
+                      {regList.map(r => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
                     </select>
                     <button
                       type="submit"

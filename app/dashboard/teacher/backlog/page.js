@@ -37,6 +37,47 @@ function pickBatch(preferredYear = "", regNo = "") {
   return getBatchYear(regNo) || "";
 }
 
+function deriveBatchFromReg(regNo = "") {
+  if (!regNo || regNo.length < 2) return "";
+  const yy = regNo.slice(0, 2);
+  return `20${yy}`;
+}
+
+// Helper function to get short branch code from registration number (returns short code like "CSE", "ECE", etc.)
+function getBranchFromRegNo(regNo = "") {
+  if (!regNo || regNo.length < 8) return "";
+
+  const regStr = String(regNo).trim().toUpperCase();
+  
+  // Check program code to determine if it's Diploma (07) or B.Tech
+  const programCode = regStr.length >= 6 ? regStr.slice(4, 6) : "";
+  const branchCode = regStr.slice(5, 8); // Index 5-7
+
+  // For Diploma (SOVET) - program code 07
+  if (programCode === '07') {
+    const diplomaBranchMap = {
+      '711': 'Electrical',
+      '712': 'Mechanical',
+      '713': 'Civil',
+      '714': 'CSE',
+      '715': 'Automobile',
+      '716': 'Mining'
+    };
+    return diplomaBranchMap[branchCode] || "";
+  }
+
+  // For B.Tech (SOET)
+  const btechBranchMap = {
+    '111': 'Civil',
+    '112': 'CSE',
+    '113': 'ECE',
+    '115': 'EEE',
+    '116': 'Mechanical',
+    '117': 'AIML'
+  };
+  return btechBranchMap[branchCode] || "";
+}
+
 // Helper function to get branch from registration number
 function getBranchFromRegistration(regNo = "", department = null) {
   if (!regNo || regNo.length < 8) return department || "";
@@ -955,13 +996,17 @@ function TeacherBacklogPageContent() {
             .map(r => (r.Reg_No || r.registration || "").toUpperCase())
             .filter(Boolean)
             .sort();
-          setRegList(Array.from(new Set(list)));
+          const uniqueRegNos = Array.from(new Set(list));
+          setRegList(uniqueRegNos);
           setSelectedReg("");
 
-          // Helper function to convert short branch to full name
-          // Helper function to get branch from registration number (returns short form)
-          // Fetch branch overrides for all students in parallel
-          const uniqueRegNos = Array.from(new Set(list));
+          // If not in "Show All" mode, stop here so registration list loads instantly
+          if (!showAllMode) {
+            setStudentSummary([]);
+            return;
+          }
+
+          // In Show All mode, build branch overrides and per-student backlog summary
           const overridePromises = uniqueRegNos.map(regNo =>
             fetch(appendSchoolParams(`/api/branch-change?reg=${regNo}`))
               .then(res => res.ok ? res.json() : null)
@@ -1066,9 +1111,9 @@ function TeacherBacklogPageContent() {
         setSelectedReg("");
         setStudentSummary([]);
       }
-    }, 150);
+    }, 100);
     return () => clearTimeout(t);
-  }, [branch, year, regMode]);
+  }, [branch, year, regMode, showAllMode]);
 
   useEffect(() => {
     if (regMode === "list" && selectedReg) {
@@ -1099,11 +1144,11 @@ function TeacherBacklogPageContent() {
       } catch {
         setSubjectList([]);
       }
-    }, 150);
+    }, 100);
     return () => clearTimeout(t);
   }, [subjectMode, branch]);
 
-  const getFilteredRows = () => {
+  const filteredRows = useMemo(() => {
     let filtered = [...rows];
     if (filterGrade) {
       filtered = filtered.filter(b => b.Grade === filterGrade);
@@ -1114,10 +1159,9 @@ function TeacherBacklogPageContent() {
       filtered.sort((a, b) => (a.Reg_No || a.registration || '').localeCompare(b.Reg_No || b.registration || ''));
     }
     return filtered;
-  };
+  }, [rows, filterGrade, sortBy]);
 
-  const filteredRows = getFilteredRows();
-  const uniqueGrades = Array.from(new Set(rows.map(r => r.Grade).filter(Boolean)));
+  const uniqueGrades = useMemo(() => Array.from(new Set(rows.map(r => r.Grade).filter(Boolean))), [rows]);
 
   // Determine if this is a subject search (not registration search)
   const isSubjectSearch = !selectedReg && !registration && (selectedSubject || subjectCode);
@@ -1329,10 +1373,22 @@ function TeacherBacklogPageContent() {
                       value={selectedReg}
                       onChange={e => setSelectedReg(e.target.value)}
                     >
-                      <option value="">{regList.length === 0 ? (branch && year ? "No students found" : "Select batch & branch") : `Select Registration (${regList.length})`}</option>
-                      {(branch === "All" && year === "All") && <option value="ALL">All</option>}
-                      {studentSummary.length > 0 && <option value="ALL">All ({studentSummary.length} students)</option>}
-                      {regList.map(r => <option key={r} value={r}>{r}</option>)}
+                      <option value="">
+                        {regList.length === 0
+                          ? (branch && year ? "No students found" : "Select batch & branch")
+                          : `Select Registration (${regList.length})`}
+                      </option>
+                      {/* Always offer an 'All' option for convenience */}
+                      <option value="ALL">
+                        {regList.length > 0
+                          ? `All (${regList.length} students)`
+                          : "All"}
+                      </option>
+                      {regList.map(r => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
                     </select>
                     <button
                       type="submit"
