@@ -134,7 +134,7 @@ export async function GET(req) {
       .toArray();
     
     const branchesFromRegNo = new Set();
-    regDataStudents.forEach(student => {
+    for (const student of regDataStudents) {
       if (student.Reg_No) {
         const regNo = String(student.Reg_No);
         const branch = await getDepartmentFromRegNo(regNo);
@@ -142,7 +142,7 @@ export async function GET(req) {
           branchesFromRegNo.add(branch);
         }
       }
-    });
+    }
 
     // Normalize all branch names
     const branchSet = new Set();
@@ -187,7 +187,7 @@ export async function GET(req) {
     const batchSet = new Set();
     
     // Process CUTM1 students
-    studentsCUTM1.forEach(student => {
+    for (const student of studentsCUTM1) {
       if (student.Reg_No) {
         const regNo = String(student.Reg_No);
         const match = regNo.match(/^(\d{2})/);
@@ -196,10 +196,10 @@ export async function GET(req) {
           batchSet.add(batch);
         }
       }
-    });
+    }
 
     // Process RegistrationData students
-    studentsRegData.forEach(student => {
+    for (const student of studentsRegData) {
       if (student.Reg_No) {
         const regNo = String(student.Reg_No);
         const match = regNo.match(/^(\d{2})/);
@@ -208,7 +208,7 @@ export async function GET(req) {
           batchSet.add(batch);
         }
       }
-    });
+    }
 
     let batches = Array.from(batchSet).sort((a, b) => b.localeCompare(a)); // Sort descending (newest first)
     

@@ -83,7 +83,7 @@ async function calculateCGPA(db, registration) {
 }
 
 // Get department from registration number (handles both B.Tech and Diploma)
-function getDepartmentFromRegNo(regNo) {
+async function getDepartmentFromRegNo(regNo) {
   if (!regNo) return "Unknown";
   const branch = await getBranchFromRegistration(String(regNo));
   return branch !== 'Unknown' ? branch : "Unknown";
