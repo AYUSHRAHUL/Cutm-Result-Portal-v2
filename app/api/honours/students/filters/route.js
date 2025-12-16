@@ -1,28 +1,47 @@
 import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import { verifyToken } from "@/lib/auth";
-// Helper function to get branch from registration
+
+// Local branch detection to avoid missing route imports during build
+const BTECH_BRANCH_MAP = {
+  '111': 'Civil',
+  '112': 'CSE',
+  '113': 'ECE',
+  '115': 'EEE',
+  '116': 'Mechanical',
+  '117': 'CSE AIML',
+  '137': 'CSE AIML',
+};
+
+const DIPLOMA_BRANCH_MAP = {
+  '711': 'Electrical',
+  '712': 'Mechanical',
+  '713': 'Civil',
+  '714': 'CSE',
+  '715': 'Automobile',
+  '716': 'Mining',
+};
+
+// Helper function to get branch from registration without external imports
 async function getBranchFromRegistration(registration, department = null) {
   if (!registration) return department || 'Unknown';
-  
-  // Try SOET B.Tech first
-  try {
-    const { parseBTechRegistration } = await import('../../soet/parse-registration/route.js');
-    const parsed = parseBTechRegistration(registration);
-    if (parsed && parsed.isValid && parsed.isBTech) {
-      return parsed.branch || department || 'Unknown';
-    }
-  } catch {}
-  
-  // Try SOVET Diploma
-  try {
-    const { parseDiplomaRegistration } = await import('../../sovet/parse-registration/route.js');
-    const parsed = parseDiplomaRegistration(registration);
-    if (parsed && parsed.isValid && parsed.isDiploma) {
-      return parsed.branch || department || 'Unknown';
-    }
-  } catch {}
-  
+
+  const reg = String(registration).trim().toUpperCase();
+  if (reg.length < 8) return department || 'Unknown';
+
+  const programCode = reg.slice(4, 6); // positions 4-5
+  const branchCode = reg.slice(5, 8);  // positions 5-7
+
+  // Diploma (SOVET) uses program code 07
+  if (programCode === '07' && DIPLOMA_BRANCH_MAP[branchCode]) {
+    return DIPLOMA_BRANCH_MAP[branchCode];
+  }
+
+  // Otherwise treat as B.Tech (SOET) if code matches map
+  if (BTECH_BRANCH_MAP[branchCode]) {
+    return BTECH_BRANCH_MAP[branchCode];
+  }
+
   return department || 'Unknown';
 }
 

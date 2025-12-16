@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
@@ -65,7 +65,7 @@ function pickBatch(preferredYear = "", regNo = "") {
   return deriveBatchFromReg(regNo);
 }
 
-export default function AdminBacklogPage() {
+function BacklogContent() {
   const searchParams = useSearchParams();
   const [registration, setRegistration] = useState("");
   const [subjectCode, setSubjectCode] = useState("");
@@ -2268,5 +2268,13 @@ export default function AdminBacklogPage() {
         </div>
       </div>
     </>
+  );
+}
+
+export default function AdminBacklogPage() {
+  return (
+    <Suspense fallback={<div className="p-4 text-sm text-gray-500">Loading backlog...</div>}>
+      <BacklogContent />
+    </Suspense>
   );
 }
