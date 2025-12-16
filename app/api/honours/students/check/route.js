@@ -7,7 +7,7 @@ async function getBranchFromRegistration(registration, department = null) {
   
   // Try SOET B.Tech first
   try {
-    const { parseBTechRegistration } = await import('../../soet/parse-registration/route');
+    const { parseBTechRegistration } = await import('../../soet/parse-registration/route.js');
     const parsed = parseBTechRegistration(registration);
     if (parsed && parsed.isValid && parsed.isBTech) {
       return parsed.branch || department || 'Unknown';
@@ -16,7 +16,7 @@ async function getBranchFromRegistration(registration, department = null) {
   
   // Try SOVET Diploma
   try {
-    const { parseDiplomaRegistration } = await import('../../sovet/parse-registration/route');
+    const { parseDiplomaRegistration } = await import('../../sovet/parse-registration/route.js');
     const parsed = parseDiplomaRegistration(registration);
     if (parsed && parsed.isValid && parsed.isDiploma) {
       return parsed.branch || department || 'Unknown';

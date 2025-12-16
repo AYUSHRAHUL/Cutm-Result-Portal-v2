@@ -1,6 +1,7 @@
 "use client";
 
 import AnalyticsDashboard from "@/components/AnalyticsDashboard";
+import { Suspense } from "react";
 
 export default function AnalyticsPage() {
   return (
@@ -13,7 +14,9 @@ export default function AnalyticsPage() {
       {/* Analytics Content */}
       <section className="py-8">
         <div className="mx-auto max-w-7xl px-6">
-          <AnalyticsDashboard />
+          <Suspense fallback={<div className="text-center text-sm text-gray-500 py-4">Loading analytics...</div>}>
+            <AnalyticsDashboard />
+          </Suspense>
         </div>
       </section>
 
