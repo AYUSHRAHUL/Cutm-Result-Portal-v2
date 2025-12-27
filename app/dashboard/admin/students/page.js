@@ -55,7 +55,14 @@ function getBranchFromRegNo(regNo = "") {
 }
 // -----------------------------
 
-export default function StudentManagementPage() {
+import { Suspense } from 'react';
+
+// ... existing imports
+// NOTE: I am not changing imports here as the tool Replaces blocks. I will just update the imports line and the component definition.
+
+// -----------------------------
+
+function StudentManagementContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
 
@@ -369,5 +376,17 @@ export default function StudentManagementPage() {
                 )}
             </div>
         </div>
+    );
+}
+
+export default function StudentManagementPage() {
+    return (
+        <Suspense fallback={
+            <div className="min-h-screen flex items-center justify-center bg-gray-50">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#023945]"></div>
+            </div>
+        }>
+            <StudentManagementContent />
+        </Suspense>
     );
 }
