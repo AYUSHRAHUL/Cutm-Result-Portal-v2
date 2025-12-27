@@ -128,7 +128,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
   }).limit(MAX_ANALYTICS_RECORDS); // CRITICAL: Limit to prevent excessive data loading
 
   // Use toArray() with limit instead of for await loop - more efficient
-  const cutm1Data = await cursor.toArray();
+  let cutm1Data = await cursor.toArray();
 
   // Removed console.log to reduce overhead
 
