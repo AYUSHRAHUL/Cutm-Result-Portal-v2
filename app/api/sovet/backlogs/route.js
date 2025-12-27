@@ -270,20 +270,26 @@ export async function POST(req) {
       const branchCodeMap = {
         'Civil Engineering': '13',
         'Civil': '13',
+        'Civil Engineering (Diploma)': '13',
         'Mechanical Engineering': '12',
         'Mechanical': '12',
-        'ME': '12',
+        'Mechanical Engineering (Diploma)': '12',
         'Electrical Engineering': '11',
         'Electrical': '11',
         'EEE': '11',
+        'Electrical Engineering (Diploma)': '11',
         'Computer Science Engineering': '14',
         'CSE': '14',
+        'Computer Science Engineering (Diploma)': '14',
         'Automobile Engineering': '15',
         'Automobile': '15',
         'AE': '15',
+        'Automobile Engineering (Diploma)': '15',
         'Mining Engineering': '16',
         'Mining': '16',
-        'MiE': '16'
+        'MiE': '16',
+        'ME': '16', // Frontend uses ME for Mining
+        'Mining Engineering (Diploma)': '16'
       };
 
       const branchCode = branchCodeMap[branch];
@@ -384,19 +390,18 @@ export async function POST(req) {
             'AE': '15',   // Automobile
             'MiE': '16',  // Mining
             'CSE': '40',  // Computer Science
-
           };
           const expectedCode = branchCodeMap[diplomaBranchCode];
           return parsed.branchCode === expectedCode;
         }
 
-        // Handle Generic Branch names for Diploma
-        if (branch === 'Civil Engineering' || branch === 'Civil') return parsed.branchCode === '13';
-        if (branch === 'Mechanical Engineering' || branch === 'Mechanical') return parsed.branchCode === '12';
-        if (branch === 'Electrical Engineering' || branch === 'EEE' || branch === 'Electrical') return parsed.branchCode === '11';
-        if (branch === 'Computer Science Engineering' || branch === 'CSE') return parsed.branchCode === '40' || parsed.branchCode === '41' || parsed.branchCode === '14' || parsed.branchCode === '43';
-        if (branch === 'Automobile Engineering' || branch === 'Automobile' || branch === 'AE') return parsed.branchCode === '15' || parsed.branchCode === '44';
-        if (branch === 'Mining Engineering' || branch === 'Mining' || branch === 'MiE') return parsed.branchCode === '16' || parsed.branchCode === '46';
+        // Handle Generic Branch names for Diploma - Inclusive Matching
+        if (branch === 'Civil Engineering' || branch === 'Civil' || branch === 'Civil Engineering (Diploma)') return parsed.branchCode === '13';
+        if (branch === 'Mechanical Engineering' || branch === 'Mechanical' || branch === 'Mechanical Engineering (Diploma)') return parsed.branchCode === '12';
+        if (branch === 'Electrical Engineering' || branch === 'EEE' || branch === 'Electrical' || branch === 'Electrical Engineering (Diploma)') return parsed.branchCode === '11';
+        if (branch === 'Computer Science Engineering' || branch === 'CSE' || branch === 'Computer Science Engineering (Diploma)') return parsed.branchCode === '40' || parsed.branchCode === '41' || parsed.branchCode === '14' || parsed.branchCode === '43';
+        if (branch === 'Automobile Engineering' || branch === 'Automobile' || branch === 'AE' || branch === 'Automobile Engineering (Diploma)') return parsed.branchCode === '15' || parsed.branchCode === '44';
+        if (branch === 'Mining Engineering' || branch === 'Mining' || branch === 'MiE' || branch === 'ME' || branch === 'Mining Engineering (Diploma)') return parsed.branchCode === '16' || parsed.branchCode === '46';
 
         return false;
       });

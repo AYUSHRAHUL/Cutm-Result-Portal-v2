@@ -751,8 +751,8 @@ function BacklogContent() {
     }
   }
 
-  async function search(e) {
-    if (e) {
+  async function search(e, overrideReg = null) {
+    if (e && e.preventDefault) {
       e.preventDefault();
       e.stopPropagation();
     }
@@ -771,7 +771,7 @@ function BacklogContent() {
     try {
       // Prioritize selectedReg if it's set (for "View Details" button clicks)
       // Otherwise use registration based on regMode
-      const regValueRaw = selectedReg || (regMode === "list" ? selectedReg : registration);
+      const regValueRaw = overrideReg || selectedReg || (regMode === "list" ? selectedReg : registration);
       const regValue = (regValueRaw || "").trim();
       const regValueUpper = regValue.toUpperCase();
       setLastRegValue(regValueUpper);
@@ -795,7 +795,7 @@ function BacklogContent() {
       }
       // Treat registration=ALL as allowAll
       let isAll = (!branch || branch === "All") && (!year || year === "All");
-      if (regMode === "list" && selectedReg === "ALL") {
+      if (!overrideReg && regMode === "list" && selectedReg === "ALL") {
         isAll = true;
         setShowAllMode(true);
         summariesLoadedRef.current = false; // Reset flag when explicitly selecting "ALL" to allow reload
@@ -1974,8 +1974,9 @@ function BacklogContent() {
                         <td className="px-3 sm:px-4 py-2 sm:py-3 text-center no-print">
                           <button
                             onClick={() => {
-                              setSelectedReg(student.Reg_No);
-                              setRegMode("list"); // Set regMode to "list" so search() uses selectedReg
+                              setRegistration(student.Reg_No); // Use manual input state
+                              setRegMode("manual"); // Switch to manual mode
+                              setSelectedReg(""); // Clear list selection to avoid conflicts
                               setShowAllMode(false);
                               // Set student info immediately
                               setSelectedStudentInfo({
@@ -1984,7 +1985,8 @@ function BacklogContent() {
                                 Branch: student.Branch || "",
                                 Batch: student.Batch || ""
                               });
-                              setTimeout(() => search(), 100);
+                              // Use specific reg override to avoid stale state in closure
+                              search(null, student.Reg_No);
                             }}
                             className="px-3 py-1 rounded-lg text-white font-bold text-xs hover:shadow-md transition-all"
                             style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
