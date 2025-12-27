@@ -28,7 +28,7 @@ export async function POST(req) {
       return NextResponse.json({ error: "Unauthorized - Invalid token" }, { status: 401 });
     }
 
-    const { registration, department, batch } = await req.json();
+    const { registration, department, batch, includeInactive } = await req.json();
     const userRole = payload.role?.toLowerCase();
 
     if (userRole === 'user' || userRole === 'student') {
@@ -36,16 +36,16 @@ export async function POST(req) {
       if (userEmail && userEmail.includes('@cutm.ac.in')) {
         const userRegNumber = userEmail.split('@')[0];
         if (registration && registration !== userRegNumber) {
-          return NextResponse.json({ 
-            error: "Access denied - Students can only view their own records" 
+          return NextResponse.json({
+            error: "Access denied - Students can only view their own records"
           }, { status: 403 });
         }
       }
     } else if (userRole === 'teacher' || userRole === 'admin') {
       console.log(`Access granted to ${userRole}: ${payload.email} accessing SOET student data`);
     } else {
-      return NextResponse.json({ 
-        error: "Access denied - Invalid user role" 
+      return NextResponse.json({
+        error: "Access denied - Invalid user role"
       }, { status: 403 });
     }
 
@@ -53,23 +53,31 @@ export async function POST(req) {
     const { searchParams } = new URL(req.url);
     const campusParam = searchParams.get('campus');
     const campus = campusParam || payload.campus || null;
-    
+
     // Force school to SOET
     const school = 'SOET';
     const dbName = getCampusSchoolDatabase(campus, school);
     const db = client.db(dbName);
     const cutm = db.collection("result");
 
+    // Check inactive status unless explicitly including them
+    let inactiveRegs = [];
+    if (!includeInactive) {
+      const statusCollection = db.collection("student_status");
+      const inactiveDocs = await statusCollection.find({ isActive: false }).project({ Reg_No: 1 }).toArray();
+      inactiveRegs = inactiveDocs.map(d => d.Reg_No);
+    }
+
     // If registration is provided, return individual student records
     if (registration) {
       // Parse registration using SOET parser
       const { parseBTechRegistration } = await import('@/app/api/soet/parse-registration/route');
       const parsed = parseBTechRegistration(registration);
-      
+
       // Verify B.Tech student
       if (!parsed || !parsed.isValid || !parsed.isBTech) {
-        return NextResponse.json({ 
-          error: "This route is for B.Tech (SOET) students only" 
+        return NextResponse.json({
+          error: "This route is for B.Tech (SOET) students only"
         }, { status: 400 });
       }
 
@@ -86,31 +94,86 @@ export async function POST(req) {
           records.forEach(r => { r.Branch = ov.branch; });
         }
       } catch { /* ignore override failures */ }
-      
+
       if (!records.length) return NextResponse.json({ error: "No records found" }, { status: 404 });
       return NextResponse.json({ records, school: 'SOET' });
     }
 
     // If department is provided, return list of students in that department
     if (department || batch) {
-      let query = {};
+      const matchConditions = [];
 
-      if (department && department !== "All") {
-        query.Branch = department;
-      }
-
+      // 1. Batch Filter
       if (batch && batch !== "All") {
         const b = String(batch).trim();
         const yy = b.length === 4 && b.startsWith("20") ? b.slice(2) : b.slice(-2);
-        const pattern = `^(?:${yy}|20${yy})`;
-        query.Reg_No = { ...query.Reg_No, $regex: pattern };
+        matchConditions.push({ Reg_No: { $regex: `^${yy}|20${yy}` } });
       }
 
-      const students = await db.collection("result").find(query).project({ 
-        _id: 0, 
-        Reg_No: 1, 
-        Name: 1, 
-        Branch: 1 
+      // 2. Department Match Logic
+      if (department && department !== "All") {
+        const branchQueries = [];
+
+        // A. Direct Branch Field Match
+        branchQueries.push({ Branch: department });
+
+        // B. Regex Match on Reg_No (fallback for missing Branch field)
+        const btechBranchCodes = {
+          'Civil Engineering': '111',
+          'Civil': '111',
+          'Computer Science & Engineering (CSE)': '112',
+          'Computer Science Engineering': '112',
+          'CSE': '112',
+          'Electronics & Communication Engineering (ECE)': '113',
+          'Electronics & Communication Engineering': '113',
+          'ECE': '113',
+          'Electrical & Electronics Engineering (EEE)': '115',
+          'Electrical & Electronics Engineering': '115',
+          'EEE': '115',
+          'Mechanical Engineering': '116',
+          'Mechanical': '116',
+          'CSE (AI & ML)': '137',
+          'AIML': '137'
+        };
+
+        // Normalize department name to handle UI variations
+        const deptUpper = department.toUpperCase();
+        let code = null;
+
+        // Try exact match in map
+        if (btechBranchCodes[department]) {
+          code = btechBranchCodes[department];
+        }
+        else if (deptUpper.includes('CSE') || deptUpper.includes('COMPUTER SCIENCE')) {
+          code = '112';
+          if (deptUpper.includes('AI') || deptUpper.includes('ML')) code = '137';
+        }
+        else if (deptUpper.includes('CIVIL')) code = '111';
+        else if (deptUpper.includes('ECE')) code = '113';
+        else if (deptUpper.includes('EEE')) code = '115';
+        else if (deptUpper.includes('MECHANICAL')) code = '116';
+
+        if (code) {
+          // B.Tech branch code is at index 5-7. preceded by 5 chars (YY, II, P).
+          // Regex: ^.{5}112...
+          branchQueries.push({ Reg_No: { $regex: `^.{5}${code}` } });
+        } else {
+          if (deptUpper === 'CSE') branchQueries.push({ Reg_No: { $regex: `^.{5}112` } });
+        }
+
+        matchConditions.push({ $or: branchQueries });
+      }
+
+      let query = {};
+      if (matchConditions.length > 0) {
+        query = { $and: matchConditions };
+      }
+
+      const students = await db.collection("result").find(query).project({
+        _id: 0,
+        Reg_No: 1,
+        Name: 1,
+        Branch: 1
       }).toArray();
 
       // Filter for B.Tech students only

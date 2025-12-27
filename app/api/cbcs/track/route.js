@@ -199,7 +199,7 @@ export async function POST(req) {
     if (!reg) return NextResponse.json({ error: "Registration is required" }, { status: 400 });
 
     const client = await clientPromise;
-    
+
     // For user role, determine database and school from registration number
     // For admin/teacher, use campus/school from params or JWT
     let dbName;
@@ -216,8 +216,17 @@ export async function POST(req) {
       school = schoolParam || payload.school || null;
       dbName = getCampusSchoolDatabase(campus, school);
     }
-    
+
     const db = client.db(dbName);
+
+    // Check if student is inactive (Global Exclusion)
+    const statusCollection = db.collection("student_status");
+    const inactiveStatus = await statusCollection.findOne({ Reg_No: reg, isActive: false });
+    if (inactiveStatus) {
+      return NextResponse.json({
+        error: `Student ${reg} is inactive/disabled and cannot be accessed.`
+      }, { status: 404 }); // Use 404 to hide existence effectively, or 403 to be explicit. User asked for "kahi nhi ana chaya", so 404 is good as if they don't exist.
+    }
 
     // Prepare robust query for both string and number formats
     const regAsInt = parseInt(reg);
@@ -344,21 +353,21 @@ export async function POST(req) {
           .toLowerCase()
           .trim();
       };
-      
+
       const normalizedSelected = normalizeDept(department);
       const normalizedActual = normalizeDept(actualDepartment);
-      
+
       // Also check for partial matches (e.g., "Civil Engineering" matches "Civil Engineering (Diploma)")
       const selectedKeywords = normalizedSelected.split(/\s+/).filter(w => w.length > 2);
       const actualKeywords = normalizedActual.split(/\s+/).filter(w => w.length > 2);
-      const hasKeywordMatch = selectedKeywords.length > 0 && 
+      const hasKeywordMatch = selectedKeywords.length > 0 &&
         selectedKeywords.every(kw => actualKeywords.includes(kw));
-      
-      const matches = normalizedSelected === normalizedActual || 
-                      normalizedActual.includes(normalizedSelected) ||
-                      normalizedSelected.includes(normalizedActual) ||
-                      hasKeywordMatch;
-      
+
+      const matches = normalizedSelected === normalizedActual ||
+        normalizedActual.includes(normalizedSelected) ||
+        normalizedSelected.includes(normalizedActual) ||
+        hasKeywordMatch;
+
       if (!matches) {
         return NextResponse.json({
           error: `Registration ${reg} belongs to department "${actualDepartment}", but you selected department "${department}". Please select the correct department. Check the browser console for more details or try different filters.`
@@ -722,7 +731,7 @@ export async function POST(req) {
       name: err.name,
       registration: registration || 'unknown'
     });
-    return NextResponse.json({ 
+    return NextResponse.json({
       error: "Unable to load progress",
       details: process.env.NODE_ENV === 'development' ? err.message : undefined
     }, { status: 500 });

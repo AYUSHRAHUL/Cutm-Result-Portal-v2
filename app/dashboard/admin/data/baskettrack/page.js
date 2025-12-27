@@ -235,6 +235,10 @@ export function BasketTrackerContent({ schoolType }) {
             aliasKeys.add("CIVILENGINEERING");
             aliasKeys.add("CIVIL");
           }
+          // Add AIML explicitly
+          if (key === "AIML" || key.includes("AIML")) {
+            aliasKeys.add("AIML");
+          }
         });
 
         const selectedKey = normalizeKey(department);

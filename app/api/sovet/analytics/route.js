@@ -45,13 +45,13 @@ export async function GET(req) {
     const client = await clientPromise;
     const campusParam = searchParams.get('campus');
     const campus = campusParam || payload.campus || null;
-    
+
     // Force school to SOVET
     const school = 'SOVET';
     const dbName = getCampusSchoolDatabase(campus, school);
-    
+
     // Removed console.log to reduce overhead
-    
+
     const db = client.db(dbName);
 
     // Get analytics data (Diploma only)
@@ -85,6 +85,11 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
   const branchFilters = Array.isArray(branchFilter) ? branchFilter : (branchFilter ? [branchFilter] : []);
   const semesterFilters = Array.isArray(semesterFilter) ? semesterFilter : (semesterFilter ? [semesterFilter] : []);
 
+  // Fetch inactive students list
+  const statusCollection = db.collection("student_status");
+  const inactiveDocs = await statusCollection.find({ isActive: false }).project({ Reg_No: 1 }).toArray();
+  const inactiveRegs = inactiveDocs.map(d => d.Reg_No);
+
   // Minimal Mongo match: only ensure Reg_No exists and program code is Diploma (07).
   // Use $toString so numeric Reg_No values also work. All other filters handled in JS to avoid zero results.
   const regStr = { $toString: "$Reg_No" };
@@ -96,6 +101,11 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
       ]
     }
   };
+
+  // Exclude inactive students
+  if (inactiveRegs.length > 0) {
+    match.Reg_No = { $nin: inactiveRegs };
+  }
 
   // Removed console.log to reduce overhead
 
@@ -125,22 +135,22 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
   // Filter for Diploma students only - Optimized with caching
   const { parseDiplomaRegistration } = await import('../parse-registration/route');
   const beforeFilter = cutm1Data.length;
-  
+
   // Pre-filter: Remove records without Reg_No
   const recordsWithRegNo = cutm1Data.filter(record => record.Reg_No);
-  
+
   // Use Set for faster lookups and cache results
   const validDiplomaRegNos = new Set();
   const invalidRegNos = new Set();
-  
+
   // Filter and cache results
   cutm1Data = recordsWithRegNo.filter(record => {
     const regNo = String(record.Reg_No).trim();
-    
+
     // Check cache first
     if (validDiplomaRegNos.has(regNo)) return true;
     if (invalidRegNos.has(regNo)) return false;
-    
+
     // Parse and cache result
     const parsed = parseDiplomaRegistration(regNo);
     if (parsed && parsed.isValid && parsed.isDiploma) {
@@ -151,7 +161,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
       return false;
     }
   });
-  
+
   console.log(`[SOVET Analytics] After Diploma filter: ${cutm1Data.length} records (was ${beforeFilter})`);
 
   // Diploma branch mapping (8th digit)
@@ -169,18 +179,18 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     if (!record.Reg_No) return false;
     const parsed = parseDiplomaRegistration(String(record.Reg_No).trim());
     if (!parsed || !parsed.isValid || !parsed.isDiploma) return false;
-    
+
     // Use parsed year from parseDiplomaRegistration
     const recordYear = parsed.year || ''; // e.g., "2023", "2024"
     const recordYearCode = parsed.yearCode || ''; // e.g., "23", "24"
-    
+
     return batchFilters.some(batch => {
       const batchStr = String(batch).trim();
       // Match full year (2023, 2024) or year code (23, 24)
-      return batchStr === recordYear || 
-             batchStr === recordYearCode ||
-             (batchStr.length === 4 && batchStr.substring(2, 4) === recordYearCode) ||
-             (batchStr.length === 2 && batchStr === recordYearCode);
+      return batchStr === recordYear ||
+        batchStr === recordYearCode ||
+        (batchStr.length === 4 && batchStr.substring(2, 4) === recordYearCode) ||
+        (batchStr.length === 2 && batchStr === recordYearCode);
     });
   };
 
@@ -189,10 +199,10 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     if (!record.Reg_No) return false;
     const parsed = parseDiplomaRegistration(String(record.Reg_No).trim());
     if (!parsed || !parsed.isValid || !parsed.isDiploma) return false;
-    
+
     // Use parsed branch name from parseDiplomaRegistration
     const parsedBranch = parsed.branch || '';
-    
+
     // Map parsed branch names to filter values
     const branchNameMap = {
       'Electrical': ['EE', 'ELECTRICAL'],
@@ -202,14 +212,14 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
       'Automobile': ['AUTOMOBILE'],
       'Mining': ['MINING']
     };
-    
+
     const branchAliases = branchNameMap[parsedBranch] || [parsedBranch.toUpperCase()];
-    
+
     return branchFilters.some(filterBranch => {
       const filterUpper = filterBranch.toUpperCase();
       // Check if filter matches any alias or the parsed branch name
-      return branchAliases.some(alias => 
-        filterUpper === alias || 
+      return branchAliases.some(alias =>
+        filterUpper === alias ||
         filterUpper === `DIPLOMA-${alias}` ||
         filterUpper.includes(alias) ||
         alias.includes(filterUpper)
@@ -221,21 +231,21 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     if (semesterFilters.length === 0 || semesterFilters.includes("all")) return true;
     if (!record.Sem) return false;
     const sem = String(record.Sem).trim();
-    
+
     return semesterFilters.some(filter => {
       const filterStr = String(filter).trim();
       const cleanFilter = filterStr.replace(/^Sem\s*/i, "").trim();
       const cleanSem = sem.replace(/^Sem\s*/i, "").trim();
-      
+
       // Try multiple matching strategies (case-insensitive)
       return sem.toLowerCase() === filterStr.toLowerCase() ||
-             sem.toLowerCase() === cleanFilter.toLowerCase() ||
-             cleanSem.toLowerCase() === filterStr.toLowerCase() ||
-             cleanSem.toLowerCase() === cleanFilter.toLowerCase() ||
-             sem.toLowerCase() === `sem ${cleanFilter}`.toLowerCase() ||
-             sem.toLowerCase() === `sem${cleanFilter}`.toLowerCase() ||
-             `sem ${cleanSem}`.toLowerCase() === filterStr.toLowerCase() ||
-             `sem${cleanSem}`.toLowerCase() === filterStr.toLowerCase();
+        sem.toLowerCase() === cleanFilter.toLowerCase() ||
+        cleanSem.toLowerCase() === filterStr.toLowerCase() ||
+        cleanSem.toLowerCase() === cleanFilter.toLowerCase() ||
+        sem.toLowerCase() === `sem ${cleanFilter}`.toLowerCase() ||
+        sem.toLowerCase() === `sem${cleanFilter}`.toLowerCase() ||
+        `sem ${cleanSem}`.toLowerCase() === filterStr.toLowerCase() ||
+        `sem${cleanSem}`.toLowerCase() === filterStr.toLowerCase();
     });
   };
 
@@ -252,7 +262,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     const semMatch = filterBySemester(record);
     return batchMatch && branchMatch && semMatch;
   });
-  
+
   console.log(`[SOVET Analytics] After filters: ${filteredData.length} records (batch=${JSON.stringify(batchFilters)}, branch=${JSON.stringify(branchFilters)}, semester=${JSON.stringify(semesterFilters)})`);
 
   // OPTIMIZED: Single pass through filteredData to calculate all stats
@@ -261,30 +271,30 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
   const gradeDistribution = {};
   let passCount = 0;
   let failCount = 0;
-  
+
   // Cache parsed registration data to avoid re-parsing
   const parsedRegCache = new Map();
-  
+
   // Single loop for all basic stats
   filteredData.forEach(record => {
     // Unique students
     if (record.Reg_No) uniqueStudents.add(String(record.Reg_No).trim());
-    
+
     // Unique subjects
     const subjCode = record.Subject_Code || record["Subject Code"];
     if (subjCode) uniqueSubjects.add(String(subjCode).trim());
-    
+
     // Grade distribution
     const grade = record.Grade || '';
     gradeDistribution[grade] = (gradeDistribution[grade] || 0) + 1;
-    
+
     // Pass/fail count
     if (!['F', 'S', 'M', 'I', 'R'].includes(grade)) {
       passCount++;
     } else {
       failCount++;
     }
-    
+
     // Cache parsed registration for later use
     if (record.Reg_No && !parsedRegCache.has(record.Reg_No)) {
       const parsed = parseDiplomaRegistration(String(record.Reg_No).trim());
@@ -293,7 +303,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
       }
     }
   });
-  
+
   const totalStudents = uniqueStudents.size;
   const totalSubjects = uniqueSubjects.size;
   const passRate = filteredData.length > 0 ? (passCount / filteredData.length) * 100 : 0;
@@ -308,51 +318,51 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     'Automobile': 'AUTOMOBILE',
     'Mining': 'MINING'
   };
-  
+
   filteredData.forEach(record => {
     if (!record.Reg_No) return;
-    
+
     // Use cached parsed data instead of re-parsing
     const parsed = parsedRegCache.get(record.Reg_No);
     if (!parsed || !parsed.isValid || !parsed.isDiploma) return;
-    
+
     const deptName = branchNameMap[parsed.branch] || parsed.branch || 'Unknown';
     const regNo = String(record.Reg_No).trim();
     const grade = record.Grade || '';
     const isPass = !['F', 'S', 'M', 'I', 'R'].includes(grade);
-    
+
     if (!departmentStatsMap[deptName]) {
-      departmentStatsMap[deptName] = { 
+      departmentStatsMap[deptName] = {
         students: new Set(),
         studentRecords: new Map(),
-        total: 0, 
-        passed: 0, 
-        failed: 0 
+        total: 0,
+        passed: 0,
+        failed: 0
       };
     }
-    
+
     departmentStatsMap[deptName].students.add(regNo);
-    
+
     if (!departmentStatsMap[deptName].studentRecords.has(regNo)) {
       departmentStatsMap[deptName].studentRecords.set(regNo, { passed: 0, failed: 0 });
     }
-    
+
     if (isPass) {
       departmentStatsMap[deptName].studentRecords.get(regNo).passed++;
     } else {
       departmentStatsMap[deptName].studentRecords.get(regNo).failed++;
     }
   });
-  
+
   // Calculate final stats: count unique students and determine their pass/fail status
   const departmentStats = Object.entries(departmentStatsMap).map(([name, stats]) => {
     // Count unique students
     const totalStudents = stats.students.size;
-    
+
     // Count students who have at least one pass (not all failed)
     let passedStudents = 0;
     let failedStudents = 0;
-    
+
     stats.studentRecords.forEach((recordStats, regNo) => {
       // A student is considered "passed" if they have at least one passing grade
       // A student is considered "failed" if all their records are failed
@@ -362,7 +372,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
         failedStudents++;
       }
     });
-    
+
     return {
       name,
       total: totalStudents, // Number of unique students
@@ -380,38 +390,38 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     const regNo = String(record.Reg_No).trim();
     const grade = record.Grade || '';
     const isPass = !['F', 'S', 'M', 'I', 'R'].includes(grade);
-    
+
     if (!semesterStatsMap[sem]) {
-      semesterStatsMap[sem] = { 
+      semesterStatsMap[sem] = {
         students: new Set(),
         studentRecords: new Map(),
-        total: 0, 
-        passed: 0, 
-        failed: 0 
+        total: 0,
+        passed: 0,
+        failed: 0
       };
     }
-    
+
     semesterStatsMap[sem].students.add(regNo);
-    
+
     if (!semesterStatsMap[sem].studentRecords.has(regNo)) {
       semesterStatsMap[sem].studentRecords.set(regNo, { passed: 0, failed: 0 });
     }
-    
+
     if (isPass) {
       semesterStatsMap[sem].studentRecords.get(regNo).passed++;
     } else {
       semesterStatsMap[sem].studentRecords.get(regNo).failed++;
     }
   });
-  
+
   const semesterStats = Object.entries(semesterStatsMap).map(([sem, stats]) => {
     // Count unique students
     const totalStudents = stats.students.size;
-    
+
     // Count students who have at least one pass
     let passedStudents = 0;
     let failedStudents = 0;
-    
+
     stats.studentRecords.forEach((recordStats) => {
       if (recordStats.passed > 0) {
         passedStudents++;
@@ -419,7 +429,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
         failedStudents++;
       }
     });
-    
+
     return {
       semester: sem,
       total: totalStudents, // Number of unique students
@@ -433,47 +443,47 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
   const batchStatsMap = {};
   filteredData.forEach(record => {
     if (!record.Reg_No) return;
-    
+
     // Use cached parsed data instead of re-parsing
     const parsed = parsedRegCache.get(record.Reg_No);
     if (!parsed || !parsed.isValid || !parsed.isDiploma) return;
-    
+
     const batch = parsed.year || 'Unknown';
     const regNo = String(record.Reg_No).trim();
     const grade = record.Grade || '';
     const isPass = !['F', 'S', 'M', 'I', 'R'].includes(grade);
-    
+
     if (!batchStatsMap[batch]) {
-      batchStatsMap[batch] = { 
+      batchStatsMap[batch] = {
         students: new Set(),
         studentRecords: new Map(),
-        total: 0, 
-        passed: 0, 
-        failed: 0 
+        total: 0,
+        passed: 0,
+        failed: 0
       };
     }
-    
+
     batchStatsMap[batch].students.add(regNo);
-    
+
     if (!batchStatsMap[batch].studentRecords.has(regNo)) {
       batchStatsMap[batch].studentRecords.set(regNo, { passed: 0, failed: 0 });
     }
-    
+
     if (isPass) {
       batchStatsMap[batch].studentRecords.get(regNo).passed++;
     } else {
       batchStatsMap[batch].studentRecords.get(regNo).failed++;
     }
   });
-  
+
   const batchStats = Object.entries(batchStatsMap).map(([batch, stats]) => {
     // Count unique students
     const totalStudents = stats.students.size;
-    
+
     // Count students who have at least one pass
     let passedStudents = 0;
     let failedStudents = 0;
-    
+
     stats.studentRecords.forEach((recordStats) => {
       if (recordStats.passed > 0) {
         passedStudents++;
@@ -481,7 +491,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
         failedStudents++;
       }
     });
-    
+
     return {
       batch,
       total: totalStudents, // Number of unique students
@@ -550,7 +560,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
   // Valid grades: O, E, A, B, C, D, F, S, M, R
   function calculateCGPA(gradesWithCredits) {
     if (!gradesWithCredits || gradesWithCredits.length === 0) return '0.00';
-    
+
     const gradePoints = {
       'O': 10, // Outstanding
       'E': 9,  // Excellent
@@ -563,22 +573,22 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
       'M': 0,  // Malpractice
       'R': 0   // Reappear
     };
-    
+
     let totalCredits = 0;
     let weightedSum = 0;
-    
+
     gradesWithCredits.forEach(item => {
       const grade = (item.grade || '').toUpperCase().trim();
       const credits = parseCredits(item.credits || 0);
       const gradePoint = gradePoints[grade] ?? 0;
-      
+
       // Only count valid grades and credits > 0 (same logic as Results API)
       if (gradePoints[grade] !== undefined && !isNaN(credits) && credits > 0) {
         totalCredits += credits;
         weightedSum += credits * gradePoint;
       }
     });
-    
+
     if (totalCredits === 0) return '0.00';
     const cgpa = weightedSum / totalCredits;
     return parseFloat(cgpa.toFixed(2)).toFixed(2);
@@ -591,7 +601,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     const regNo = String(record.Reg_No).trim();
     const grade = (record.Grade || '').toUpperCase();
     const isPass = !['F', 'S', 'M', 'I', 'R'].includes(grade);
-    
+
     if (!studentPerformanceMap[regNo]) {
       // Parse branch from registration number (Diploma) to standardized short code
       let branch = null;
@@ -616,7 +626,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
         };
         branch = diplomaBranchShort[branchCode] || diplomaBranchMap[branchCode] || null;
       }
-      
+
       studentPerformanceMap[regNo] = {
         regNo: regNo,
         name: record.Name || record.name || 'Unknown',
@@ -655,7 +665,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
         totalSubjects: student.totalSubjects,
         passedSubjects: student.passedSubjects,
         failedSubjects: student.failedSubjects,
-        passRate: student.totalSubjects > 0 
+        passRate: student.totalSubjects > 0
           ? ((student.passedSubjects / student.totalSubjects) * 100).toFixed(2)
           : '0.00',
         cgpa: cgpa
@@ -667,7 +677,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
       if (cgpaDiff !== 0) return cgpaDiff;
       return b.totalSubjects - a.totalSubjects;
     });
-    // Removed .slice(0, 100) to include ALL students regardless of CGPA
+  // Removed .slice(0, 100) to include ALL students regardless of CGPA
 
   // Calculate performance metrics by combination (for multiple filters)
   // This is calculated on-demand when filters are applied, but we can provide empty array for structure
@@ -692,7 +702,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     performanceMetricsByCombination,
     topPerformingStudents
   };
-  
+
   console.log(`[SOVET Analytics] Returning result:`, {
     totalStudents: result.totalStudents,
     totalSubjects: result.totalSubjects,
@@ -701,6 +711,6 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     semesterStatsCount: result.semesterStats.length,
     batchStatsCount: result.batchStats.length
   });
-  
+
   return result;
 }

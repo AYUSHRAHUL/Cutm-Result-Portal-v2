@@ -243,8 +243,19 @@ export async function POST(req) {
     const db = client.db(dbName);
     console.log(`Bulk API - MongoDB connection established to ${dbName} database`);
 
+    // Fetch inactive students list for global exclusion
+    const statusCollection = db.collection("student_status");
+    const inactiveDocs = await statusCollection.find({ isActive: false }).project({ Reg_No: 1 }).toArray();
+    const inactiveRegs = inactiveDocs.map(d => d.Reg_No);
+    console.log(`Found ${inactiveRegs.length} inactive students to exclude.`);
+
     // Build query for students with proper filtering (supports overrides)
     let query = {};
+
+    // Apply Global Inactive Filter
+    if (inactiveRegs.length > 0) {
+      query.Reg_No = { $nin: inactiveRegs };
+    }
 
     // Filter by department if specified
     if (department && department !== "All" && department !== "Select Department" && department !== "") {
@@ -327,7 +338,12 @@ export async function POST(req) {
           ];
           delete query.$or;
         } else {
-          query.Reg_No = { $regex: batchRegex };
+          // Merge with existing Reg_No filter (e.g. inactive exclusion) if present
+          if (query.Reg_No && typeof query.Reg_No === 'object') {
+            query.Reg_No = { ...query.Reg_No, $regex: batchRegex };
+          } else {
+            query.Reg_No = { $regex: batchRegex };
+          }
         }
       }
       console.log(`Applied batch filter: ^${batch} (Method: ${isSovet ? '$expr' : 'regex'})`);
@@ -428,7 +444,7 @@ export async function POST(req) {
       // Normalize department name for matching
       const deptNormal = department.toLowerCase().trim();
       const deptAliases = departmentAliases[deptNormal] || [deptNormal];
-      
+
       let mismatchCount = 0;
       const debugLogLimit = 10;
 
@@ -438,7 +454,7 @@ export async function POST(req) {
         const regNoStr = String(student.Reg_No || "");
         const { getBranchFromRegistration: getBranch } = await getDiplomaHelpers();
         const detectedBranch = await getBranch(regNoStr);
-        
+
         if (!detectedBranch || detectedBranch === 'Unknown') {
           if (mismatchCount < debugLogLimit) {
             console.log(`[JS_FILTER_FAIL] Reg:${student.Reg_No}, Detected:"${detectedBranch || 'null'}", Expected:"${department}"`);
@@ -454,37 +470,37 @@ export async function POST(req) {
 
         // Check multiple matching strategies
         let match = false;
-        
+
         // 1. Exact match (case-insensitive)
         if (cleanNormal === deptNormal || detectedNormal === deptNormal) {
           match = true;
         }
-        
+
         // 2. Check against aliases
         if (!match) {
           match = deptAliases.some(alias => {
             const aliasLower = alias.toLowerCase();
-            return cleanNormal === aliasLower || 
-                   detectedNormal === aliasLower ||
-                   cleanNormal.includes(aliasLower) ||
-                   aliasLower.includes(cleanNormal);
+            return cleanNormal === aliasLower ||
+              detectedNormal === aliasLower ||
+              cleanNormal.includes(aliasLower) ||
+              aliasLower.includes(cleanNormal);
           });
         }
-        
+
         // 3. Partial match (contains)
         if (!match) {
-          match = cleanNormal.includes(deptNormal) || 
-                  deptNormal.includes(cleanNormal) ||
-                  detectedNormal.includes(deptNormal) ||
-                  deptNormal.includes(detectedNormal);
+          match = cleanNormal.includes(deptNormal) ||
+            deptNormal.includes(cleanNormal) ||
+            detectedNormal.includes(deptNormal) ||
+            deptNormal.includes(detectedNormal);
         }
-        
+
         // 4. Check if department name contains key words from detected branch
         if (!match) {
           const deptKeywords = deptNormal.split(/\s+/).filter(w => w.length > 2);
           const branchKeywords = cleanNormal.split(/\s+/).filter(w => w.length > 2);
           match = deptKeywords.some(kw => branchKeywords.includes(kw)) ||
-                  branchKeywords.some(kw => deptKeywords.includes(kw));
+            branchKeywords.some(kw => deptKeywords.includes(kw));
         }
 
         if (!match && mismatchCount < debugLogLimit) {

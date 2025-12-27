@@ -9,45 +9,58 @@ import { appendSchoolParams, getSchoolAndCampus, getSchoolApiUrl } from "@/lib/a
 
 // Helpers
 const branchMapFull = {
-  'CSE': 'Computer Science Engineering',
-  'ECE': 'Electronics & Communication Engineering',
-  'EEE': 'Electrical & Electronics Engineering',
+  'CSE': 'Computer Science & Engineering (CSE)',
+  'ECE': 'Electronics & Communication Engineering (ECE)',
+  'EEE': 'Electrical & Electronics Engineering (EEE)',
   'Mechanical': 'Mechanical Engineering',
   'Civil': 'Civil Engineering',
-  'AIML': 'AIML'
+  'AIML': 'CSE (AI & ML)',
+  // Diploma mappings if needed for short code lookups
+  'Diploma CSE': 'Diploma Computer Science',
+  'Diploma Civil': 'Diploma Civil',
+  'Diploma Electrical': 'Diploma Electrical',
+  'Diploma Mechanical': 'Diploma Mechanical',
+  'Diploma Automobile': 'Diploma Automobile',
+  'Diploma Mining': 'Diploma Mining'
 };
 
 const shortBranchFromCode = {
-  '1': 'Civil', '2': 'CSE', '3': 'ECE', '4': 'ECE',
-  '5': 'EEE', '6': 'Mechanical', '7': 'AIML',
-  '8': 'CSE', '9': 'Civil'
+  '1': 'Civil', '2': 'CSE', '3': 'ECE',
+  '5': 'EEE', '6': 'Mechanical', '7': 'AIML'
 };
 
 function getFullBranchName(shortBranch) {
   return branchMapFull[shortBranch] || shortBranch || "";
 }
 
+// Unified Branch Map based on Index 5-7 (User Provided Source of Truth)
+const regNoBranchMap = {
+  // B.TECH (SOET)
+  '111': 'Civil Engineering',
+  '112': 'Computer Science & Engineering (CSE)',
+  '113': 'Electronics & Communication Engineering (ECE)',
+  '115': 'Electrical & Electronics Engineering (EEE)',
+  '116': 'Mechanical Engineering',
+  '117': 'CSE (AI & ML)',
+
+  // DIPLOMA
+  '711': 'Diploma Electrical',
+  '712': 'Diploma Mechanical',
+  '713': 'Diploma Civil',
+  '714': 'Diploma Computer Science',
+  '715': 'Diploma Automobile',
+  '716': 'Diploma Mining'
+};
+
 function getBranchFromRegNo(regNo = "") {
   if (!regNo || regNo.length < 8) return "";
-  
-  // For SOET (B.Tech), use index 5-7 (positions 5, 6, 7)
-  // Branch codes: 111=Civil, 112=CSE, 113=ECE, 115=EEE, 116=Mechanical, 117=CSE AIML
-  if (regNo.length >= 8) {
-    const branchCode = regNo.slice(5, 8); // Index 5-7
-    const btechBranchMap = {
-      '111': 'Civil',
-      '112': 'CSE',
-      '113': 'ECE',
-      '115': 'EEE',
-      '116': 'Mechanical',
-      '117': 'CSE AIML'
-    };
-    const shortBranch = btechBranchMap[branchCode];
-    if (shortBranch) {
-      return getFullBranchName(shortBranch);
-    }
+
+  // For B.Tech & Diploma, use index 5-7 (positions 5, 6, 7)
+  const branchCode = regNo.slice(5, 8);
+  if (regNoBranchMap[branchCode]) {
+    return regNoBranchMap[branchCode];
   }
-  
+
   // Fallback to old method (position 7) for backward compatibility
   const code = regNo.charAt(7);
   const short = shortBranchFromCode[code] || "";
@@ -743,20 +756,22 @@ function BacklogContent() {
       e.preventDefault();
       e.stopPropagation();
     }
-    
+
     // Clear previous states in correct order
     setError("");
     setMessage("");
     setShowAllMode(false);
     setRows([]);
     setCount(0);
-    
+
     // Set loading states
     setLoadingMessage("Loading backlog data...");
     setResultsRendered(false);
     setLoading(true);
     try {
-      const regValueRaw = regMode === "list" ? selectedReg : registration;
+      // Prioritize selectedReg if it's set (for "View Details" button clicks)
+      // Otherwise use registration based on regMode
+      const regValueRaw = selectedReg || (regMode === "list" ? selectedReg : registration);
       const regValue = (regValueRaw || "").trim();
       const regValueUpper = regValue.toUpperCase();
       setLastRegValue(regValueUpper);
@@ -832,20 +847,20 @@ function BacklogContent() {
         };
       // Use AbortController to cancel previous slow requests
       if (search.controller) {
-        try { 
+        try {
           search.controller.abort();
         } catch (err) {
           // Ignore abort errors
         }
       }
-      
+
       const reqId = Date.now();
       search.requestId = reqId;
       search.controller = new AbortController();
-      
+
       const backlogUrl = getSchoolApiUrl("backlogs");
       let res, data;
-      
+
       try {
         res = await fetch(backlogUrl, {
           method: "POST",
@@ -854,7 +869,7 @@ function BacklogContent() {
           cache: "no-store",
           body: JSON.stringify(body)
         });
-        
+
         data = await res.json();
       } catch (fetchErr) {
         // Check if this was an abort
@@ -864,7 +879,7 @@ function BacklogContent() {
         }
         throw fetchErr;
       }
-      
+
       // Check if this request is still the latest
       if (search.requestId !== reqId) {
         setLoading(false);
@@ -872,7 +887,7 @@ function BacklogContent() {
       }
       if (!res.ok) throw new Error(data.error || "No backlog found");
       const list = data.backlogs || data.result || [];
-      
+
       setRows(list);
       setCount(list.length);
       setMessage(data.message || "Results loaded");
@@ -955,7 +970,7 @@ function BacklogContent() {
           Batch: studentBatch || pickBatch(year, regValueUpper)
         });
       }
-      
+
       // Note: Loading will be hidden by useEffect after results are rendered
     } catch (err) {
       setError(err.message);
@@ -971,14 +986,14 @@ function BacklogContent() {
   useEffect(() => {
     // Only proceed if loading is active and resultsRendered flag indicates new results
     if (!loading || resultsRendered) return;
-    
+
     if (rows.length > 0) {
       // Results have been set, now wait for React to render them
       const timeoutId = setTimeout(() => {
         setLoading(false);
         setResultsRendered(true);
       }, 150);
-      
+
       return () => clearTimeout(timeoutId);
     } else if (message && rows.length === 0) {
       // No results case or empty result with message - hide loading after message is set
@@ -986,7 +1001,7 @@ function BacklogContent() {
         setLoading(false);
         setResultsRendered(true);
       }, 100);
-      
+
       return () => clearTimeout(timeoutId);
     }
   }, [rows, message, resultsRendered, loading]);
@@ -1027,17 +1042,17 @@ function BacklogContent() {
       try {
         if (regMode !== "list") {
           if (!cancelled) {
-          setRegList([]);
-          setSelectedReg("");
-          setStudentSummary([]);
+            setRegList([]);
+            setSelectedReg("");
+            setStudentSummary([]);
           }
           return;
         }
         if (!branch && !year) {
           if (!cancelled) {
-          setRegList([]);
-          setSelectedReg("");
-          setStudentSummary([]);
+            setRegList([]);
+            setSelectedReg("");
+            setStudentSummary([]);
           }
           return;
         }
@@ -1093,34 +1108,9 @@ function BacklogContent() {
           // OPTIMIZED: Use bulk API to get all backlog data in one request
           const MAX_STUDENTS = 5000; // Can handle much more with bulk API
           const studentsToProcess = uniqueRegNos.slice(0, MAX_STUDENTS);
-          
-          // Process branch overrides in batches (still needed for branch override data)
-          const OVERRIDE_BATCH_SIZE = 20; // Increased batch size since these are simple GET requests
-          const overrideResults = [];
-          for (let i = 0; i < studentsToProcess.length; i += OVERRIDE_BATCH_SIZE) {
-            if (cancelled) return;
-            const batch = studentsToProcess.slice(i, i + OVERRIDE_BATCH_SIZE);
-            const batchPromises = batch.map(regNo =>
-              fetch(appendSchoolParams(`/api/branch-change?reg=${regNo}`))
-                .then(res => res.ok ? res.json() : null)
-                .then(data => data?.override ? { reg: regNo.toUpperCase(), branch: data.override } : null)
-                .catch(() => null)
-            );
-            const batchResults = await Promise.all(batchPromises);
-            overrideResults.push(...batchResults);
-            // Minimal delay between batches
-            if (i + OVERRIDE_BATCH_SIZE < studentsToProcess.length) {
-              await new Promise(resolve => setTimeout(resolve, 50));
-            }
-          }
-          if (cancelled) return;
 
+          // branchOverrides map removed - using strict local detection instead
           const branchOverrides = new Map();
-          overrideResults.forEach(ov => {
-            if (ov && ov.reg && ov.branch) {
-              branchOverrides.set(ov.reg, ov.branch);
-            }
-          });
 
           // OPTIMIZED: Single bulk API call to get all backlog summaries
           try {
@@ -1128,21 +1118,21 @@ function BacklogContent() {
             const bulkBacklogRes = await fetch(backlogUrl, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ 
+              body: JSON.stringify({
                 bulkSummary: true,
-                registrations: studentsToProcess 
+                registrations: studentsToProcess
               })
             });
-            
+
             if (cancelled) return;
-            
+
             if (!bulkBacklogRes.ok) {
               throw new Error("Bulk backlog request failed");
             }
 
             const bulkBacklogData = await bulkBacklogRes.json();
             const backlogSummaries = bulkBacklogData.summaries || [];
-            
+
             // Build summary map from bulk response
             const backlogMap = new Map();
             backlogSummaries.forEach(summary => {
@@ -1192,7 +1182,7 @@ function BacklogContent() {
             if (!cancelled) {
               setStudentSummary(summaries);
               summariesLoadedRef.current = true;
-              
+
               // Keep loading true briefly to allow React to render the summary table
               setTimeout(() => {
                 setLoading(false);
@@ -1205,7 +1195,7 @@ function BacklogContent() {
                 const studentInfo = students.find(s => (s.Reg_No || s.registration || "").toUpperCase() === regNo.toUpperCase());
                 const shortBranch = getBranchFromRegNo(regNo);
                 const fallbackBranch = shortBranch ? getFullBranchName(shortBranch) : (branch && branch !== "All" ? getFullBranchName(branch) : "");
-                
+
                 return {
                   Reg_No: regNo,
                   Name: studentInfo?.Name || "",
@@ -1226,11 +1216,11 @@ function BacklogContent() {
         }
       } catch {
         if (!cancelled) {
-        setRegList([]);
-        setSelectedReg("");
-        setStudentSummary([]);
-        setLoading(false); // Hide loading on error
-      }
+          setRegList([]);
+          setSelectedReg("");
+          setStudentSummary([]);
+          setLoading(false); // Hide loading on error
+        }
       }
     };
 
@@ -1985,6 +1975,7 @@ function BacklogContent() {
                           <button
                             onClick={() => {
                               setSelectedReg(student.Reg_No);
+                              setRegMode("list"); // Set regMode to "list" so search() uses selectedReg
                               setShowAllMode(false);
                               // Set student info immediately
                               setSelectedStudentInfo({

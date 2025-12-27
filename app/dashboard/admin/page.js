@@ -275,6 +275,15 @@ export default function AdminDashboard() {
             >
               Block, edit, and manage registered users with role-based access control.
             </ModuleCard>
+
+            <ModuleCard
+              title="Student Status Management"
+              icon="🎓"
+              onClick={() => go("/dashboard/admin/students")}
+              features={["Active/Inactive Status", "Batch-wise Status", "Hide Inactive Records"]}
+            >
+              Manage student study status (Active/Inactive). Inactive students are hidden from reports.
+            </ModuleCard>
           </div>
         </div>
       </section>

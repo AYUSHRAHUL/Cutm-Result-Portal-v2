@@ -45,7 +45,7 @@ export async function GET(req) {
     const client = await clientPromise;
     const campusParam = searchParams.get('campus');
     const campus = campusParam || payload.campus || null;
-    
+
     // Force school to SOET
     const school = 'SOET';
     const dbName = getCampusSchoolDatabase(campus, school);
@@ -83,10 +83,15 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
   // Use MongoDB match to aggressively filter data before JS processing
   const collection = db.collection("result");
 
+  // Fetch inactive students list for exclusion
+  const statusCollection = db.collection("student_status");
+  const inactiveDocs = await statusCollection.find({ isActive: false }).project({ Reg_No: 1 }).toArray();
+  const inactiveRegs = inactiveDocs.map(d => d.Reg_No);
+
   // Removed console.log to reduce overhead
 
   const match = {
-    Reg_No: { $type: "string" },
+    Reg_No: { $type: "string", $nin: inactiveRegs }, // Exclude inactive students
     Grade: { $exists: true },
     $expr: {
       $and: [
@@ -230,18 +235,18 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     if (!record.Reg_No) return false;
     const parsed = parseBTechRegistration(String(record.Reg_No).trim());
     if (!parsed || !parsed.isValid || !parsed.isBTech) return false;
-    
+
     // Use parsed year from parseBTechRegistration
     const recordYear = parsed.year || ''; // e.g., "2023", "2024"
     const recordYearCode = parsed.yearCode || ''; // e.g., "23", "24"
-    
+
     return batchFilters.some(batch => {
       const batchStr = String(batch).trim();
       // Match full year (2023, 2024) or year code (23, 24)
-      return batchStr === recordYear || 
-             batchStr === recordYearCode ||
-             (batchStr.length === 4 && batchStr.substring(2, 4) === recordYearCode) ||
-             (batchStr.length === 2 && batchStr === recordYearCode);
+      return batchStr === recordYear ||
+        batchStr === recordYearCode ||
+        (batchStr.length === 4 && batchStr.substring(2, 4) === recordYearCode) ||
+        (batchStr.length === 2 && batchStr === recordYearCode);
     });
   };
 
@@ -284,21 +289,21 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     if (semesterFilters.length === 0 || semesterFilters.includes("all")) return true;
     if (!record.Sem) return false;
     const sem = String(record.Sem).trim();
-    
+
     return semesterFilters.some(filter => {
       const filterStr = String(filter).trim();
       const cleanFilter = filterStr.replace(/^Sem\s*/i, "").trim();
       const cleanSem = sem.replace(/^Sem\s*/i, "").trim();
-      
+
       // Try multiple matching strategies (case-insensitive)
       return sem.toLowerCase() === filterStr.toLowerCase() ||
-             sem.toLowerCase() === cleanFilter.toLowerCase() ||
-             cleanSem.toLowerCase() === filterStr.toLowerCase() ||
-             cleanSem.toLowerCase() === cleanFilter.toLowerCase() ||
-             sem.toLowerCase() === `sem ${cleanFilter}`.toLowerCase() ||
-             sem.toLowerCase() === `sem${cleanFilter}`.toLowerCase() ||
-             `sem ${cleanSem}`.toLowerCase() === filterStr.toLowerCase() ||
-             `sem${cleanSem}`.toLowerCase() === filterStr.toLowerCase();
+        sem.toLowerCase() === cleanFilter.toLowerCase() ||
+        cleanSem.toLowerCase() === filterStr.toLowerCase() ||
+        cleanSem.toLowerCase() === cleanFilter.toLowerCase() ||
+        sem.toLowerCase() === `sem ${cleanFilter}`.toLowerCase() ||
+        sem.toLowerCase() === `sem${cleanFilter}`.toLowerCase() ||
+        `sem ${cleanSem}`.toLowerCase() === filterStr.toLowerCase() ||
+        `sem${cleanSem}`.toLowerCase() === filterStr.toLowerCase();
     });
   };
 
@@ -309,7 +314,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     const semMatch = filterBySemester(record);
     return batchMatch && branchMatch && semMatch;
   });
-  
+
   console.log(`[SOET Analytics] After filters: ${filteredData.length} records`);
 
   // OPTIMIZED: Single pass through filteredData to calculate all stats (student-based pass/fail)
@@ -372,7 +377,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     'Mechanical': 'ME',
     'CSE AIML': 'AIML'
   };
-  
+
   filteredData.forEach(record => {
     if (!record.Reg_No) return;
 
@@ -553,7 +558,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
   // Valid grades: O, E, A, B, C, D, F, S, M, R
   function calculateCGPA(gradesWithCredits) {
     if (!gradesWithCredits || gradesWithCredits.length === 0) return '0.00';
-    
+
     const gradePoints = {
       'O': 10, // Outstanding
       'E': 9,  // Excellent
@@ -566,22 +571,22 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
       'M': 0,  // Malpractice
       'R': 0   // Reappear
     };
-    
+
     let totalCredits = 0;
     let weightedSum = 0;
-    
+
     gradesWithCredits.forEach(item => {
       const grade = (item.grade || '').toUpperCase().trim();
       const credits = parseCredits(item.credits || 0);
       const gradePoint = gradePoints[grade] ?? 0;
-      
+
       // Only count valid grades and credits > 0 (same logic as Results API)
       if (gradePoints[grade] !== undefined && !isNaN(credits) && credits > 0) {
         totalCredits += credits;
         weightedSum += credits * gradePoint;
       }
     });
-    
+
     if (totalCredits === 0) return '0.00';
     const cgpa = weightedSum / totalCredits;
     return parseFloat(cgpa.toFixed(2)).toFixed(2);
@@ -594,7 +599,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     const regNo = String(record.Reg_No).trim();
     const grade = (record.Grade || '').toUpperCase();
     const isPass = !['F', 'S', 'M', 'I', 'R'].includes(grade);
-    
+
     if (!studentPerformanceMap[regNo]) {
       // Parse branch from registration number to a standardized short code used in filters
       let branch = null;
@@ -611,7 +616,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
         };
         branch = btechBranchMap[branchCode] || null;
       }
-      
+
       studentPerformanceMap[regNo] = {
         regNo: regNo,
         name: record.Name || record.name || 'Unknown',
@@ -650,7 +655,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
         totalSubjects: student.totalSubjects,
         passedSubjects: student.passedSubjects,
         failedSubjects: student.failedSubjects,
-        passRate: student.totalSubjects > 0 
+        passRate: student.totalSubjects > 0
           ? ((student.passedSubjects / student.totalSubjects) * 100).toFixed(2)
           : '0.00',
         cgpa: cgpa
@@ -662,7 +667,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
       if (cgpaDiff !== 0) return cgpaDiff;
       return b.totalSubjects - a.totalSubjects;
     });
-    // Removed .slice(0, 100) to include ALL students regardless of CGPA
+  // Removed .slice(0, 100) to include ALL students regardless of CGPA
 
   // Calculate performance metrics by combination (for multiple filters)
   const performanceMetricsByCombination = [];

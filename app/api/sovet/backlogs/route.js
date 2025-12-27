@@ -26,10 +26,10 @@ export async function POST(req) {
 
     const body = await req.json();
     const client = await clientPromise;
-    
+
     // Get user role for access control
     const userRole = payload.role?.toLowerCase();
-    
+
     // For user role, determine database from registration number (indices 2-5)
     // For admin/teacher, use campus/school from params or JWT
     let dbName;
@@ -54,11 +54,16 @@ export async function POST(req) {
       const school = 'SOVET';
       dbName = getCampusSchoolDatabase(campus, school);
     }
-    
+
     // Removed console.log to reduce overhead
-    
+
     const db = client.db(dbName);
     const cutm = db.collection("result");
+
+    // Fetch inactive students list
+    const statusCollection = db.collection("student_status");
+    const inactiveDocs = await statusCollection.find({ isActive: false }).project({ Reg_No: 1 }).toArray();
+    const inactiveRegs = inactiveDocs.map(d => d.Reg_No);
 
     // Ensure indexes exist for optimal performance (creates only if not exist)
     try {
@@ -131,6 +136,11 @@ export async function POST(req) {
         Grade: { $in: ["F", "M", "S", "I", "R"] }
       };
 
+      // Exclude inactive students
+      if (inactiveRegs.length > 0) {
+        bulkQuery.Reg_No = { ...bulkQuery.Reg_No, $nin: inactiveRegs };
+      }
+
       // Use aggregation pipeline for better performance with large datasets
       const allBacklogs = await cutm.aggregate([
         { $match: bulkQuery },
@@ -140,7 +150,7 @@ export async function POST(req) {
 
       // Group by registration number and count
       const summaryMap = new Map();
-      
+
       // Initialize all students with 0 backlogs
       regNosToQuery.forEach(regNo => {
         summaryMap.set(regNo, { Reg_No: regNo, Name: "", Branch: "", TotalBacklogs: 0 });
@@ -180,26 +190,78 @@ export async function POST(req) {
     }
 
     if (registration) {
-      query.Reg_No = registration.toUpperCase();
-    }
+      // Support both string and numeric Reg_No in database (like result route does)
+      const regUpper = registration.toUpperCase();
+      const regAsInt = parseInt(regUpper, 10);
+      const regQuery = isNaN(regAsInt)
+        ? [{ Reg_No: regUpper }]
+        : [{ Reg_No: regUpper }, { Reg_No: regAsInt }];
 
-    if (subject_code) {
-      const sc = String(subject_code).toUpperCase();
-      if (sc !== 'ALL') {
-        query.Subject_Code = sc;
+      // Build base conditions array
+      const andConditions = [
+        { Grade: { $in: ["F", "M", "S", "I", "R"] } },
+        { $or: regQuery }
+      ];
+
+      // Add subject_code if provided
+      if (subject_code) {
+        const sc = String(subject_code).toUpperCase();
+        if (sc !== 'ALL') {
+          andConditions.push({ Subject_Code: sc });
+        }
+      }
+
+      // Add semester filter if provided
+      if (semesters.length > 0 && !semesters.includes("All")) {
+        andConditions.push({ Sem: { $in: semesters } });
+      }
+
+      // Combine all conditions using $and
+      query.$and = andConditions;
+      // Remove the top-level Grade since it's now in $and
+      delete query.Grade;
+    } else {
+      // No registration - use normal query structure
+      if (subject_code) {
+        const sc = String(subject_code).toUpperCase();
+        if (sc !== 'ALL') {
+          query.Subject_Code = sc;
+        }
+      }
+
+      // Apply semester filter if provided
+      if (semesters.length > 0 && !semesters.includes("All")) {
+        query.Sem = { $in: semesters };
       }
     }
 
-    // Apply semester filter if provided
-    if (semesters.length > 0 && !semesters.includes("All")) {
-      query.Sem = { $in: semesters };
-    }
-
     // Filter by year if provided (Database level optimization)
-    if (year && year !== 'All') {
+    // Skip year filter if we already have an exact registration match
+    if (year && year !== 'All' && !registration) {
       const yy = year.length === 4 ? year.slice(-2) : year;
       // Match registrations starting with the 2-digit batch year (index friendly prefix)
       query.Reg_No = { $regex: `^${yy}` };
+    }
+
+    // Apply inactive filter to main query
+    if (inactiveRegs.length > 0) {
+      if (query.$and) {
+        // If using $and (specific registration search), add exclusion there
+        query.$and.push({ Reg_No: { $nin: inactiveRegs } });
+      } else if (query.Reg_No) {
+        // If Reg_No filter exists (e.g. from year regex), combine with $nin
+        if (typeof query.Reg_No === 'object') {
+          query.Reg_No.$nin = inactiveRegs;
+        } else {
+          // Direct value match
+          if (inactiveRegs.includes(query.Reg_No)) {
+            query.Reg_No = { $in: [] }; // force empty
+          }
+        }
+      } else {
+        // No existing Reg_No filter, just add the exclusion
+        query.Reg_No = { $nin: inactiveRegs };
+      }
     }
 
     // Optimize branch filtering at database level for Diploma
@@ -214,14 +276,14 @@ export async function POST(req) {
         'Electrical Engineering': '11',
         'Electrical': '11',
         'EEE': '11',
-        'Computer Science Engineering': '(40|41|14|43)',
-        'CSE': '(40|41|14|43)',
-        'Automobile Engineering': '(15|44)',
-        'Automobile': '(15|44)',
-        'AE': '(15|44)',
-        'Mining Engineering': '(16|46)',
-        'Mining': '(16|46)',
-        'MiE': '(16|46)'
+        'Computer Science Engineering': '14',
+        'CSE': '14',
+        'Automobile Engineering': '15',
+        'Automobile': '15',
+        'AE': '15',
+        'Mining Engineering': '16',
+        'Mining': '16',
+        'MiE': '16'
       };
 
       const branchCode = branchCodeMap[branch];
@@ -260,7 +322,14 @@ export async function POST(req) {
 
     // Parse and enrich records (Diploma only)
     const processedBacklogs = backlogs.map(record => {
-      const regNo = record.Reg_No || '';
+      // Handle both string and numeric Reg_No formats
+      let regNo = record.Reg_No || '';
+      if (typeof regNo === 'number') {
+        // Convert number to string, pad with leading zeros if needed
+        regNo = String(regNo).padStart(12, '0');
+      } else {
+        regNo = String(regNo).trim();
+      }
       const parsed = parseDiplomaRegistration(regNo);
 
       let batch = 'N/A';
@@ -282,7 +351,19 @@ export async function POST(req) {
       };
     }).filter(item => {
       // Filter out non-Diploma records
-      return item._parsed && item._parsed.isValid && item._parsed.isDiploma;
+      // But be lenient: if program code is '07' (Diploma), include it even if branch code isn't recognized
+      if (item._parsed && item._parsed.isValid && item._parsed.isDiploma) {
+        return true;
+      }
+      // Fallback: check if it's a Diploma by program code (positions 4-5 = '07')
+      const regNo = String(item.Reg_No || '').trim();
+      if (regNo.length >= 6) {
+        const programCode = regNo.slice(4, 6);
+        if (programCode === '07') {
+          return true; // It's a Diploma, include it
+        }
+      }
+      return false; // Not a Diploma, exclude it
     });
 
     // Apply strict Branch Filtering in JS (Diploma branches only)
@@ -303,7 +384,7 @@ export async function POST(req) {
             'AE': '15',   // Automobile
             'MiE': '16',  // Mining
             'CSE': '40',  // Computer Science
-            'ECE': '47'   // Electronics
+
           };
           const expectedCode = branchCodeMap[diplomaBranchCode];
           return parsed.branchCode === expectedCode;
@@ -316,7 +397,7 @@ export async function POST(req) {
         if (branch === 'Computer Science Engineering' || branch === 'CSE') return parsed.branchCode === '40' || parsed.branchCode === '41' || parsed.branchCode === '14' || parsed.branchCode === '43';
         if (branch === 'Automobile Engineering' || branch === 'Automobile' || branch === 'AE') return parsed.branchCode === '15' || parsed.branchCode === '44';
         if (branch === 'Mining Engineering' || branch === 'Mining' || branch === 'MiE') return parsed.branchCode === '16' || parsed.branchCode === '46';
-        
+
         return false;
       });
     }

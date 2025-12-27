@@ -25,10 +25,10 @@ export async function POST(req) {
 
     const body = await req.json();
     const client = await clientPromise;
-    
+
     // Get user role for access control
     const userRole = payload.role?.toLowerCase();
-    
+
     // For user role, determine database from registration number (indices 2-5)
     // For admin/teacher, use campus/school from params or JWT
     let dbName;
@@ -53,9 +53,14 @@ export async function POST(req) {
       const school = 'SOET';
       dbName = getCampusSchoolDatabase(campus, school);
     }
-    
+
     const db = client.db(dbName);
     const cutm = db.collection("result");
+
+    // Fetch inactive students list (Global Exclusion)
+    const statusCollection = db.collection("student_status");
+    const inactiveDocs = await statusCollection.find({ isActive: false }).project({ Reg_No: 1 }).toArray();
+    const inactiveRegs = inactiveDocs.map(d => d.Reg_No);
 
     // Ensure indexes exist for optimal performance (creates only if not exist)
     try {
@@ -127,6 +132,15 @@ export async function POST(req) {
         Grade: { $in: ["F", "M", "S", "I", "R"] }
       };
 
+      // Exclude inactive students from bulk summary
+      if (inactiveRegs.length > 0) {
+        // If Reg_No is already filtered by specific list ($in: regNosToQuery),
+        // we should remove inactive ones from that list effectively.
+        // Or simply add a $nin clause which Mongo handles.
+        // Ideally, modify regNosToQuery before query construction?
+        bulkQuery.Reg_No = { $in: regNosToQuery, $nin: inactiveRegs };
+      }
+
       // Use aggregation pipeline for better performance with large datasets
       const allBacklogs = await cutm.aggregate([
         { $match: bulkQuery },
@@ -136,7 +150,7 @@ export async function POST(req) {
 
       // Group by registration number and count
       const summaryMap = new Map();
-      
+
       // Initialize all students with 0 backlogs
       regNosToQuery.forEach(regNo => {
         summaryMap.set(regNo, { Reg_No: regNo, Name: "", Branch: "", TotalBacklogs: 0 });
@@ -173,7 +187,21 @@ export async function POST(req) {
     }
 
     if (registration) {
-      query.Reg_No = registration.toUpperCase();
+      // Support both string and numeric Reg_No in database (like result route does)
+      const regUpper = registration.toUpperCase();
+      const regAsInt = parseInt(regUpper, 10);
+      const regQuery = isNaN(regAsInt)
+        ? [{ Reg_No: regUpper }]
+        : [{ Reg_No: regUpper }, { Reg_No: regAsInt }];
+
+      // Combine Grade condition with Reg_No condition using $and
+      // This ensures both conditions are applied correctly
+      query.$and = [
+        { Grade: { $in: ["F", "M", "S", "I", "R"] } },
+        { $or: regQuery }
+      ];
+      // Remove the top-level Grade since it's now in $and
+      delete query.Grade;
     }
 
     if (subject_code) {
@@ -189,7 +217,8 @@ export async function POST(req) {
     }
 
     // Filter by year if provided (Database level optimization)
-    if (year && year !== 'All') {
+    // Skip year filter if we already have an exact registration match
+    if (year && year !== 'All' && !registration) {
       const yy = year.length === 4 ? year.slice(-2) : year;
       // Match registrations starting with the 2-digit batch year (index friendly prefix)
       query.Reg_No = { $regex: `^${yy}` };
@@ -227,6 +256,30 @@ export async function POST(req) {
       }
     }
 
+    // Exclude inactive students from main query
+    if (inactiveRegs.length > 0) {
+      if (query.Reg_No) {
+        // If Reg_No exists (string, regex, or object), merge with $nin
+        if (typeof query.Reg_No === 'string') {
+          if (inactiveRegs.includes(query.Reg_No)) {
+            query.Reg_No = { $in: [] }; // Force empty result
+          }
+        } else if (query.Reg_No.$regex) {
+          // If existing is regex, convert to object with $regex AND $nin
+          query.Reg_No = { $regex: query.Reg_No.$regex, $nin: inactiveRegs };
+        } else {
+          // If it's already an object (e.g. { $in: ... }), add $nin
+          query.Reg_No.$nin = inactiveRegs;
+        }
+      } else if (query.$and) {
+        // If query uses $and (e.g. for registration search), add exclusion there
+        query.$and.push({ Reg_No: { $nin: inactiveRegs } });
+      } else {
+        // Simple case: add direct exclusion
+        query.Reg_No = { $nin: inactiveRegs };
+      }
+    }
+
     // Build cursor with lean projection and sort
     let cursor = cutm.find(query, {
       projection: {
@@ -248,14 +301,32 @@ export async function POST(req) {
 
     const backlogs = await cursor.toArray();
 
-    // Quick validation: Filter B.Tech records by regex pattern (faster than parsing)
-    const btechPattern = /^\d{6}01\d{5}/; // YYMMDD-01-BBBXX where 01 = B.Tech
-    const validBacklogs = backlogs.filter(record => btechPattern.test(record.Reg_No || ''));
+    // Quick validation: Filter B.Tech records by checking branch codes at positions 5-7
+    // B.Tech format: YY IIII BB SSSS (12 digits), branch codes: 111, 112, 113, 115, 116, 137
+    const validBacklogs = backlogs.filter(record => {
+      // Handle both string and numeric Reg_No formats
+      let regNo = record.Reg_No;
+      if (typeof regNo === 'number') {
+        // Convert number to string, pad with leading zeros if needed
+        regNo = String(regNo).padStart(12, '0');
+      } else {
+        regNo = String(regNo || '').trim();
+      }
+
+      if (regNo.length !== 12) return false;
+      // Check if program code (positions 4-5) is NOT '07' (Diploma)
+      const programCode = regNo.slice(4, 6);
+      if (programCode === '07') return false; // Skip Diploma
+      // Check if branch code (positions 5-7) is a valid B.Tech branch code
+      const branchCode = regNo.slice(5, 8);
+      const validBranchCodes = ['111', '112', '113', '115', '116', '137'];
+      return validBranchCodes.includes(branchCode);
+    });
 
     // Parse and enrich only valid records
     const processedBacklogs = validBacklogs.map(record => {
       const regNo = record.Reg_No || '';
-      
+
       // Fast extraction without full parsing
       let batch = 'N/A';
       let branchName = record.Branch || 'N/A';
@@ -263,7 +334,7 @@ export async function POST(req) {
       if (regNo.length >= 12) {
         const yy = regNo.slice(0, 2);
         batch = `20${yy}`;
-        
+
         // Extract branch code (positions 5-7)
         const branchCode = regNo.slice(6, 9);
         const branchCodeMap = {
