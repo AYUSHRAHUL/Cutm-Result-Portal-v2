@@ -1,3 +1,4 @@
+
 import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import { jwtVerify } from "jose";
@@ -166,7 +167,11 @@ export async function POST(req) {
                 }, { status: 400 });
             }
 
-            // 7. Iterate and Insert/Update
+            processedCount = data.length;
+
+            // 1. First Pass: Validate and Collect Valid Records
+            const validRecords = [];
+
             for (const row of data) {
                 const regNo = String(row[regNoCol] || "").trim().toUpperCase();
                 const subjectCode = String(row[subjectCodeCol] || "").trim().toUpperCase();
@@ -189,11 +194,18 @@ export async function POST(req) {
                 let semValue = semester;
                 if (semCol && row[semCol]) {
                     const rowSem = String(row[semCol]).trim();
-                    if (rowSem) semValue = rowSem;
+                    if (rowSem) {
+                        if (/^\d+$/.test(rowSem)) {
+                            semValue = `Sem ${rowSem}`;
+                        } else if (rowSem.toLowerCase().startsWith('semester')) {
+                            semValue = rowSem.replace(/Semester/i, 'Sem');
+                        } else {
+                            semValue = rowSem;
+                        }
+                    }
                 }
 
-                // Create document
-                const doc = {
+                validRecords.push({
                     Reg_No: regNo,
                     Subject_Code: subjectCode,
                     Name: name,
@@ -202,22 +214,51 @@ export async function POST(req) {
                     Sem: semValue,
                     Subject_Type: subjectType,
                     Branch: parsed.branch || "Unknown",
-                    Type: "Registration",
-                    UpdatedAt: new Date()
-                };
+                });
+            }
 
-                // Update or Insert
-                // We use Reg_No + Subject_Code + Type as unique key
+            // 2. Second Pass: Aggregate Duplicates (Sum Credits)
+            // Key: Reg_No + "_" + Subject_Code
+            const aggregatedMap = new Map();
+
+            for (const record of validRecords) {
+                const key = `${record.Reg_No}_${record.Subject_Code}`;
+
+                if (aggregatedMap.has(key)) {
+                    const existing = aggregatedMap.get(key);
+
+                    // Sum Credits
+                    const existingCredits = parseFloat(existing.Credits) || 0;
+                    const newCredits = parseFloat(record.Credits) || 0;
+                    existing.Credits = (existingCredits + newCredits).toString();
+
+                    // Merge Subject Type if distinct
+                    const type1 = existing.Subject_Type || "";
+                    const type2 = record.Subject_Type || "";
+                    if (type2 && !type1.includes(type2)) {
+                        existing.Subject_Type = type1 ? `${type1} + ${type2}` : type2;
+                    }
+
+                } else {
+                    // Clone the record to avoid reference issues
+                    aggregatedMap.set(key, { ...record });
+                }
+            }
+
+            // 3. Third Pass: Database Upsert
+            for (const doc of aggregatedMap.values()) {
+                // Add Metadata
+                doc.Type = "Registration";
+                doc.UpdatedAt = new Date();
+
+                // Upsert with strictly Reg_No + Subject_Code
                 await registrationCollection.updateOne(
-                    { Reg_No: regNo, Subject_Code: subjectCode, Type: "Registration" },
+                    { Reg_No: doc.Reg_No, Subject_Code: doc.Subject_Code, Type: "Registration" },
                     { $set: doc },
                     { upsert: true }
                 );
-
                 insertedCount++;
             }
-
-            processedCount = data.length;
 
         } catch (fileError) {
             console.error(`Error processing registration file:`, fileError);
@@ -226,7 +267,7 @@ export async function POST(req) {
 
         return NextResponse.json({
             success: true,
-            message: `Diploma registration data processed successfully. Uploaded/Updated: ${insertedCount}. Skipped (Non-Diploma): ${skippedCount}.`,
+            message: `Diploma registration data processed successfully. Unique Subjects Uploaded/Updated: ${insertedCount}. Skipped (Non-Diploma): ${skippedCount}.`,
             count: insertedCount,
             skipped: skippedCount,
             total: processedCount

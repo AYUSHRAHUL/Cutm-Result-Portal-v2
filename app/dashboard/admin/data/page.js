@@ -49,8 +49,8 @@ function AdminCBCSIndexContent() {
 
   // Available semesters
   const semesters = [
-    'Semester 1', 'Semester 2', 'Semester 3', 'Semester 4',
-    'Semester 5', 'Semester 6', 'Semester 7', 'Semester 8'
+    'Sem 1', 'Sem 2', 'Sem 3', 'Sem 4',
+    'Sem 5', 'Sem 6', 'Sem 7', 'Sem 8'
   ];
 
   // Fetch registration data
