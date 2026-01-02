@@ -303,6 +303,14 @@ export default function AdminDashboardPKDSOET() {
             >
               Manage honours degree domain subjects and honours student list.
             </ModuleCard>
+            <ModuleCard
+              title="Domain & Skill Registration"
+              icon="🛠️"
+              onClick={() => go("/dashboard/admin/domain-skill")}
+              features={["Subject Registration", "Skill Tracking", "Student Enrollment"]}
+            >
+              Manage domain subjects and skill course registrations for students.
+            </ModuleCard>
 
           </div>
         </div>

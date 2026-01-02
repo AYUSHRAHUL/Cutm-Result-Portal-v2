@@ -398,7 +398,7 @@ function AdminCBCSIndexContent() {
       formData.append('file', uploadFile);
       formData.append('semester', selectedSemester);
 
-      const url = getSchoolApiUrl("upload") + "/registration";
+      const url = getSchoolApiUrl("upload/registration");
       const response = await fetch(url, {
         method: 'POST',
         body: formData,
