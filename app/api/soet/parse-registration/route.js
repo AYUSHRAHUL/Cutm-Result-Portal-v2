@@ -10,11 +10,11 @@ import { NextResponse } from "next/server";
 
 // SOET B.Tech branch codes (index 5-7)
 const soetBtechBranchMap = {
-    '111': 'Civil',
-    '112': 'CSE',
-    '113': 'ECE',
-    '115': 'EEE',
-    '116': 'Mechanical',
+    '111': 'Civil Engineering',
+    '112': 'Computer Science Engineering',
+    '113': 'Electronics & Communication Engineering',
+    '115': 'Electrical & Electronics Engineering',
+    '116': 'Mechanical Engineering',
     // AIML registrations use 137
     '137': 'CSE AIML'
 };
@@ -88,15 +88,15 @@ export async function GET(req) {
         const registration = searchParams.get('registration');
 
         if (!registration) {
-            return NextResponse.json({ 
-                error: 'Registration number is required' 
+            return NextResponse.json({
+                error: 'Registration number is required'
             }, { status: 400 });
         }
 
         const parsed = parseBTechRegistration(registration);
 
         if (!parsed) {
-            return NextResponse.json({ 
+            return NextResponse.json({
                 error: 'Invalid B.Tech registration number',
                 isValid: false
             }, { status: 400 });
@@ -108,8 +108,8 @@ export async function GET(req) {
         });
     } catch (error) {
         console.error('Error parsing B.Tech registration:', error);
-        return NextResponse.json({ 
-            error: 'Failed to parse registration number' 
+        return NextResponse.json({
+            error: 'Failed to parse registration number'
         }, { status: 500 });
     }
 }
@@ -145,13 +145,13 @@ export async function POST(req) {
             });
         }
 
-        return NextResponse.json({ 
-            error: 'Registration number(s) required' 
+        return NextResponse.json({
+            error: 'Registration number(s) required'
         }, { status: 400 });
     } catch (error) {
         console.error('Error parsing B.Tech registrations:', error);
-        return NextResponse.json({ 
-            error: 'Failed to parse registration numbers' 
+        return NextResponse.json({
+            error: 'Failed to parse registration numbers'
         }, { status: 500 });
     }
 }
@@ -160,31 +160,31 @@ export async function POST(req) {
  * Check if a registration number belongs to a B.Tech student
  */
 export function isBTechStudent(registration) {
-  if (!registration || typeof registration !== 'string') return false;
-  const parsed = parseBTechRegistration(registration);
-  return parsed ? parsed.isValid && parsed.isBTech : false;
+    if (!registration || typeof registration !== 'string') return false;
+    const parsed = parseBTechRegistration(registration);
+    return parsed ? parsed.isValid && parsed.isBTech : false;
 }
 
 /**
  * Get branch from registration (for compatibility)
  */
 export function getBranchFromRegistration(registration, department = null) {
-  const parsed = parseBTechRegistration(registration);
-  if (!parsed || !parsed.isValid || !parsed.isBTech) {
-    return department || 'Unknown';
-  }
-  
-  const branchMap = {
-    '111': 'Civil Engineering',
-    '112': 'Computer Science Engineering',
-    '113': 'Electronics & Communication Engineering',
-    '115': 'Electrical & Electronics Engineering',
-    '116': 'Mechanical Engineering',
-    // AIML registrations use 137
-    '137': 'CSE AIML'
-  };
-  
-  return branchMap[parsed.branchCode] || department || 'Unknown';
+    const parsed = parseBTechRegistration(registration);
+    if (!parsed || !parsed.isValid || !parsed.isBTech) {
+        return department || 'Unknown';
+    }
+
+    const branchMap = {
+        '111': 'Civil Engineering',
+        '112': 'Computer Science Engineering',
+        '113': 'Electronics & Communication Engineering',
+        '115': 'Electrical & Electronics Engineering',
+        '116': 'Mechanical Engineering',
+        // AIML registrations use 137
+        '137': 'CSE AIML'
+    };
+
+    return branchMap[parsed.branchCode] || department || 'Unknown';
 }
 
 // Export parser function for use in other API routes

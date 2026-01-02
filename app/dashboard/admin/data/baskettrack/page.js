@@ -242,7 +242,7 @@ export function BasketTrackerContent({ schoolType }) {
         });
 
         const selectedKey = normalizeKey(department);
-        const isValidDept = aliasKeys.has(selectedKey);
+        const isValidDept = aliasKeys.has(selectedKey) || validDepartments.includes(department);
 
         if (!isValidDept) {
           throw new Error("Please select a valid department from the dropdown");

@@ -138,7 +138,7 @@ export default function DomainSkillPage() {
                             📈 Student Skill Data
                         </h2>
                         <p className="text-[#5A6C7D] mb-4 text-xs sm:text-sm">
-                            Monitor student skill course enrollments. Filter by batch, branch, and semester to track skill adoption.
+                            Monitor student skill course enrollments. Filter by batch, branch, and period to track skill adoption.
                         </p>
                         <div className="flex flex-col gap-2 sm:gap-3">
                             <button
@@ -147,6 +147,28 @@ export default function DomainSkillPage() {
                                 style={{ background: "linear-gradient(135deg, #9333ea, #7e22ce)" }}
                             >
                                 View Skill student List
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Domain, Skill & Basket Report */}
+                    <div
+                        className="rounded-xl sm:rounded-2xl border-2 p-4 sm:p-5 lg:p-6 shadow-lg transition-all hover:shadow-xl hover:-translate-y-1 md:col-span-2"
+                        style={{ borderColor: "rgba(239,68,68,0.2)", background: "white" }}
+                    >
+                        <h2 className="text-lg sm:text-xl font-black text-[#1A1F29] mb-3 sm:mb-4 flex items-center gap-2">
+                            🚀 Domain, Skill & Basket Report
+                        </h2>
+                        <p className="text-[#5A6C7D] mb-4 text-xs sm:text-sm">
+                            Comprehensive report for Baskets (1-5), Skills, and Domains. View student enrollments across all categories in one place.
+                        </p>
+                        <div className="flex flex-col gap-2 sm:gap-3">
+                            <button
+                                onClick={() => router.push("/dashboard/admin/domain-skill/unified-analytics")}
+                                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-white text-sm font-bold transition-all hover:shadow-lg active:scale-95 min-h-[44px]"
+                                style={{ background: "linear-gradient(135deg, #ef4444, #b91c1c)" }}
+                            >
+                                Open Report Dashboard
                             </button>
                         </div>
                     </div>
