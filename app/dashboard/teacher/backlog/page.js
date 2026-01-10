@@ -1312,6 +1312,9 @@ function BacklogContent() {
   const showBatchBranchCombinations = showBranchWiseSummary &&
     (year === "All" || year === "" || !year);
 
+  // Show subject summary by batch when subject search with specific filters
+  const showSubjectByBatchSummary = isSubjectSearch && filteredRows.length > 0;
+
   // Calculate branch-wise or batch+branch-wise backlog counts
   const branchWiseCounts = useMemo(() => {
     if (!showBranchWiseSummary) return [];
@@ -1350,6 +1353,38 @@ function BacklogContent() {
         return b.count - a.count; // Then by count
       });
   }, [showBranchWiseSummary, showBatchBranchCombinations, filteredRows]);
+
+  // Calculate subject summary by batch - shows subjects grouped by batch
+  const subjectByBatchSummary = useMemo(() => {
+    if (!showSubjectByBatchSummary) return [];
+
+    const summaryMap = new Map();
+
+    filteredRows.forEach(row => {
+      const rowBatch = row.Batch || deriveBatchFromReg(row.Reg_No || row.registration || "") || "Unknown";
+      const subjectCode = row.Subject_Code || row.subject_code || "Unknown";
+      const subjectName = row.Subject_Name || "";
+
+      const key = `${rowBatch}|${subjectCode}`;
+      const existing = summaryMap.get(key) || {
+        batch: rowBatch,
+        subjectCode: subjectCode,
+        subjectName: subjectName,
+        count: 0
+      };
+      existing.count += 1;
+      summaryMap.set(key, existing);
+    });
+
+    // Convert to array and sort by batch (descending), then by count
+    return Array.from(summaryMap.values())
+      .sort((a, b) => {
+        if (a.batch !== b.batch) {
+          return b.batch.localeCompare(a.batch);
+        }
+        return b.count - a.count;
+      });
+  }, [showSubjectByBatchSummary, filteredRows]);
 
   // Calculate detailed breakdown: Batch + Branch + Subject backlog counts
   // Show when: subject search AND (branch is "All" OR both branch and batch are "All")
@@ -2077,6 +2112,108 @@ function BacklogContent() {
                       </span>
                     </div>
                   </div>
+
+                  {/* Subject by Batch Summary Table - Show when searching with specific filters */}
+                  {showSubjectByBatchSummary && subjectByBatchSummary.length > 0 && !showBranchWiseSummary && (
+                    <div className="rounded-xl border-2 border-[#05A3C7]/20 bg-white overflow-hidden">
+                      <div
+                        className="text-white px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3"
+                        style={{
+                          background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
+                        }}
+                      >
+                        <h3 className="font-black text-base sm:text-lg">
+                          Subject Summary by Batch
+                        </h3>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              // Export subject by batch summary to CSV
+                              if (subjectByBatchSummary.length === 0) return;
+
+                              const csvRows = [
+                                ["Batch", "Subject Code", "Subject Name", "Backlog Count"]
+                              ];
+
+                              subjectByBatchSummary.forEach(item => {
+                                csvRows.push([
+                                  item.batch || "",
+                                  item.subjectCode || "",
+                                  item.subjectName || "",
+                                  String(item.count || 0)
+                                ]);
+                              });
+
+                              csvRows.push(["", "", "Total", String(subjectResultCount || 0)]);
+
+                              const csvContent = csvRows.map(row =>
+                                row.map(field => {
+                                  const str = String(field).replace(/"/g, '""');
+                                  return /[",\n]/.test(str) ? `"${str}"` : str;
+                                }).join(',')
+                              ).join('\n');
+
+                              const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                              const link = document.createElement('a');
+                              const url = URL.createObjectURL(blob);
+                              link.setAttribute('href', url);
+                              link.setAttribute('download', `Subject_By_Batch_Summary_${new Date().toISOString().split('T')[0]}.csv`);
+                              link.style.visibility = 'hidden';
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors flex items-center gap-1.5 font-bold text-xs sm:text-sm min-h-[36px]"
+                          >
+                            <span className="text-base">📥</span>
+                            <span className="hidden xs:inline">Export CSV</span>
+                            <span className="xs:hidden">CSV</span>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-sm">
+                          <thead>
+                            <tr style={{ background: "rgba(5,163,199,0.1)" }}>
+                              <th className="px-4 py-3 text-left font-black text-xs uppercase">S.No</th>
+                              <th className="px-4 py-3 text-left font-black text-xs uppercase">Batch</th>
+                              <th className="px-4 py-3 text-left font-black text-xs uppercase">Subject Code</th>
+                              <th className="px-4 py-3 text-left font-black text-xs uppercase">Subject Name</th>
+                              <th className="px-4 py-3 text-center font-black text-xs uppercase">Backlog Count</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {subjectByBatchSummary.map((item, idx) => (
+                              <tr
+                                key={idx}
+                                className="border-t-2 border-[#05A3C7]/10 hover:bg-[#05A3C7]/5 transition-colors"
+                              >
+                                <td className="px-4 py-3 text-[#1A1F29] font-medium">{idx + 1}</td>
+                                <td className="px-4 py-3 text-[#1A1F29] font-bold">{item.batch || "-"}</td>
+                                <td className="px-4 py-3 font-bold" style={{ color: "#05A3C7" }}>
+                                  {item.subjectCode || "-"}
+                                </td>
+                                <td className="px-4 py-3 text-[#1A1F29] font-medium">{item.subjectName || "-"}</td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-[#05A3C7] text-white font-black text-base">
+                                    {item.count}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                            <tr className="border-t-2 border-[#05A3C7]/30 bg-[#05A3C7]/5">
+                              <td colSpan={4} className="px-4 py-3 text-[#1A1F29] font-black text-base">Total</td>
+                              <td className="px-4 py-3 text-center">
+                                <span className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-[#04748F] text-white font-black text-base">
+                                  {subjectResultCount}
+                                </span>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Branch-wise Summary Table */}
                   {showBranchWiseSummary && branchWiseCounts.length > 0 && (

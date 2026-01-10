@@ -55,20 +55,28 @@ export default function UnifiedAnalytics() {
     const downloadDetailedExcel = () => {
         if (!items.length) return;
 
+        // Determine column names based on category
+        const nameColumn = category === "Domain" ? "Domain Name" : "Subject Name";
+        const codeColumn = category === "Domain" ? "Domain Code" : "Subject Code";
+
         // Flatten for Excel
         let dump = [];
         items.forEach(item => {
             item.Students.forEach(stu => {
-                dump.push({
+                const row = {
                     "Category": category,
-                    "Subject Name": item.Name,
-                    "Subject Code": item.Code || "-",
+                    [nameColumn]: item.Name,
                     "Type": item.Type,
                     "Reg No": stu.Reg_No,
                     "Name": stu.Name,
                     "Branch": stu.Branch,
                     "Batch": stu.Batch
-                });
+                };
+                // Only add code column if code exists or not domain
+                if (category !== "Domain" || item.Code) {
+                    row[codeColumn] = item.Code || "-";
+                }
+                dump.push(row);
             });
         });
 
@@ -81,13 +89,23 @@ export default function UnifiedAnalytics() {
     const downloadSummaryExcel = () => {
         if (!items.length) return;
 
+        // Determine column names based on category
+        const nameColumn = category === "Domain" ? "Domain Name" : "Subject Name";
+        const codeColumn = category === "Domain" ? "Domain Code" : "Subject Code";
+
         // Summary Data
-        let dump = items.map(item => ({
-            "Subject Name": item.Name,
-            "Subject Code": item.Code || "-",
-            "Type": item.Type,
-            "Total Students": item.TotalStudents
-        }));
+        let dump = items.map(item => {
+            const row = {
+                [nameColumn]: item.Name,
+                "Type": item.Type,
+                "Total Students": item.TotalStudents
+            };
+            // Only add code column if code exists or not domain
+            if (category !== "Domain" || item.Code) {
+                row[codeColumn] = item.Code || "-";
+            }
+            return row;
+        });
 
         const worksheet = XLSX.utils.json_to_sheet(dump);
         const workbook = XLSX.utils.book_new();
@@ -210,8 +228,10 @@ export default function UnifiedAnalytics() {
                     <table className="w-full text-left border-collapse">
                         <thead>
                             <tr className="bg-slate-50/50 border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                                <th className="p-4 font-bold">Subject Name</th>
-                                <th className="p-4 font-bold w-32">Subject Code</th>
+                                <th className="p-4 font-bold">{category === "Domain" ? "Domain Name" : "Subject Name"}</th>
+                                {category !== "Domain" && (
+                                    <th className="p-4 font-bold w-32">Subject Code</th>
+                                )}
                                 <th className="p-4 font-bold w-32">Type</th>
                                 <th className="p-4 font-bold text-center w-32">Total Students</th>
                                 <th className="p-4 font-bold text-center w-24">Actions</th>
@@ -220,11 +240,11 @@ export default function UnifiedAnalytics() {
                         <tbody className="divide-y divide-slate-100 text-sm">
                             {loading ? (
                                 <tr>
-                                    <td colSpan="5" className="p-8 text-center text-slate-400">Loading data...</td>
+                                    <td colSpan={category === "Domain" ? "4" : "5"} className="p-8 text-center text-slate-400">Loading data...</td>
                                 </tr>
                             ) : items.length === 0 ? (
                                 <tr>
-                                    <td colSpan="5" className="p-8 text-center text-slate-400 font-medium">No records found matching filters.</td>
+                                    <td colSpan={category === "Domain" ? "4" : "5"} className="p-8 text-center text-slate-400 font-medium">No records found matching filters.</td>
                                 </tr>
                             ) : (
                                 items.map((item) => (
@@ -233,9 +253,11 @@ export default function UnifiedAnalytics() {
                                             <td className="p-4 font-bold text-slate-800 border-l-4 border-transparent group-hover:border-indigo-500 transition-all">
                                                 {item.Name}
                                             </td>
-                                            <td className="p-4 font-mono text-sm text-slate-600">
-                                                {item.Code || "-"}
-                                            </td>
+                                            {category !== "Domain" && (
+                                                <td className="p-4 font-mono text-sm text-slate-600">
+                                                    {item.Code || "-"}
+                                                </td>
+                                            )}
                                             <td className="p-4 text-slate-500">
                                                 {item.Type}
                                             </td>
@@ -256,10 +278,10 @@ export default function UnifiedAnalytics() {
                                         {/* Expanded Student List */}
                                         {expandedItem === item.Name && (
                                             <tr>
-                                                <td colSpan="5" className="bg-slate-50 p-4 border-b border-slate-200 inset-shadow">
+                                                <td colSpan={category === "Domain" ? "4" : "5"} className="bg-slate-50 p-4 border-b border-slate-200 inset-shadow">
                                                     <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                                                         <div className="px-4 py-2 bg-slate-100 border-b border-slate-200 font-bold text-xs text-slate-600 uppercase">
-                                                            Students Enrolled in {item.Name}
+                                                            Students {category === "Domain" ? "Registered in" : "Enrolled in"} {item.Name}
                                                         </div>
                                                         <div className="max-h-64 overflow-y-auto">
                                                             <table className="w-full text-xs">

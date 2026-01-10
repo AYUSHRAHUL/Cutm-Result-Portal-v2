@@ -135,10 +135,12 @@ export async function GET(req) {
                 // Dynamic Name Discovery:
                 // If the metadata collection (cbcs/skill) didn't have a name (so it fell back to Code),
                 // but this student record HAS a Subject Name, use it to improve our display.
-                if (keyToDetails[groupKey]) {
+                // IMPORTANT: Don't override domain names - they should remain as domain names, not subject names
+                if (keyToDetails[groupKey] && !isDomain) {
                     const currentName = keyToDetails[groupKey].Name;
                     const recordName = (row.Subject_Name || "").trim();
                     // If current name is just the code, and we have a better name that isn't the code
+                    // For domains, we never want to override the domain name with subject names
                     if (currentName === groupKey && recordName && recordName !== subjectCode) {
                         keyToDetails[groupKey].Name = recordName;
                     }

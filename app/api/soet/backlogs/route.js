@@ -227,31 +227,36 @@ export async function POST(req) {
     // Optimize branch filtering at database level when possible
     if (branch && branch !== 'All' && !registration) {
       // Map branch names to codes for database-level filtering
+      // B.Tech branch codes are at positions 5-7 (0-indexed) in registration number
+      // Format: YY IIII BB SSSS (12 digits), branch codes: 111, 112, 113, 115, 116, 137
       const branchCodeMap = {
-        'Civil Engineering': '110',
-        'Computer Science and Engineering': '120',
-        'Electronics and Communication Engineering': '130',
-        'Electrical and Electronics Engineering': '150',
-        'Mechanical Engineering': '160',
-        'AIML': '170',
-        'Civil': '110',
-        'CSE': '120',
-        'ECE': '130',
-        'EEE': '150',
-        'Mechanical': '160',
-        'ME': '160'
+        'Civil Engineering': '111',
+        'Computer Science and Engineering': '112',
+        'Electronics and Communication Engineering': '113',
+        'Electrical and Electronics Engineering': '115',
+        'Mechanical Engineering': '116',
+        'AIML': '137',
+        'Civil': '111',
+        'CSE': '112',
+        'ECE': '113',
+        'EEE': '115',
+        'Mechanical': '116',
+        'ME': '116'
       };
 
       const branchCode = branchCodeMap[branch];
       if (branchCode) {
         // Add regex to match branch code at positions 5-7 for B.Tech
+        // Registration format: YY III BB SSSS (positions 0-1=year, 2-4=inst, 5-7=branch, 8-11=serial)
         const existingRegex = query.Reg_No?.$regex;
         if (existingRegex) {
-          // Combine with year filter
-          query.Reg_No = { $regex: `^${existingRegex.slice(1)}01${branchCode}` };
+          // Combine with year filter - year is first 2 digits, then 3 inst digits, then branch code
+          // If year regex is ^22, we need ^22\\d{3}${branchCode} (year + 3 digits of inst code + branch code)
+          const yearPattern = existingRegex.slice(1); // Remove ^ from regex
+          query.Reg_No = { $regex: `^${yearPattern}\\d{3}${branchCode}` };
         } else {
-          // Just branch filter
-          query.Reg_No = { $regex: `^\\d{4}01${branchCode}` };
+          // Just branch filter - branch code is at positions 5-7, so after first 5 digits (year + inst)
+          query.Reg_No = { $regex: `^\\d{5}${branchCode}` };
         }
       }
     }
@@ -335,15 +340,15 @@ export async function POST(req) {
         const yy = regNo.slice(0, 2);
         batch = `20${yy}`;
 
-        // Extract branch code (positions 5-7)
-        const branchCode = regNo.slice(6, 9);
+        // Extract branch code (positions 5-7, 0-indexed)
+        const branchCode = regNo.slice(5, 8);
         const branchCodeMap = {
-          '110': 'Civil',
-          '120': 'CSE',
-          '130': 'ECE',
-          '150': 'EEE',
-          '160': 'Mechanical',
-          '170': 'AIML'
+          '111': 'Civil',
+          '112': 'CSE',
+          '113': 'ECE',
+          '115': 'EEE',
+          '116': 'Mechanical',
+          '137': 'AIML'
         };
         branchName = branchCodeMap[branchCode] || branchName;
       }
