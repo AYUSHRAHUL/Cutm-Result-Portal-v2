@@ -235,29 +235,36 @@ export async function POST(req) {
         Credits: 1,
         Grade: 1,
         Subject_Type: 1,
+        Sem: 1, // Include Sem to verify it matches the requested semester
       })
       .toArray();
 
-    // Fallback: if no subjects matched flexible semester filter, try without Sem filter
+    // If no subjects found for the specific semester, return error (don't fallback to all results)
     if (!subjects.length) {
-      subjects = await cutm
-        .find({ $or: regQuery })
-        .project({
-          _id: 0,
-          Reg_No: 1,
-          Name: 1,
-          Subject_Code: 1,
-          Subject_Name: 1,
-          Credits: 1,
-          Grade: 1,
-          Subject_Type: 1,
-          Sem: 1,
-        })
-        .toArray();
+      return NextResponse.json({ 
+        error: `No result found for ${semester}. Results may not be available yet for this semester.` 
+      }, { status: 404 });
     }
 
+    // Verify all subjects belong to the requested semester (safety check)
+    const mismatchedSemesters = subjects.filter(sub => {
+      const subSem = String(sub.Sem || "").trim();
+      return !semesterVariants.some(variant => 
+        subSem.toLowerCase() === variant.toLowerCase() ||
+        subSem.replace(/\s+/g, "").toLowerCase() === variant.replace(/\s+/g, "").toLowerCase()
+      );
+    });
+
+    // If there are subjects from different semesters, filter them out
+    if (mismatchedSemesters.length > 0) {
+      subjects = subjects.filter(sub => !mismatchedSemesters.includes(sub));
+    }
+
+    // If after filtering we have no subjects, return error
     if (!subjects.length) {
-      return NextResponse.json({ error: "No result found" }, { status: 404 });
+      return NextResponse.json({ 
+        error: `No result found for ${semester}. Results may not be available yet for this semester.` 
+      }, { status: 404 });
     }
 
     // Verify this is a B.Tech student

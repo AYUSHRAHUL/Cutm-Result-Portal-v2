@@ -17,6 +17,7 @@ function ResultPageContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activeSemester, setActiveSemester] = useState(0);
+  const [missingSemesters, setMissingSemesters] = useState([]);
 
   useEffect(() => {
     if (!registration || !semester) {
@@ -37,25 +38,56 @@ function ResultPageContent() {
         if (semesters.length > 1) {
           // Fetch results for all semesters
           const semesterResults = {};
+          const missingSemesters = [];
 
           // For user panel, determine school from registration number
           const school = getSchoolFromRegistration(registration);
           const resultApiUrl = school === 'SOVET' ? '/api/sovet/result' : '/api/soet/result';
 
           for (const sem of semesters) {
-            const res = await fetch(resultApiUrl, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ registration, semester: sem.trim() }),
-            });
+            try {
+              const res = await fetch(resultApiUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ registration, semester: sem.trim() }),
+              });
 
-            if (!res.ok) {
-              const errorData = await res.json();
-              throw new Error(errorData.error || `Failed to fetch results for ${sem}`);
+              if (!res.ok) {
+                const errorData = await res.json();
+                // If semester doesn't have results, skip it instead of throwing error
+                if (res.status === 404) {
+                  missingSemesters.push(sem.trim());
+                  continue; // Skip this semester and continue with others
+                }
+                throw new Error(errorData.error || `Failed to fetch results for ${sem}`);
+              }
+
+              const data = await res.json();
+              semesterResults[sem.trim()] = data;
+            } catch (err) {
+              // If it's a 404 error, just skip this semester
+              if (err.message && err.message.includes('No result found')) {
+                missingSemesters.push(sem.trim());
+                continue;
+              }
+              // For other errors, throw
+              throw err;
             }
+          }
 
-            const data = await res.json();
-            semesterResults[sem.trim()] = data;
+          // If no semesters have results, show error
+          if (Object.keys(semesterResults).length === 0) {
+            throw new Error(
+              missingSemesters.length > 0 
+                ? `No results found for the selected semesters: ${missingSemesters.join(', ')}. Results may not be available yet.`
+                : "No results found for any of the selected semesters."
+            );
+          }
+
+          // If some semesters are missing, show a warning but continue
+          if (missingSemesters.length > 0) {
+            console.warn(`Results not available for: ${missingSemesters.join(', ')}`);
+            setMissingSemesters(missingSemesters);
           }
 
           setAllResults(semesterResults);
@@ -575,6 +607,36 @@ function ResultPageContent() {
             </div>
           </div>
         </div>
+
+        {/* Warning for Missing Semesters */}
+        {isMultipleSemesters && missingSemesters.length > 0 && (
+          <div className="max-w-4xl mx-auto mb-4 sm:mb-6">
+            <div className="bg-yellow-50 border-l-4 border-yellow-400 rounded-lg p-3 sm:p-4">
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-yellow-800">
+                    Results Not Available
+                  </h3>
+                  <div className="mt-2 text-sm text-yellow-700">
+                    <p>Results are not yet available for the following semesters:</p>
+                    <ul className="list-disc list-inside mt-1">
+                      {missingSemesters.map((sem, idx) => (
+                        <li key={idx} className="font-semibold">{sem}</li>
+                      ))}
+                    </ul>
+                    <p className="mt-2">These results may be published later. Only available semester results are shown below.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Single Semester View */}
         {!isMultipleSemesters && result && (
           <div className="print-area screen-print-area bg-white shadow-lg rounded-lg p-4 sm:p-8 w-full max-w-4xl mx-auto">
