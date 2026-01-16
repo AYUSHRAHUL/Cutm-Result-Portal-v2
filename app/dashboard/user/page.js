@@ -84,7 +84,8 @@ export default function UserDashboard() {
     console.log('User data loaded:', userData);
     
     // Auto-fill registration number for user's own results
-    if (userData.email && userData.email.includes('@cutm.ac.in')) {
+    // Support both @cutm.ac.in and @centurionuniv.edu.in domains
+    if (userData.email && (userData.email.includes('@cutm.ac.in') || userData.email.includes('@centurionuniv.edu.in'))) {
       const regNumber = userData.email.split('@')[0];
       setRegistration(regNumber);
       console.log('Auto-filled registration number:', regNumber, 'Length:', regNumber.length);
