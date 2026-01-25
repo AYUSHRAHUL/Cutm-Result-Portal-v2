@@ -1256,30 +1256,154 @@ function BacklogContent() {
     let cancelled = false;
     const load = async () => {
       try {
-        if (subjectMode !== "list") { if (!cancelled) setSubjectList([]); return; }
-        const params = new URLSearchParams();
-        if (branch) params.set("branch", branch);
-        params.set("limit", "0");
+        if (subjectMode !== "list") { 
+          if (!cancelled) setSubjectList([]); 
+          return; 
+        }
+        
+        // If batch and branch are selected, filter subjects based on actual backlog/result data
+        if (year && year !== "All" && year !== "" && branch && branch !== "All" && branch !== "") {
+          try {
+            // Fetch backlog data to get actual subjects that exist in results for this batch and branch
+            const backlogUrl = getSchoolApiUrl("backlogs");
+            const backlogBody = {
+              subject_code: "",
+              branch: branch,
+              year: year,
+              allowAll: false
+            };
+            
+            const backlogRes = await fetch(backlogUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(backlogBody)
+            });
+            
+            if (cancelled) return;
+            if (backlogRes.ok) {
+              const backlogData = await backlogRes.json();
+              const backlogList = backlogData.backlogs || backlogData.result || [];
+              
+              // Get unique subject codes and names from backlog data
+              const subjectMap = new Map();
+              backlogList.forEach(item => {
+                const code = (item.Subject_Code || item.subject_code || "").trim().toUpperCase();
+                const name = item.Subject_Name || item.Subject_name || "";
+                if (code) {
+                  if (!subjectMap.has(code)) {
+                    subjectMap.set(code, name);
+                  }
+                }
+              });
+              
+              console.log(`Found ${subjectMap.size} subjects in backlog data for batch ${year}, branch ${branch}`);
+              
+              // Convert to list format
+              const list = Array.from(subjectMap.entries()).map(([code, name]) => ({
+                code: code,
+                name: name || "",
+                basket: ""
+              }));
+              
+              if (!cancelled) {
+                setSubjectList(list);
+                console.log(`Loaded ${list.length} subjects from backlog data for batch ${year}, branch ${branch}`);
+              }
+              return;
+            }
+          } catch (backlogErr) {
+            console.error("Error fetching backlog data:", backlogErr);
+            // Fall through to default behavior
+          }
+        }
+        
+        // Default behavior: fetch all CBCS subjects (when batch/branch not both selected)
         const baseUrl = getSchoolApiUrl("cbcs");
         const separator = baseUrl.includes('?') ? '&' : '?';
-        const res = await fetch(baseUrl + separator + params.toString());
-        const data = await res.json();
-        if (cancelled) return;
-        if (res.ok) {
-          const items = data.items || [];
-          const list = items.map(it => ({ code: it["Subject Code"] || it.SubjectCode, name: it.Subject_name || it.Subject_Name || "" })).filter(s => s.code);
-          const uniq = Array.from(new Map(list.map(s => [s.code, s])).values());
-          setSubjectList(uniq);
+        let allItems = [];
+        
+        // If specific branch is selected, fetch both:
+        // 1. Subjects for that specific branch
+        // 2. Subjects with "All" branch (common baskets 1, 2, 3, 5)
+        if (branch && branch !== "All" && branch !== "") {
+          // Fetch 1: Specific branch subjects
+          const branchParams = new URLSearchParams();
+          branchParams.set("branch", branch);
+          branchParams.set("limit", "0");
+          const branchUrl = baseUrl + separator + branchParams.toString();
+          
+          const branchRes = await fetch(branchUrl);
+          const branchData = await branchRes.json();
+          if (cancelled) return;
+          if (branchRes.ok) {
+            allItems = [...(branchData.items || [])];
+          }
+          
+          // Fetch 2: "All" branch subjects (common baskets)
+          const allBranchParams = new URLSearchParams();
+          allBranchParams.set("limit", "0");
+          const allBranchUrl = baseUrl + separator + allBranchParams.toString();
+          
+          const allBranchRes = await fetch(allBranchUrl);
+          const allBranchData = await allBranchRes.json();
+          if (cancelled) return;
+          if (allBranchRes.ok) {
+            // Filter subjects where Branch is empty, null, "All", or matches common pattern
+            const allBranchItems = (allBranchData.items || []).filter(item => {
+              const itemBranch = (item.Branch || "").trim();
+              return !itemBranch || 
+                     itemBranch === "" || 
+                     itemBranch.toLowerCase() === "all" ||
+                     itemBranch === "ALL";
+            });
+            // Merge with branch-specific subjects, avoiding duplicates
+            const existingCodes = new Set(allItems.map(it => it["Subject Code"] || it.SubjectCode));
+            allBranchItems.forEach(item => {
+              const code = item["Subject Code"] || item.SubjectCode;
+              if (code && !existingCodes.has(code)) {
+                allItems.push(item);
+                existingCodes.add(code);
+              }
+            });
+          }
         } else {
-          setSubjectList([]);
+          // If branch is "All" or empty, fetch all subjects
+          const params = new URLSearchParams();
+          params.set("limit", "0");
+          const url = baseUrl + separator + params.toString();
+          
+          const res = await fetch(url);
+          const data = await res.json();
+          if (cancelled) return;
+          if (res.ok) {
+            allItems = data.items || [];
+          } else {
+            console.error("CBCS API error:", data);
+            if (!cancelled) setSubjectList([]);
+            return;
+          }
         }
-      } catch {
+        
+        // Process all items
+        const list = allItems.map(it => ({ 
+          code: it["Subject Code"] || it.SubjectCode || it["Subject_Code"] || "", 
+          name: it.Subject_name || it.Subject_Name || it["Subject_name"] || "",
+          basket: it.Basket || it.basket || ""
+        })).filter(s => s.code && s.code.trim() !== "");
+        
+        const uniq = Array.from(new Map(list.map(s => [s.code, s])).values());
+        if (!cancelled) {
+          setSubjectList(uniq);
+          console.log(`Loaded ${uniq.length} unique CBCS subjects for branch: ${branch || 'All'}`);
+        }
+      } catch (err) {
+        console.error("Error loading CBCS subjects:", err);
         if (!cancelled) setSubjectList([]);
       }
     };
     load();
     return () => { cancelled = true; };
-  }, [subjectMode, branch]);
+  }, [subjectMode, branch, year]);
 
   const getFilteredRows = () => {
     let filtered = [...rows];

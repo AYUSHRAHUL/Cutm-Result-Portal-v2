@@ -75,7 +75,10 @@ export default function AnalyticsDashboard() {
   // Top Performing Students specific filters
   const [topStudentsBatch, setTopStudentsBatch] = useState("all");
   const [topStudentsBranch, setTopStudentsBranch] = useState("all");
+  const [topStudentsSemester, setTopStudentsSemester] = useState("all");
   const [topStudentsSearch, setTopStudentsSearch] = useState("");
+  const [topStudentsData, setTopStudentsData] = useState(null); // Store filtered top students data
+  const [loadingTopStudents, setLoadingTopStudents] = useState(false);
 
   // Passing Analysis specific filters and state
   const [passingAnalysisBatch, setPassingAnalysisBatch] = useState([]); // Array for checkboxes
@@ -265,6 +268,62 @@ export default function AnalyticsDashboard() {
   useEffect(() => {
     fetchBasketSubjects();
   }, [fetchBasketSubjects, subjectComparisonBatch, subjectComparisonBranch, subjectComparisonSemester]);
+
+  // Fetch top performing students data when semester filter changes
+  useEffect(() => {
+    if (!analyticsData) return; // Wait for initial data
+
+    const fetchTopStudentsData = async () => {
+      try {
+        setLoadingTopStudents(true);
+
+        // If semester is "all", use the original data (CGPA-based)
+        if (topStudentsSemester === "all") {
+          setTopStudentsData(null); // null means use currentData.topPerformingStudents
+          setLoadingTopStudents(false);
+          return;
+        }
+
+        // Fetch data filtered by semester (this will calculate SGPA)
+        const params = new URLSearchParams();
+        const schoolParam = searchParams.get('school');
+        const campusParam = searchParams.get('campus');
+        
+        if (schoolParam) params.set('school', schoolParam);
+        if (campusParam) params.set('campus', campusParam);
+
+        // Normalize semester format: "Sem 1" -> "1", "Sem1" -> "1", etc.
+        const semValue = String(topStudentsSemester).replace(/^Sem\s*/i, "").trim();
+        params.set('semester', semValue);
+
+        const baseUrl = getSchoolApiUrl("analytics");
+        const url = baseUrl + (baseUrl.includes('?') ? '&' : '?') + params.toString();
+
+        const response = await fetch(url, {
+          method: "GET",
+          credentials: "include",
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.data?.topPerformingStudents) {
+            setTopStudentsData(result.data.topPerformingStudents);
+          } else {
+            setTopStudentsData(null);
+          }
+        } else {
+          setTopStudentsData(null);
+        }
+      } catch (err) {
+        console.error('Error fetching top students data:', err);
+        setTopStudentsData(null);
+      } finally {
+        setLoadingTopStudents(false);
+      }
+    };
+
+    fetchTopStudentsData();
+  }, [topStudentsSemester, analyticsData, searchParams]);
 
   // Fetch filtered department stats when overviewBatchFilter / overviewBranchFilter changes (ONLY for Department Distribution chart)
   useEffect(() => {
@@ -979,19 +1038,26 @@ export default function AnalyticsDashboard() {
             }
 
             const failedCount = subData.failed || 0;
+            const unattemptedCount = subData.unattempted || 0;
             const totalStudents = subData.totalStudents || 0;
-            const passedCount = subData.passed || (totalStudents - failedCount);
-            const passRate = parseFloat(subData.passRate || 0);
-            const failRate = totalStudents > 0 ? parseFloat(((failedCount / totalStudents) * 100).toFixed(1)) : 0;
+            const passedCount = subData.passed || (totalStudents - failedCount - unattemptedCount);
+            const attempted = subData.attempted || (totalStudents - unattemptedCount);
+            // All percentages should be based on total to add up to 100%
+            const passRate = parseFloat(subData.passRate || (totalStudents > 0 ? ((passedCount / totalStudents) * 100).toFixed(1) : 0));
+            const failRate = parseFloat(subData.failRate || (totalStudents > 0 ? ((failedCount / totalStudents) * 100).toFixed(1) : 0));
+            const unattemptedRate = parseFloat(subData.unattemptedRate || (totalStudents > 0 ? ((unattemptedCount / totalStudents) * 100).toFixed(1) : 0));
             const hasData = totalStudents > 0; // Only true if there are actual students
 
             return {
               subject: subjectCode,
               passRate: passRate,
               failRate: failRate,
+              unattemptedRate: unattemptedRate,
               totalStudents: totalStudents,
               passed: passedCount,
               failed: failedCount,
+              unattempted: unattemptedCount,
+              attempted: attempted,
               average: parseFloat(subData.average || 0),
               hasData: hasData,
               gradeDistribution: subData.gradeDistribution || {} // Store grade distribution
@@ -1215,35 +1281,67 @@ export default function AnalyticsDashboard() {
           });
         }
 
-        // Group by subject and calculate pass/fail
+        // Group by subject and calculate pass/fail/unattempted
+        // S and R grades are unattempted (neither pass nor fail)
+        // F, M, I grades are failed
         const subjectMap = {};
         filteredRecords.forEach(record => {
-          const subject = record.Subject_Code || record.Subject_Name || 'Unknown';
-          const grade = (record.Grade || '').toString().toUpperCase();
+          const subject = record.Subject_Code || record["Subject Code"] || record.Subject_Name || 'Unknown';
+          // Normalize grade: check multiple possible field names, trim whitespace and convert to uppercase
+          const gradeRaw = record.Grade || record.grade || record.GRADE || '';
+          const grade = String(gradeRaw).trim().toUpperCase();
           const passingGrades = ['O', 'E', 'A', 'B', 'C', 'D'];
+          const unattemptedGrades = ['S', 'R'];
+          const failedGrades = ['F', 'M', 'I'];
+          
           const isPassed = passingGrades.includes(grade);
+          const isUnattempted = unattemptedGrades.includes(grade);
+          const isFailed = failedGrades.includes(grade);
 
           if (!subjectMap[subject]) {
-            subjectMap[subject] = { passed: 0, failed: 0, total: 0 };
+            subjectMap[subject] = { passed: 0, failed: 0, unattempted: 0, total: 0 };
           }
 
           subjectMap[subject].total++;
           if (isPassed) {
             subjectMap[subject].passed++;
-          } else {
+          } else if (isUnattempted) {
+            subjectMap[subject].unattempted++;
+          } else if (isFailed) {
             subjectMap[subject].failed++;
+          } else {
+            // Unknown or empty grade - check if it's actually empty
+            if (grade === '' || !grade) {
+              // Empty grade - could be unattempted
+              subjectMap[subject].unattempted++;
+            } else {
+              // Unknown grade - treat as failed for safety
+            subjectMap[subject].failed++;
+            }
           }
         });
 
         // Convert to array and sort by subject name
+        // All percentages should be based on total to add up to 100%
         const analysis = Object.entries(subjectMap)
-          .map(([subject, data]) => ({
+          .map(([subject, data]) => {
+            const attempted = data.total - data.unattempted;
+            // Calculate all percentages based on total students so they add up to 100%
+            const passRate = data.total > 0 ? ((data.passed / data.total) * 100).toFixed(1) : '0.0';
+            const failRate = data.total > 0 ? ((data.failed / data.total) * 100).toFixed(1) : '0.0';
+            const unattemptedRate = data.total > 0 ? ((data.unattempted / data.total) * 100).toFixed(1) : '0.0';
+            return {
             subject,
             passed: data.passed,
             failed: data.failed,
+              unattempted: data.unattempted,
             total: data.total,
-            passRate: ((data.passed / data.total) * 100).toFixed(1)
-          }))
+              attempted: attempted,
+              passRate: passRate,
+              failRate: failRate,
+              unattemptedRate: unattemptedRate
+            };
+          })
           .sort((a, b) => a.subject.localeCompare(b.subject));
 
         setSubjectWiseAnalysis(analysis);
@@ -2740,8 +2838,11 @@ export default function AnalyticsDashboard() {
                                                 "Subject": item.subject,
                                                 "Passed": item.passed,
                                                 "Failed": item.failed,
+                                                "Unattempted": item.unattempted || 0,
                                                 "Total": item.total,
-                                                "Pass Rate (%)": item.passRate
+                                                "Pass Rate (%)": item.passRate || '0.0',
+                                                "Fail Rate (%)": item.failRate || '0.0',
+                                                "Unattempted Rate (%)": item.unattemptedRate || '0.0'
                                               }));
                                               const ws1 = XLSX.utils.json_to_sheet(summaryData);
                                               ws1['!cols'] = [
@@ -2749,8 +2850,11 @@ export default function AnalyticsDashboard() {
                                                 { wch: 25 },  // Subject
                                                 { wch: 12 },  // Passed
                                                 { wch: 12 },  // Failed
+                                                { wch: 15 },  // Unattempted
                                                 { wch: 10 },  // Total
-                                                { wch: 15 }   // Pass Rate
+                                                { wch: 15 },  // Pass Rate
+                                                { wch: 15 },  // Fail Rate
+                                                { wch: 18 }   // Unattempted Rate
                                               ];
                                               XLSX.utils.book_append_sheet(wb, ws1, "Subject Summary");
                                               
@@ -2781,7 +2885,18 @@ export default function AnalyticsDashboard() {
                                                     const subject = record.Subject_Code || record["Subject Code"] || 'Unknown';
                                                     const grade = String(record.Grade || '').toUpperCase().trim();
                                                     const gradePoints = grade && gradePointsMap[grade] !== undefined ? gradePointsMap[grade] : '';
-                                                    const status = grade && !['F', 'S', 'M', 'I', 'R'].includes(grade) ? 'Pass' : (grade ? 'Fail' : '');
+                                                    
+                                                    // S and R are unattempted, F/M/I are failed, others are pass
+                                                    let status = '';
+                                                    if (grade) {
+                                                      if (['S', 'R'].includes(grade)) {
+                                                        status = 'Unattempted';
+                                                      } else if (['F', 'M', 'I'].includes(grade)) {
+                                                        status = 'Fail';
+                                                      } else {
+                                                        status = 'Pass';
+                                                      }
+                                                    }
                                                     
                                                     studentData.push({
                                                       "S.No": serialNo++,
@@ -2897,18 +3012,22 @@ export default function AnalyticsDashboard() {
                                       <>
                                         {/* Bar Chart with Percentages */}
                                         <div className="mb-6">
-                                          <div className="text-white/70 text-xs font-medium mb-3">Pass/Fail Distribution (%)</div>
+                                          <div className="text-white/70 text-xs font-medium mb-3">Pass/Fail/Unattempted Distribution (%)</div>
                                           <div className="h-64">
                                             {subjectWiseAnalysis && Array.isArray(subjectWiseAnalysis) && subjectWiseAnalysis.length > 0 ? (
                                               <ResponsiveContainer width="100%" height="100%">
                                                 <BarChart
                                                   data={subjectWiseAnalysis
                                                     .filter(item => item && item.total > 0)
-                                                    .map(item => ({
+                                                    .map(item => {
+                                                      // All percentages should be based on total to add up to 100%
+                                                      return {
                                                       ...item,
-                                                      passPercentage: parseFloat((((item.passed || 0) / (item.total || 1)) * 100).toFixed(1)),
-                                                      failPercentage: parseFloat((((item.failed || 0) / (item.total || 1)) * 100).toFixed(1))
-                                                    }))}
+                                                        passPercentage: parseFloat(item.passRate || ((item.total || 1) > 0 ? (((item.passed || 0) / (item.total || 1)) * 100).toFixed(1) : '0.0')),
+                                                        failPercentage: parseFloat(item.failRate || ((item.total || 1) > 0 ? (((item.failed || 0) / (item.total || 1)) * 100).toFixed(1) : '0.0')),
+                                                        unattemptedPercentage: parseFloat(item.unattemptedRate || ((item.total || 1) > 0 ? (((item.unattempted || 0) / (item.total || 1)) * 100).toFixed(1) : '0.0'))
+                                                      };
+                                                    })}
                                                 >
                                                   <XAxis
                                                     dataKey="subject"
@@ -2934,6 +3053,7 @@ export default function AnalyticsDashboard() {
                                                   <Legend />
                                                   <Bar dataKey="passPercentage" fill="rgba(34, 197, 94, 0.8)" name="Passed (%)" radius={[8, 8, 0, 0]} label={{ position: 'top', fontSize: 11, fill: '#ffffff', formatter: (value) => `${value}%` }} />
                                                   <Bar dataKey="failPercentage" fill="rgba(239, 68, 68, 0.8)" name="Failed (%)" radius={[8, 8, 0, 0]} label={{ position: 'top', fontSize: 11, fill: '#ffffff', formatter: (value) => `${value}%` }} />
+                                                  <Bar dataKey="unattemptedPercentage" fill="rgba(234, 179, 8, 0.8)" name="Unattempted (%)" radius={[8, 8, 0, 0]} label={{ position: 'top', fontSize: 11, fill: '#ffffff', formatter: (value) => `${value}%` }} />
                                                 </BarChart>
                                               </ResponsiveContainer>
                                             ) : (
@@ -3087,9 +3207,11 @@ export default function AnalyticsDashboard() {
                                                 <th className="px-3 py-2 text-left text-white/80">Subject</th>
                                                 <th className="px-3 py-2 text-center text-white/80">Passed</th>
                                                 <th className="px-3 py-2 text-center text-white/80">Failed</th>
+                                                <th className="px-3 py-2 text-center text-white/80">Unattempted</th>
                                                 <th className="px-3 py-2 text-center text-white/80">Total</th>
                                                 <th className="px-3 py-2 text-center text-white/80">Pass %</th>
                                                 <th className="px-3 py-2 text-center text-white/80">Fail %</th>
+                                                <th className="px-3 py-2 text-center text-white/80">Unattempted %</th>
                                               </tr>
                                             </thead>
                                             <tbody>
@@ -3098,15 +3220,21 @@ export default function AnalyticsDashboard() {
                                                   <td className="px-3 py-2 text-white/90">{item.subject}</td>
                                                   <td className="px-3 py-2 text-center text-green-400 font-semibold">{item.passed}</td>
                                                   <td className="px-3 py-2 text-center text-red-400 font-semibold">{item.failed}</td>
+                                                  <td className="px-3 py-2 text-center text-yellow-400 font-semibold">{item.unattempted || 0}</td>
                                                   <td className="px-3 py-2 text-center text-white/80">{item.total}</td>
                                                   <td className="px-3 py-2 text-center">
                                                     <span className="bg-green-500/20 text-green-400 px-2 py-1 rounded text-xs font-semibold">
-                                                      {item.passRate}%
+                                                      {item.passRate || '0.0'}%
                                                     </span>
                                                   </td>
                                                   <td className="px-3 py-2 text-center">
                                                     <span className="bg-red-500/20 text-red-400 px-2 py-1 rounded text-xs font-semibold">
-                                                      {(100 - parseFloat(item.passRate)).toFixed(1)}%
+                                                      {item.failRate || '0.0'}%
+                                                    </span>
+                                                  </td>
+                                                  <td className="px-3 py-2 text-center">
+                                                    <span className="bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded text-xs font-semibold">
+                                                      {item.unattemptedRate || '0.0'}%
                                                     </span>
                                                   </td>
                                                 </tr>
@@ -3979,7 +4107,10 @@ export default function AnalyticsDashboard() {
                                   <th>Total Students</th>
                                   <th>Passed</th>
                                   <th>Failed</th>
+                                  <th>Unattempted</th>
                                   <th>Pass Rate (%)</th>
+                                  <th>Fail Rate (%)</th>
+                                  <th>Unattempted Rate (%)</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -3994,7 +4125,10 @@ export default function AnalyticsDashboard() {
                                         <td>{((s.totalStudents || 0)).toLocaleString()}</td>
                                         <td>{((s.passed || 0)).toLocaleString()}</td>
                                         <td>{((s.failed || 0)).toLocaleString()}</td>
+                                        <td>{((s.unattempted || 0)).toLocaleString()}</td>
                                         <td>{((s.passRate || 0)).toFixed(1)}%</td>
+                                        <td>{((s.failRate || 0)).toFixed(1)}%</td>
+                                        <td>{((s.unattemptedRate || 0)).toFixed(1)}%</td>
                                       </tr>
                                     );
                                   })}
@@ -4043,7 +4177,9 @@ export default function AnalyticsDashboard() {
                                   formatter={(value, name, props) => {
                                     const data = props.payload;
                                     if (name === "Pass Rate (%)") {
-                                      return [`${value}%`, `${name} - ${data.passed} passed / ${data.totalStudents} total`];
+                                      const unattempted = data.unattempted || 0;
+                                      const attempted = data.attempted || (data.totalStudents - unattempted);
+                                      return [`${value}%`, `${name} - ${data.passed} passed / ${attempted} attempted (${unattempted} unattempted) / ${data.totalStudents} total`];
                                     }
                                     return [`${value}%`, name];
                                   }}
@@ -4246,7 +4382,7 @@ export default function AnalyticsDashboard() {
                           <button
                             onClick={() => {
                               const csv = [
-                                ["Subject Code", "Subject Name", "Total Students", "Passed", "Failed", "Pass Rate (%)"],
+                                ["Subject Code", "Subject Name", "Total Students", "Passed", "Failed", "Unattempted", "Pass Rate (%)", "Fail Rate (%)", "Unattempted Rate (%)"],
                                 ...subjectComparisonData
                                   .filter(s => s.hasData)
                                   .map(s => {
@@ -4257,7 +4393,10 @@ export default function AnalyticsDashboard() {
                                       s.totalStudents || 0,
                                       s.passed || 0,
                                       s.failed || 0,
-                                      (s.passRate || 0).toFixed(1)
+                                      s.unattempted || 0,
+                                      (s.passRate || 0).toFixed(1),
+                                      (s.failRate || 0).toFixed(1),
+                                      (s.unattemptedRate || 0).toFixed(1)
                                     ];
                                   })
                               ].map(row => row.map(cell => `"${cell}"`).join(",")).join("\n");
@@ -4286,7 +4425,10 @@ export default function AnalyticsDashboard() {
                                 <th className="px-4 py-3 text-center text-sm font-bold text-white/90">Total Students</th>
                                 <th className="px-4 py-3 text-center text-sm font-bold text-emerald-400 bg-emerald-500/10">Passed</th>
                                 <th className="px-4 py-3 text-center text-sm font-bold text-red-400 bg-red-500/10">Failed</th>
+                                <th className="px-4 py-3 text-center text-sm font-bold text-yellow-400 bg-yellow-500/10">Unattempted</th>
                                 <th className="px-4 py-3 text-center text-sm font-bold text-emerald-400 bg-emerald-500/10">Pass Rate</th>
+                                <th className="px-4 py-3 text-center text-sm font-bold text-red-400 bg-red-500/10">Fail Rate</th>
+                                <th className="px-4 py-3 text-center text-sm font-bold text-yellow-400 bg-yellow-500/10">Unattempted Rate</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -4301,7 +4443,10 @@ export default function AnalyticsDashboard() {
                                       <td className="px-4 py-3 text-sm text-center text-white/70 font-semibold">{((s.totalStudents || 0)).toLocaleString()}</td>
                                       <td className="px-4 py-3 text-sm text-center text-emerald-400 font-bold">{((s.passed || 0)).toLocaleString()}</td>
                                       <td className="px-4 py-3 text-sm text-center text-red-400 font-bold">{((s.failed || 0)).toLocaleString()}</td>
+                                      <td className="px-4 py-3 text-sm text-center text-yellow-400 font-bold">{((s.unattempted || 0)).toLocaleString()}</td>
                                       <td className="px-4 py-3 text-sm text-center text-emerald-400 font-bold">{((s.passRate || 0)).toFixed(1)}%</td>
+                                      <td className="px-4 py-3 text-sm text-center text-red-400 font-bold">{((s.failRate || 0)).toFixed(1)}%</td>
+                                      <td className="px-4 py-3 text-sm text-center text-yellow-400 font-bold">{((s.unattemptedRate || 0)).toFixed(1)}%</td>
                                     </tr>
                                   );
                                 })}
@@ -4409,7 +4554,12 @@ export default function AnalyticsDashboard() {
         {/* TOP PERFORMING STUDENTS TAB */}
         {activeTab === "topstudents" && (
           <div className="space-y-10">
-            {currentData?.topPerformingStudents && currentData.topPerformingStudents.length > 0 ? (
+            {(() => {
+              // Use topStudentsData if semester filter is applied, otherwise use currentData
+              const displayData = topStudentsData !== null ? topStudentsData : (currentData?.topPerformingStudents || []);
+              const hasData = displayData && displayData.length > 0;
+              
+              return hasData ? (
               <CoolChartCard title="Top Performing Students" icon="🏆" fullWidth>
                 {/* Dedicated Filters for Top Students */}
                 <div className="mb-6 p-4 rounded-xl border border-white/10 bg-white/5">
@@ -4438,6 +4588,14 @@ export default function AnalyticsDashboard() {
                         label="Branch"
                       />
 
+                        {/* Semester Filter */}
+                        <FilterSelect
+                          value={topStudentsSemester}
+                          onChange={setTopStudentsSemester}
+                          options={semesters}
+                          label="Semester"
+                        />
+
                       {/* Search by Reg No */}
                       <div className="relative flex-1 min-w-[200px]">
                         <input
@@ -4453,11 +4611,12 @@ export default function AnalyticsDashboard() {
                       </div>
 
                       {/* Clear Filters Button */}
-                      {(topStudentsBatch !== "all" || topStudentsBranch !== "all" || topStudentsSearch) && (
+                        {(topStudentsBatch !== "all" || topStudentsBranch !== "all" || topStudentsSemester !== "all" || topStudentsSearch) && (
                         <button
                           onClick={() => {
                             setTopStudentsBatch("all");
                             setTopStudentsBranch("all");
+                              setTopStudentsSemester("all");
                             setTopStudentsSearch("");
                           }}
                           className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-white rounded-full text-sm font-semibold transition-all flex items-center gap-2"
@@ -4470,13 +4629,19 @@ export default function AnalyticsDashboard() {
                       )}
                     </div>
                   </div>
+                    {loadingTopStudents && (
+                      <div className="mt-4 text-center text-white/70 text-sm">
+                        Loading semester data...
+                      </div>
+                    )}
                 </div>
 
                 <TopStudentsTable
-                  data={currentData.topPerformingStudents}
+                    data={displayData}
                   batchFilter={topStudentsBatch}
                   branchFilter={topStudentsBranch}
                   searchFilter={topStudentsSearch}
+                    semesterFilter={topStudentsSemester}
                   isDiploma={isDiploma}
                 />
               </CoolChartCard>
@@ -4489,7 +4654,8 @@ export default function AnalyticsDashboard() {
                   </p>
                 </div>
               </CoolChartCard>
-            )}
+              );
+            })()}
           </div>
         )}
       </div>
@@ -4567,7 +4733,7 @@ function FilterSelect({ value, onChange, options }) {
   );
 }
 
-function TopStudentsTable({ data, batchFilter = "all", branchFilter = "all", searchFilter = "", isDiploma = false }) {
+function TopStudentsTable({ data, batchFilter = "all", branchFilter = "all", searchFilter = "", semesterFilter = "all", isDiploma = false }) {
   // Helper functions to extract batch and branch from regNo
   const getBatchFromRegNo = (regNo) => {
     if (!regNo) return null;
@@ -4715,10 +4881,14 @@ function TopStudentsTable({ data, batchFilter = "all", branchFilter = "all", sea
   });
 
 
-  // Sort each group by CGPA (keep ALL students, no limit)
+  // Determine if we're showing SGPA or CGPA
+  const isSemesterSpecific = semesterFilter !== "all";
+  const gradeType = isSemesterSpecific ? "SGPA" : "CGPA";
+
+  // Sort each group by CGPA/SGPA (keep ALL students, no limit)
   filteredGroups.forEach((key) => {
     groupedByBatchBranch[key].students.sort((a, b) => parseFloat(b.cgpa || 0) - parseFloat(a.cgpa || 0));
-    // Removed .slice(0, 10) to show ALL students regardless of CGPA
+    // Removed .slice(0, 10) to show ALL students regardless of CGPA/SGPA
   });
 
   // Flatten back to array (all groups that passed the filter)
@@ -4740,7 +4910,7 @@ function TopStudentsTable({ data, batchFilter = "all", branchFilter = "all", sea
   });
 
 
-  // Sort all results by CGPA for final display
+  // Sort all results by CGPA/SGPA for final display
   filteredData.sort((a, b) => parseFloat(b.cgpa || 0) - parseFloat(a.cgpa || 0));
 
   const limitedData = filteredData;
@@ -4753,8 +4923,8 @@ function TopStudentsTable({ data, batchFilter = "all", branchFilter = "all", sea
           <span>
             Showing <span className="font-bold text-white">{limitedData.length}</span> student{limitedData.length !== 1 ? 's' : ''}
             <span className="ml-2 text-white/60">
-              (Top 10 per Batch+Branch combination sorted by CGPA
-              {batchFilter !== "all" || branchFilter !== "all" ? " - filtered" : ""})
+              (Top 10 per Batch+Branch combination sorted by {gradeType}
+              {batchFilter !== "all" || branchFilter !== "all" || isSemesterSpecific ? " - filtered" : ""})
             </span>
 
           </span>
@@ -4784,7 +4954,7 @@ function TopStudentsTable({ data, batchFilter = "all", branchFilter = "all", sea
               <th className="text-left py-4 px-6 font-bold">Name</th>
               <th className="text-left py-4 px-6 font-bold">Branch</th>
               <th className="text-left py-4 px-6 font-bold">Batch</th>
-              <th className="text-left py-4 px-6 font-bold">CGPA</th>
+              <th className="text-left py-4 px-6 font-bold">{gradeType}</th>
               <th className="text-left py-4 px-6 font-bold">Subjects</th>
             </tr>
           </thead>

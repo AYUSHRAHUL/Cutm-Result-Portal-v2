@@ -135,6 +135,8 @@ export async function GET(req) {
     }
 
     // Calculate statistics for each subject
+    // S and R grades are unattempted (neither pass nor fail)
+    // F, M, I grades are failed
     const subjectStats = subjectCodes.map(subjectCode => {
       const subjectRecords = records.filter(record => {
         const code = (record.Subject_Code || record["Subject Code"] || '').toUpperCase();
@@ -142,9 +144,29 @@ export async function GET(req) {
       });
 
       const total = subjectRecords.length;
-      const passed = subjectRecords.filter(r => !['F', 'S', 'M', 'I', 'R'].includes((r.Grade || '').toUpperCase())).length;
-      const failed = total - passed;
+      // Passed: grades that are not F, S, M, I, R
+      const passed = subjectRecords.filter(r => {
+        const grade = (r.Grade || '').toUpperCase();
+        return !['F', 'S', 'M', 'I', 'R'].includes(grade);
+      }).length;
+      
+      // Unattempted: S and R grades
+      const unattempted = subjectRecords.filter(r => {
+        const grade = (r.Grade || '').toUpperCase();
+        return ['S', 'R'].includes(grade);
+      }).length;
+      
+      // Failed: F, M, I grades (excluding S and R)
+      const failed = subjectRecords.filter(r => {
+        const grade = (r.Grade || '').toUpperCase();
+        return ['F', 'M', 'I'].includes(grade);
+      }).length;
+      
+      // Calculate all percentages based on total students so they add up to 100%
+      const attempted = total - unattempted;
       const passRate = total > 0 ? ((passed / total) * 100).toFixed(2) : '0.00';
+      const failRate = total > 0 ? ((failed / total) * 100).toFixed(2) : '0.00';
+      const unattemptedRate = total > 0 ? ((unattempted / total) * 100).toFixed(2) : '0.00';
 
       return {
         subjectCode: subjectCode,
@@ -152,7 +174,11 @@ export async function GET(req) {
         total: total,
         passed: passed,
         failed: failed,
-        passRate: parseFloat(passRate)
+        unattempted: unattempted,
+        attempted: attempted,
+        passRate: parseFloat(passRate),
+        failRate: parseFloat(failRate),
+        unattemptedRate: parseFloat(unattemptedRate)
       };
     });
 
@@ -164,7 +190,11 @@ export async function GET(req) {
         totalStudents: stat.total,
         passed: stat.passed,
         failed: stat.failed,
-        passRate: stat.passRate
+        unattempted: stat.unattempted,
+        attempted: stat.attempted,
+        passRate: stat.passRate,
+        failRate: stat.failRate,
+        unattemptedRate: stat.unattemptedRate
       })),
       count: subjectStats.length,
       school: 'SOET'

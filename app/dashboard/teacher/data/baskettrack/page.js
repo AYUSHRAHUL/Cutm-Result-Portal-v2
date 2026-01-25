@@ -100,7 +100,6 @@ function TeacherBasketProgressTrackerContent() {
   const [registration, setRegistration] = useState("");
   const [registrationOptions, setRegistrationOptions] = useState([]);
   const [loadingRegistrations, setLoadingRegistrations] = useState(false);
-  const [selectedRegistrations, setSelectedRegistrations] = useState([]); // For multi-select with checkboxes
   // Hardcoded semester list - always show all 8 semesters
   const allSemesters = ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"];
   const [semesters, setSemesters] = useState(allSemesters);
@@ -218,8 +217,7 @@ function TeacherBasketProgressTrackerContent() {
     setAllStudentsData([]);
 
     try {
-      const hasSelectedRegistrations = selectedRegistrations.length > 0;
-      const isBulkSearch = registration === "all" || (registration === "" && !hasSelectedRegistrations);
+      const isBulkSearch = registration === "all";
 
       if (isBulkSearch) {
         // FIXED: Enhanced department validation for bulk search
@@ -344,98 +342,23 @@ Please check if the department name matches exactly with the available departmen
         playNotificationSound();
 
       } else {
-        // Handle multiple selected registrations or single registration
-        const registrationsToSearch = selectedRegistrations.length > 0
-          ? selectedRegistrations
-          : (registration && registration.trim().length >= 6 ? [registration.trim().toUpperCase()] : []);
+        // Single registration search
+        if (!registration || registration.trim().length < 6) {
+          throw new Error("Please enter a valid registration number (minimum 6 characters)");
+        }
 
         const normalizedDepartment = department && department !== "All" && department !== "Select Department" ? department : "";
         const normalizedBatch = batch && batch !== "All" && batch !== "Select Batch" ? batch : "";
         const normalizedSemesters = semesterValues.length > 0 && !semesterValues.includes("All") ? semesterValues : [];
         const normalizedBasket = basket && basket !== "All" && basket !== "Select Basket" ? basket : "";
-        const isManualRegistrationSearch = selectedRegistrations.length === 0;
-        const buildRequestBody = (reg, ignoreFilters = false) => ({
-          department: ignoreFilters ? "" : normalizedDepartment,
-          batch: ignoreFilters ? "" : normalizedBatch,
-          registration: reg,
+        
+        const requestBody = {
+          department: normalizedDepartment,
+          batch: normalizedBatch,
+          registration: registration.trim().toUpperCase(),
           semesters: normalizedSemesters,
           basket: normalizedBasket
-        });
-
-        if (registrationsToSearch.length === 0) {
-          throw new Error("Please select at least one student using checkboxes or enter a valid registration number (minimum 6 characters)");
-        }
-
-        if (department && (department === "Select Department")) {
-          throw new Error("Please select a valid department or leave it empty");
-        }
-
-        // If multiple registrations selected, fetch all and combine results
-        if (registrationsToSearch.length > 1) {
-          const allStudents = [];
-          let allDataSources = null;
-
-          for (const reg of registrationsToSearch) {
-            try {
-              const requestBody = buildRequestBody(reg, false);
-
-              const url = appendSchoolParams("/api/cbcs/track");
-              const res = await fetch(url, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "Accept": "application/json"
-                },
-                body: JSON.stringify(requestBody)
-              });
-
-              if (res.ok) {
-                const responseText = await res.text();
-                const data = JSON.parse(responseText);
-                const student = data.student || data.data;
-
-                if (student) {
-                  // Convert individual student data to bulk format
-                  const progress = data.basketProgress || data.progress || {};
-                  allStudents.push({
-                    name: student.name,
-                    registration: student.registration,
-                    department: student.department || student.actual_department,
-                    is_lateral_entry: student.is_lateral_entry,
-                    basketI: progress["Basket I"]?.earned_credits || 0,
-                    basketII: progress["Basket II"]?.earned_credits || 0,
-                    basketIII: progress["Basket III"]?.earned_credits || 0,
-                    basketIV: progress["Basket IV"]?.earned_credits || 0,
-                    basketV: progress["Basket V"]?.earned_credits || 0,
-                    totalCredits: Object.values(progress).reduce((sum, b) => sum + (Number(b?.earned_credits) || 0), 0),
-                    totalRequiredCredits: student.is_lateral_entry ? 120 : 160,
-                    percentage: Math.round((Object.values(progress).reduce((sum, b) => sum + (Number(b?.earned_credits) || 0), 0) / (student.is_lateral_entry ? 120 : 160)) * 100),
-                    status: Object.values(progress).every(b => Number(b?.earned_credits || 0) >= Number(b?.required_credits || 0)) ? 'Completed' : 'In Progress'
-                  });
-
-                  if (!allDataSources && data.dataSources) {
-                    allDataSources = data.dataSources;
-                  }
-                }
-              }
-            } catch (err) {
-              console.error(`Error fetching data for ${reg}:`, err);
-              // Continue with other registrations
-            }
-          }
-
-          if (allStudents.length === 0) {
-            throw new Error("No students found for the selected registrations");
-          }
-
-          setAllStudentsData(allStudents);
-          setDataSources(allDataSources);
-          setLastUpdated(new Date());
-          addNotification('success', `Found ${allStudents.length} of ${registrationsToSearch.length} selected students`);
-          playNotificationSound();
-        } else {
-          // Single registration search (existing logic)
-          const requestBody = buildRequestBody(registrationsToSearch[0], isManualRegistrationSearch);
+        };
 
           console.log("Individual search request:", requestBody);
 
@@ -459,7 +382,7 @@ Please check if the department name matches exactly with the available departmen
 
           if (!res.ok) {
             if (res.status === 404) {
-              throw new Error(`Student with registration ${registrationsToSearch[0]} not found. Please check the registration number.`);
+              throw new Error(`Student with registration ${registration.trim().toUpperCase()} not found. Please check the registration number.`);
             } else {
               throw new Error(data.error || "Unable to load student progress");
             }
@@ -470,7 +393,7 @@ Please check if the department name matches exactly with the available departmen
           const progress = data.basketProgress || data.progress || {};
 
           if (!student) {
-            throw new Error(`No data found for registration ${registrationsToSearch[0]}. Please verify the registration number.`);
+            throw new Error(`No data found for registration ${registration.trim().toUpperCase()}. Please verify the registration number.`);
           }
 
           setStudentData(student);
@@ -481,7 +404,6 @@ Please check if the department name matches exactly with the available departmen
           // Success notification
           addNotification('success', `Student data loaded successfully for ${student.name}`);
           playNotificationSound();
-        }
       }
     } catch (err) {
       setError(err.message);
@@ -502,7 +424,15 @@ Please check if the department name matches exactly with the available departmen
         setError("");
         setRegistrationOptions([]);
         // Map UI department to API branch code names expected by /api/batch
-        const btechMap = {
+        const branchMap = isDiploma ? {
+          "Civil Engineering": "Civil",
+          "Computer Science Engineering": "CSE",
+          "Electronics & Communication Engineering": "ECE",
+          "Electrical Engineering": "Electrical",
+          "Mechanical Engineering": "Mechanical",
+          "Automobile Engineering": "Automobile",
+          "Mining Engineering": "Mining"
+        } : {
           "Civil Engineering": "Civil",
           "Computer Science Engineering": "CSE",
           "Electronics & Communication Engineering": "ECE",
@@ -510,20 +440,11 @@ Please check if the department name matches exactly with the available departmen
           "Mechanical Engineering": "Mechanical",
           "AIML": "AIML",
         };
-        const diplomaMap = {
-          "Civil Engineering": "Civil",
-          "Computer Science Engineering": "CSE",
-          "Electrical Engineering": "EE",
-          "Mechanical Engineering": "Mechanical",
-          "Mining Engineering": "Mining",
-          "Automobile Engineering": "Automobile",
-        };
-        const branchMap = isDiploma ? diplomaMap : btechMap;
         const branch = department && department !== "All" ? branchMap[department] : undefined;
         const hasBatch = batch && batch !== "All";
         const body = { ...(branch ? { branch } : {}), ...(hasBatch ? { batch } : {}) };
-        const url = getSchoolApiUrl("batch");
-        const res = await fetch(url, {
+        const batchUrl = getSchoolApiUrl("batch");
+        const res = await fetch(batchUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
@@ -539,7 +460,14 @@ Please check if the department name matches exactly with the available departmen
           seen.add(reg);
           options.push({ value: reg, label: `${reg}${r.Name ? ` - ${r.Name}` : ''}` });
         }
-        options.sort((a, b) => a.value.localeCompare(b.value));
+        // Sort by last 4 digits of registration number
+        options.sort((a, b) => {
+          const regA = String(a.value || '').trim();
+          const regB = String(b.value || '').trim();
+          const last4A = regA.length >= 4 ? regA.slice(-4) : regA;
+          const last4B = regB.length >= 4 ? regB.slice(-4) : regB;
+          return last4A.localeCompare(last4B, undefined, { numeric: true });
+        });
         setRegistrationOptions(options);
       } catch (err) {
         setRegistrationOptions([]);
@@ -552,7 +480,6 @@ Please check if the department name matches exactly with the available departmen
 
     // Clear dependent states when filters change
     setRegistration("");
-    setSelectedRegistrations([]); // Clear multi-select registrations
     setSemesters(allSemesters); // Keep all semesters visible
     setSemesterValues([]);
 
@@ -561,7 +488,7 @@ Please check if the department name matches exactly with the available departmen
     } else {
       setRegistrationOptions([]);
     }
-  }, [department, batch]);
+  }, [department, batch, isDiploma]);
 
   // Load semesters for registration
   async function loadSemestersForRegistration(value) {
@@ -625,15 +552,6 @@ Please check if the department name matches exactly with the available departmen
   const filteredAndSortedStudents = useMemo(() => {
     let students = [...allStudentsData];
 
-    // If specific registrations are selected, limit results to those students
-    if (selectedRegistrations.length > 0) {
-      const selectedSet = new Set(selectedRegistrations.map(reg => reg.toUpperCase()));
-      students = students.filter(student => {
-        const reg = (student.registration || student.Reg_No || "").toUpperCase();
-        return selectedSet.has(reg);
-      });
-    }
-
     // Apply search term filter
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
@@ -696,7 +614,7 @@ Please check if the department name matches exactly with the available departmen
     });
 
     return students;
-  }, [allStudentsData, searchTerm, filterStatus, sortBy, sortOrder, selectedRegistrations]);
+  }, [allStudentsData, searchTerm, filterStatus, sortBy, sortOrder]);
 
   const sortedBasketSubjects = useMemo(() => {
     if (!selectedBasket?.subjects) return [];
@@ -848,7 +766,7 @@ Please check if the department name matches exactly with the available departmen
 
   // Enhanced export functions
   const exportToCSV = useCallback(() => {
-    const isBulkContext = registration === "all" || selectedRegistrations.length > 0;
+    const isBulkContext = registration === "all";
 
     if (!isBulkContext && studentData) {
       // For individual student: Export in CBCS.xlsx template format matching Excel export
@@ -992,10 +910,10 @@ Please check if the department name matches exactly with the available departmen
     } else {
       addNotification('error', 'No data available for export');
     }
-  }, [registration, selectedRegistrations, studentData, filteredAndSortedStudents, department, addNotification, downloadFile]);
+  }, [registration, studentData, filteredAndSortedStudents, department, addNotification, downloadFile]);
 
   const exportToExcel = useCallback(() => {
-    const isBulkContext = registration === "all" || selectedRegistrations.length > 0;
+    const isBulkContext = registration === "all";
 
     if (!isBulkContext && studentData) {
       // For individual student: Export in CBCS.xlsx template format matching the screenshot
@@ -1188,7 +1106,7 @@ Please check if the department name matches exactly with the available departmen
     } else {
       addNotification('error', 'No data available for export');
     }
-  }, [registration, selectedRegistrations, studentData, filteredAndSortedStudents, department, addNotification, downloadFile]);
+  }, [registration, studentData, filteredAndSortedStudents, department, addNotification, downloadFile]);
 
   const downloadReport = useCallback(() => {
     if (registration !== "all" && studentData) {
@@ -2997,7 +2915,7 @@ Please check if the department name matches exactly with the available departmen
 
   // Bulk download function - creates individual sheets for each student
   const downloadBulkReport = useCallback(async () => {
-    const isBulkContext = registration === "all" || selectedRegistrations.length > 0;
+    const isBulkContext = registration === "all";
 
     if (!isBulkContext || filteredAndSortedStudents.length === 0) {
       addNotification('error', 'No students available for bulk report download');
@@ -3110,7 +3028,7 @@ Please check if the department name matches exactly with the available departmen
     } finally {
       setIsExporting(false);
     }
-  }, [registration, selectedRegistrations, filteredAndSortedStudents, semesterValues, department, addNotification, downloadFile, generateStudentWorksheetXmlFromHtmlFormat, buildExcelWorkbookXml]);
+  }, [registration, filteredAndSortedStudents, semesterValues, department, addNotification, downloadFile, generateStudentWorksheetXmlFromHtmlFormat, buildExcelWorkbookXml]);
 
   const exportToPDF = useCallback(async () => {
     setIsExporting(true);
@@ -3281,124 +3199,35 @@ Please check if the department name matches exactly with the available departmen
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">Registration No:</label>
                 <div className="space-y-2">
-                  {/* All Students option */}
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={registration === "all"}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setRegistration("all");
-                          setSelectedRegistrations([]);
-                        } else {
-                          setRegistration("");
-                        }
+                  <div className="grid grid-cols-1 gap-2">
+                    <select
+                      value={registration === "all" ? "all" : registration}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setRegistration(val);
                       }}
-                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
+                    >
+                      <option value="">Select Registration</option>
+                      <option value="all">All Students</option>
+                      {registrationOptions.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                    {loadingRegistrations && (
+                      <div className="text-xs text-gray-500">Loading registrations...</div>
+                    )}
+                    <input
+                      type="text"
+                      value={registration !== "all" ? registration : ""}
+                      onChange={e => setRegistration(e.target.value)}
+                      placeholder="Or type registration manually"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
                     />
-                    <label className="text-sm text-gray-700">All Students</label>
                   </div>
-
-                  {/* Manual input for single registration */}
-                  <input
-                    type="text"
-                    value={registration !== "all" && selectedRegistrations.length === 0 ? registration : ""}
-                    onChange={e => {
-                      setRegistration(e.target.value);
-                      setSelectedRegistrations([]);
-                    }}
-                    placeholder="Or type registration manually"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
-                    disabled={registration === "all"}
-                  />
-
-                  {/* Multi-select checkboxes for registration options */}
-                  {registrationOptions.length > 0 && registration !== "all" && (
-                    <div className="border border-gray-300 rounded-md p-3 max-h-60 overflow-y-auto bg-white">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-xs font-semibold text-gray-600">Select Multiple Students:</div>
-                        {selectedRegistrations.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => setSelectedRegistrations([])}
-                            className="text-xs text-blue-600 hover:text-blue-800 underline"
-                          >
-                            Clear All
-                          </button>
-                        )}
-                      </div>
-                      {loadingRegistrations && (
-                        <div className="text-xs text-gray-500">Loading registrations...</div>
-                      )}
-                      <div className="space-y-1">
-                        {registrationOptions.map(opt => {
-                          const isChecked = selectedRegistrations.includes(opt.value);
-                          return (
-                            <div key={opt.value} className="flex items-center gap-2 hover:bg-gray-50 p-1 rounded">
-                              <input
-                                type="checkbox"
-                                id={`reg-${opt.value}`}
-                                checked={isChecked}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedRegistrations(prev => [...prev, opt.value]);
-                                    setRegistration(""); // Clear manual input when selecting from list
-                                  } else {
-                                    setSelectedRegistrations(prev => prev.filter(r => r !== opt.value));
-                                  }
-                                }}
-                                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
-                              />
-                              <label
-                                htmlFor={`reg-${opt.value}`}
-                                className="text-sm text-gray-700 cursor-pointer flex-1 select-none"
-                              >
-                                {opt.label}
-                              </label>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Display selected registrations */}
-                  {selectedRegistrations.length > 0 && (
-                    <div className="border border-blue-200 rounded-md p-3 bg-blue-50">
-                      <div className="text-xs font-semibold text-blue-800 mb-2">
-                        Selected Students ({selectedRegistrations.length}):
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {selectedRegistrations.map(reg => (
-                          <span
-                            key={reg}
-                            className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs"
-                          >
-                            {reg}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedRegistrations(selectedRegistrations.filter(r => r !== reg));
-                              }}
-                              className="text-blue-600 hover:text-blue-800 font-bold"
-                            >
-                              ×
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedRegistrations([])}
-                        className="mt-2 text-xs text-blue-600 hover:text-blue-800 underline"
-                      >
-                        Clear All
-                      </button>
-                    </div>
-                  )}
                 </div>
                 <div className="text-xs text-gray-500">
-                  💡 Select "All Students", use checkboxes to select multiple, or type registration manually
+                  💡 Select "All Students" or enter specific registration number
                 </div>
               </div>
 
@@ -3463,7 +3292,7 @@ Please check if the department name matches exactly with the available departmen
         </div>
 
         {/* Diploma Student Alert */}
-        {searchPerformed && !loading && registration !== "all" && selectedRegistrations.length <= 1 && studentData && studentData.is_diploma && (
+        {searchPerformed && !loading && registration !== "all" && studentData && studentData.is_diploma && (
           <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6">
             <div className="flex">
               <div className="flex-shrink-0">
@@ -3497,7 +3326,7 @@ Please check if the department name matches exactly with the available departmen
         )}
 
         {/* Lateral Entry Student Alert (B.Tech only) */}
-        {searchPerformed && !loading && registration !== "all" && selectedRegistrations.length <= 1 && studentData && studentData.is_lateral_entry && !studentData.is_diploma && (
+        {searchPerformed && !loading && registration !== "all" && studentData && studentData.is_lateral_entry && !studentData.is_diploma && (
           <div className="bg-orange-50 border-l-4 border-orange-400 p-4 mb-6">
             <div className="flex">
               <div className="flex-shrink-0">
@@ -3574,7 +3403,7 @@ Please check if the department name matches exactly with the available departmen
         )}
 
         {/* FIXED: No Results Message */}
-        {searchPerformed && !loading && (registration === "all" || selectedRegistrations.length > 1) && allStudentsData.length === 0 && (
+        {searchPerformed && !loading && registration === "all" && allStudentsData.length === 0 && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-md p-6 mb-6">
             <div className="text-center">
               <div className="text-yellow-600 text-4xl mb-4">🔍</div>
@@ -3599,7 +3428,7 @@ Please check if the department name matches exactly with the available departmen
         )}
 
         {/* FIXED: Enhanced Bulk Results Display */}
-        {searchPerformed && !loading && (registration === "all" || selectedRegistrations.length > 1) && allStudentsData.length > 0 && (
+        {searchPerformed && !loading && registration === "all" && allStudentsData.length > 0 && (
           <div className="bg-white rounded-lg shadow-sm border">
             {/* Results Header */}
             <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
@@ -3792,7 +3621,7 @@ Please check if the department name matches exactly with the available departmen
         )}
 
         {/* FIXED: No Individual Results Message */}
-        {searchPerformed && !loading && registration !== "all" && selectedRegistrations.length <= 1 && !studentData && (
+        {searchPerformed && !loading && registration !== "all" && !studentData && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-md p-6 mb-6">
             <div className="text-center">
               <div className="text-yellow-600 text-4xl mb-4">🔍</div>
@@ -3817,7 +3646,7 @@ Please check if the department name matches exactly with the available departmen
         )}
 
         {/* FIXED: Enhanced Individual Results Display */}
-        {searchPerformed && !loading && registration !== "all" && selectedRegistrations.length <= 1 && studentData && (
+        {searchPerformed && !loading && registration !== "all" && studentData && (
           <div className="bg-white rounded-lg shadow-sm border">
             {/* Export Buttons */}
             <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">

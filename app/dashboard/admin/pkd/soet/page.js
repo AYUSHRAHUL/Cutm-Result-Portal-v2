@@ -311,6 +311,22 @@ export default function AdminDashboardPKDSOET() {
             >
               Manage domain subjects and skill course registrations for students.
             </ModuleCard>
+            <ModuleCard
+              title="Result Data Management"
+              icon="📋"
+              onClick={() => go("/dashboard/admin/result-data")}
+              features={["Filter by Batch/Branch/Semester", "Subject-wise View", "Download & Delete"]}
+            >
+              View and manage result data by batch, branch, semester. Download student data and delete subject records with OTP authentication.
+            </ModuleCard>
+            <ModuleCard
+              title="Placement Management"
+              icon="💼"
+              onClick={() => go("/dashboard/admin/pkd/soet/placement")}
+              features={["Placement Data Management", "Analytics & Visualization", "Batch & Branch Filtering"]}
+            >
+              Manage placement records with batch, branch, registration number, name, company, and package. View comprehensive analytics and visualizations.
+            </ModuleCard>
 
           </div>
         </div>

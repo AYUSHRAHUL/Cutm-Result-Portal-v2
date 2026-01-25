@@ -1,0 +1,163 @@
+import { NextResponse } from "next/server";
+import { clientPromise } from "@/lib/mongodb";
+import { jwtVerify } from "jose";
+import { getCampusSchoolDatabase } from "@/lib/campus";
+
+async function verifyToken(token) {
+  try {
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET || "dev-secret");
+    const { payload } = await jwtVerify(token, secret);
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * GET /api/soet/placement/analytics
+ * Get placement analytics and statistics
+ */
+export async function GET(req) {
+  try {
+    const token = req.cookies.get("token")?.value;
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized - Please login first" }, { status: 401 });
+    }
+
+    const payload = await verifyToken(token);
+    if (!payload?.email) {
+      return NextResponse.json({ error: "Unauthorized - Invalid token" }, { status: 401 });
+    }
+
+    const userRole = payload.role?.toLowerCase();
+    if (!["admin"].includes(userRole)) {
+      return NextResponse.json({
+        error: "Access denied - Only admins can access analytics"
+      }, { status: 403 });
+    }
+
+    const client = await clientPromise;
+    const campusParam = req.nextUrl.searchParams.get('campus');
+    const campus = campusParam || payload.campus || null;
+    
+    const school = 'SOET';
+    const dbName = getCampusSchoolDatabase(campus, school);
+    const db = client.db(dbName);
+    const placementsCollection = db.collection("placements");
+
+    // Get all placements
+    const placements = await placementsCollection.find({}).toArray();
+
+    // Calculate statistics
+    const totalPlacements = placements.length;
+    
+    // Calculate package statistics
+    const packages = placements
+      .map(p => (typeof p.packageLpa === "number" ? p.packageLpa : (parseFloat(p.package) || 0)))
+      .filter(p => p > 0);
+    
+    const avgPackage = packages.length > 0 
+      ? packages.reduce((sum, p) => sum + p, 0) / packages.length 
+      : 0;
+    
+    const maxPackage = packages.length > 0 ? Math.max(...packages) : 0;
+    const minPackage = packages.length > 0 ? Math.min(...packages) : 0;
+
+    // Count unique companies
+    const uniqueCompanies = new Set(placements.map(p => p.companyName?.trim()).filter(Boolean));
+    const totalCompanies = uniqueCompanies.size;
+
+    // Branch-wise statistics
+    const branchStats = {};
+    placements.forEach(p => {
+      const branch = p.branch || 'Unknown';
+      if (!branchStats[branch]) {
+        branchStats[branch] = { count: 0, totalPackage: 0, packages: [] };
+      }
+      branchStats[branch].count++;
+      const pkg = typeof p.packageLpa === "number" ? p.packageLpa : (parseFloat(p.package) || 0);
+      if (pkg > 0) {
+        branchStats[branch].totalPackage += pkg;
+        branchStats[branch].packages.push(pkg);
+      }
+    });
+
+    // Calculate average package per branch
+    Object.keys(branchStats).forEach(branch => {
+      const stats = branchStats[branch];
+      stats.avgPackage = stats.packages.length > 0
+        ? stats.totalPackage / stats.packages.length
+        : 0;
+      stats.maxPackage = stats.packages.length > 0 ? Math.max(...stats.packages) : 0;
+    });
+
+    // Batch-wise statistics
+    const batchStats = {};
+    placements.forEach(p => {
+      const batch = p.batch || 'Unknown';
+      if (!batchStats[batch]) {
+        batchStats[batch] = { count: 0, totalPackage: 0, packages: [] };
+      }
+      batchStats[batch].count++;
+      const pkg = typeof p.packageLpa === "number" ? p.packageLpa : (parseFloat(p.package) || 0);
+      if (pkg > 0) {
+        batchStats[batch].totalPackage += pkg;
+        batchStats[batch].packages.push(pkg);
+      }
+    });
+
+    // Calculate average package per batch
+    Object.keys(batchStats).forEach(batch => {
+      const stats = batchStats[batch];
+      stats.avgPackage = stats.packages.length > 0
+        ? stats.totalPackage / stats.packages.length
+        : 0;
+      stats.maxPackage = stats.packages.length > 0 ? Math.max(...stats.packages) : 0;
+    });
+
+    // Company-wise statistics
+    const companyStats = {};
+    placements.forEach(p => {
+      const company = p.companyName?.trim() || 'Unknown';
+      if (!companyStats[company]) {
+        companyStats[company] = { count: 0, totalPackage: 0, packages: [] };
+      }
+      companyStats[company].count++;
+      const pkg = typeof p.packageLpa === "number" ? p.packageLpa : (parseFloat(p.package) || 0);
+      if (pkg > 0) {
+        companyStats[company].totalPackage += pkg;
+        companyStats[company].packages.push(pkg);
+      }
+    });
+
+    // Calculate average package per company
+    Object.keys(companyStats).forEach(company => {
+      const stats = companyStats[company];
+      stats.avgPackage = stats.packages.length > 0
+        ? stats.totalPackage / stats.packages.length
+        : 0;
+      stats.maxPackage = stats.packages.length > 0 ? Math.max(...stats.packages) : 0;
+    });
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        totalPlacements,
+        avgPackage,
+        maxPackage,
+        minPackage,
+        totalCompanies,
+        branchStats,
+        batchStats,
+        companyStats
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching placement analytics:', error);
+    return NextResponse.json({
+      error: `Failed to fetch analytics: ${error.message}`
+    }, { status: 500 });
+  }
+}
+
