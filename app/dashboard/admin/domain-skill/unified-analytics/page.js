@@ -7,12 +7,12 @@ import * as XLSX from "xlsx";
 
 export default function UnifiedAnalytics() {
     const router = useRouter();
-    const [category, setCategory] = useState("Basket V");
+    const [category, setCategory] = useState("All");
     const [branch, setBranch] = useState("All");
     const [batch, setBatch] = useState("All");
     const [sem, setSem] = useState("All");
 
-    const categories = ["Basket I", "Basket II", "Basket III", "Basket IV", "Basket V", "Skill", "Domain"];
+    const categories = ["All", "Basket I", "Basket II", "Basket III", "Basket IV", "Basket V", "Skill", "Domain"];
     const branches = ["All", "CSE", "ECE", "EEE", "Mechanical", "Civil", "AIML"];
     const batches = ["All", "2021", "2022", "2023", "2024", "2025"];
     const semesters = ["All", "1", "2", "3", "4", "5", "6", "7", "8"];

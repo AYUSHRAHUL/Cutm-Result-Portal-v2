@@ -30,7 +30,48 @@ export async function GET(req) {
         let keyToDetails = {}; // Map Grouping Key -> { Name, Type, Code? }
         let isDomain = false;
 
-        if (category === "Skill") {
+        if (category === "All") {
+            // Load ALL categories: Baskets, Skills, and Domains
+            
+            // Load all Baskets
+            const allBaskets = await db.collection("cbcs").find({}).toArray();
+            allBaskets.forEach(b => {
+                const code = (b["Subject Code"] || b.Subject_Code || "").trim();
+                const name = b["Subject Name"] || b.Subject_Name || code;
+                const basket = b.Basket || "Unknown";
+                if (code) {
+                    targetSubjects.push(code);
+                    subjectToKey[code] = code;
+                    keyToDetails[code] = { Name: name, Type: basket, Code: code };
+                }
+            });
+            
+            // Load Skills
+            const skillCourses = await db.collection("skill_courses").find({}).toArray();
+            skillCourses.forEach(c => {
+                const code = (c.SubjectCode || "").trim();
+                const name = c.SubjectName || code;
+                if (code) {
+                    targetSubjects.push(code);
+                    subjectToKey[code] = code;
+                    keyToDetails[code] = { Name: name, Type: "Skill", Code: code };
+                }
+            });
+            
+            // Load Domains
+            const allDomains = await db.collection("honours_domain_subjects").find({}).toArray();
+            allDomains.forEach(d => {
+                const code = (d["Subject Code"] || d.SubjectCode || "").trim();
+                const domain = d.Domain;
+                if (code && domain) {
+                    targetSubjects.push(code);
+                    subjectToKey[code] = domain;
+                    if (!keyToDetails[domain]) {
+                        keyToDetails[domain] = { Name: domain, Type: "Domain" };
+                    }
+                }
+            });
+        } else if (category === "Skill") {
             const courses = await db.collection("skill_courses").find({}).toArray();
             courses.forEach(c => {
                 const code = (c.SubjectCode || "").trim();

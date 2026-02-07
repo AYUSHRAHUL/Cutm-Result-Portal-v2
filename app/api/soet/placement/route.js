@@ -135,12 +135,26 @@ export async function POST(req) {
     const dbName = getCampusSchoolDatabase(campus, school);
     const db = client.db(dbName);
     const placementsCollection = db.collection("placements");
+    // Drop old unique index on regNo alone (if exists) and create new composite index
+    try {
+      await placementsCollection.dropIndex("regNo_1");
+    } catch (e) {
+      // Index might not exist, ignore
+    }
 
+    try {
+      await placementsCollection.createIndex({ regNo: 1, companyName: 1 }, { unique: true });
+    } catch (e) {
+      // Index might already exist, ignore
+    }
     // Check if placement already exists for this student
-    const existing = await placementsCollection.findOne({ regNo: String(regNo).trim() });
+    const existing = await placementsCollection.findOne({ 
+      regNo: String(regNo).trim(),
+      companyName: String(companyName).trim()
+    });
     if (existing) {
       return NextResponse.json({ 
-        error: "Placement record already exists for this registration number" 
+        error: "Placement record already exists for this student with this company" 
       }, { status: 400 });
     }
 

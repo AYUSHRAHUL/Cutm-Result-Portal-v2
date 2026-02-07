@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { getSchoolApiUrl } from "@/lib/api-helper";
+import { getSchoolApiUrl, appendSchoolParams } from "@/lib/api-helper";
 import {
   BarChart,
   Bar,
@@ -28,15 +28,16 @@ function PlacementManagementContent() {
   const searchParams = useSearchParams();
   const school = searchParams.get('school') || 'soet';
   const campus = searchParams.get('campus') || 'pkd';
-  
+
   const [activeTab, setActiveTab] = useState('data');
-  
+
   const [placements, setPlacements] = useState([]);
+  const [filterMeta, setFilterMeta] = useState({ batches: [], branches: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
-  
+
   // Advanced filtering and search
   const [searchTerm, setSearchTerm] = useState("");
   const [filters, setFilters] = useState({
@@ -45,18 +46,18 @@ function PlacementManagementContent() {
     minPackage: '',
     maxPackage: ''
   });
-  
+
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(20);
-  
+
   // Sorting
   const [sortField, setSortField] = useState('regNo');
   const [sortDirection, setSortDirection] = useState('asc');
-  
+
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState([]);
-  
+
   // Form states
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingPlacement, setEditingPlacement] = useState(null);
@@ -69,6 +70,21 @@ function PlacementManagementContent() {
     package: ''
   });
 
+  // Report data states
+  const [reportData, setReportData] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportFilters, setReportFilters] = useState({
+    batch: '',
+    branch: ''
+  });
+
+  // Statistics tab states
+  const [selectedStatCategory, setSelectedStatCategory] = useState('all_students');
+  const [selectedStatBranch, setSelectedStatBranch] = useState('all');
+  const [statBranches, setStatBranches] = useState([]);
+  const [unplacedStudents, setUnplacedStudents] = useState([]);
+  const [unplacedLoading, setUnplacedLoading] = useState(false);
+
   useEffect(() => {
     if (campus) localStorage.setItem('selectedCampus', campus);
     if (school) localStorage.setItem('selectedSchool', school);
@@ -77,22 +93,81 @@ function PlacementManagementContent() {
   useEffect(() => {
     if (activeTab === 'data') {
       fetchPlacements();
+    } else if (activeTab === 'statistics') {
+      // Auto-generate report when user opens Statistics tab
+      if (!reportData && !reportLoading) {
+        generatePlacementReport();
+      }
     }
   }, [activeTab, filters]);
+
+  useEffect(() => {
+    // Load dropdown options from DB once (or when campus/school changes)
+    fetchFilterMeta();
+  }, [campus, school]);
+
+  useEffect(() => {
+    // Fetch unplaced students when category changes to 'zero' or 'all_students'
+    if (selectedStatCategory === 'zero' || selectedStatCategory === 'all_students') {
+      fetchUnplacedStudents();
+    }
+  }, [selectedStatCategory]);
+
+  const fetchUnplacedStudents = async () => {
+    try {
+      setUnplacedLoading(true);
+      const url = getSchoolApiUrl('placement/unplaced-students');
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) {
+        console.error('Failed to fetch unplaced students');
+        setUnplacedStudents([]);
+        return;
+      }
+      const data = await res.json();
+      if (data?.success) {
+        setUnplacedStudents(data.unplacedStudents || []);
+      } else {
+        setUnplacedStudents([]);
+      }
+    } catch (err) {
+      console.error('Error fetching unplaced students:', err);
+      setUnplacedStudents([]);
+    } finally {
+      setUnplacedLoading(false);
+    }
+  };
+
+  const fetchFilterMeta = async () => {
+    try {
+      const url = getSchoolApiUrl("placement/meta");
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data?.success) {
+        setFilterMeta({
+          batches: Array.isArray(data.batches) ? data.batches : [],
+          branches: Array.isArray(data.branches) ? data.branches : []
+        });
+      }
+    } catch (e) {
+      // Non-blocking: dropdowns can fallback to manual typing if needed
+      console.error("Failed to fetch placement filter meta", e);
+    }
+  };
 
   const fetchPlacements = async () => {
     try {
       setLoading(true);
       setError("");
-      
+
       const baseUrl = getSchoolApiUrl('placement');
       const separator = baseUrl.includes('?') ? '&' : '?';
       const params = new URLSearchParams();
       if (filters.batch) params.append('batch', filters.batch);
       if (filters.branch) params.append('branch', filters.branch);
-      
+
       const url = params.toString() ? `${baseUrl}${separator}${params}` : baseUrl;
-      
+
       const response = await fetch(url, {
         credentials: 'include'
       });
@@ -111,13 +186,17 @@ function PlacementManagementContent() {
 
       const data = await response.json();
       if (data.success) {
-        setPlacements(data.placements || []);
+        const list = data.placements || [];
+        setPlacements(list);
+        return list;
       } else {
         setError(data.error || 'Failed to load placements');
+        return [];
       }
     } catch (err) {
       setError(err.message || 'Error loading placements');
       setPlacements([]);
+      return [];
     } finally {
       setLoading(false);
     }
@@ -130,7 +209,7 @@ function PlacementManagementContent() {
     // Search filter
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(p => 
+      filtered = filtered.filter(p =>
         p.regNo?.toLowerCase().includes(term) ||
         p.name?.toLowerCase().includes(term) ||
         p.companyName?.toLowerCase().includes(term) ||
@@ -157,7 +236,7 @@ function PlacementManagementContent() {
     filtered.sort((a, b) => {
       let aVal = a[sortField] || '';
       let bVal = b[sortField] || '';
-      
+
       if (sortField === 'package') {
         aVal = parseFloat(aVal) || 0;
         bVal = parseFloat(bVal) || 0;
@@ -165,7 +244,7 @@ function PlacementManagementContent() {
         aVal = String(aVal).toLowerCase();
         bVal = String(bVal).toLowerCase();
       }
-      
+
       if (sortDirection === 'asc') {
         return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
       } else {
@@ -200,7 +279,7 @@ function PlacementManagementContent() {
       const baseUrl = getSchoolApiUrl("placement/upload");
       const formData = new FormData();
       formData.append("file", file);
-      
+
       const response = await fetch(baseUrl, {
         method: "POST",
         credentials: "include",
@@ -250,11 +329,11 @@ function PlacementManagementContent() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     try {
       const baseUrl = getSchoolApiUrl(editingPlacement ? 'placement/update' : 'placement');
       const method = editingPlacement ? 'PUT' : 'POST';
-      
+
       const response = await fetch(baseUrl, {
         method,
         headers: { 'Content-Type': 'application/json' },
@@ -304,6 +383,710 @@ function PlacementManagementContent() {
     }
   };
 
+  // Helper: derive branch short code from B.Tech registration
+  const getBranchFromRegistration = (registration) => {
+    if (!registration) return null;
+    const reg = String(registration).trim();
+    if (reg.length !== 12) return null;
+
+    const branchCode = reg.slice(5, 8); // index 5-7
+    const map = {
+      "111": "Civil",
+      "112": "CSE",
+      "113": "ECE",
+      "115": "EEE",
+      "116": "MECH",
+      "137": "CSE AIML"
+    };
+
+    return map[branchCode] || null;
+  };
+
+  const getBatchFromRegistration = (registration) => {
+    if (!registration) return null;
+    const reg = String(registration).trim();
+    if (reg.length < 2) return null;
+    const yearCode = reg.slice(0, 2); // e.g., "22"
+    return `20${yearCode}`;
+  };
+
+  const fetchTotalStudentsByBranchAndBatch = async () => {
+    try {
+      const url = getSchoolApiUrl("placement/student-strength");
+      const response = await fetch(url, { credentials: "include" });
+
+      if (!response.ok) {
+        console.error("Failed to fetch student strength");
+        return { totalStudentsByBranch: {}, totalStudentsByBatch: {}, totalUniqueStudents: 0 };
+      }
+
+      const result = await response.json();
+
+      if (!result?.success) {
+        console.error("Student strength API error", result?.error);
+        return {
+          totalStudentsByBranch: {},
+          totalStudentsByBatch: {},
+          totalUniqueStudents: 0,
+          offerBuckets: null
+        };
+      }
+
+      const totalStudentsByBranch = result.byBranch || {};
+      const totalStudentsByBatch = result.byBatch || {};
+      const totalUniqueStudents = result.totalStudents || 0;
+      const offerBuckets = result.offerBuckets || null;
+
+      return {
+        totalStudentsByBranch,
+        totalStudentsByBatch,
+        totalUniqueStudents,
+        offerBuckets
+      };
+    } catch (err) {
+      console.error("Error fetching total students from student-strength API:", err);
+      return {
+        totalStudentsByBranch: {},
+        totalStudentsByBatch: {},
+        totalUniqueStudents: 0,
+        offerBuckets: null
+      };
+    }
+  };
+
+  // Normalize branch names (must match student-strength API)
+  const normalizeBranchName = (branchName) => {
+    if (!branchName) return "";
+
+    const normalized = String(branchName).trim().toUpperCase();
+
+    const branchMap = {
+      'CIVIL': 'Civil',
+      'CIVIL ENGINEERING': 'Civil',
+      'CE': 'Civil',
+      'CSE': 'CSE',
+      'COMPUTER SCIENCE ENGINEERING': 'CSE',
+      'COMPUTER SCIENCE AND ENGINEERING': 'CSE',
+      'COMPUTER SCIENCE': 'CSE',
+      'ECE': 'ECE',
+      'EC': 'ECE',
+      'E&C': 'ECE',
+      'ELECTRONICS & COMMUNICATION ENGINEERING': 'ECE',
+      'ELECTRONICS AND COMMUNICATION ENGINEERING': 'ECE',
+      'ELECTRONICS & COMMUNICATION': 'ECE',
+      'EEE': 'EEE',
+      'EE': 'EEE',
+      'ELECTRICAL & ELECTRONICS ENGINEERING': 'EEE',
+      'ELECTRICAL AND ELECTRONICS ENGINEERING': 'EEE',
+      'ELECTRICAL ENGINEERING': 'EEE',
+      'MECHANICAL': 'MECH',
+      'MECHANICAL ENGINEERING': 'MECH',
+      'MECH': 'MECH',
+      'ME': 'MECH',
+      'AIML': 'CSE AIML',
+      'CSE AIML': 'CSE AIML',
+      'AI AND ML': 'CSE AIML',
+      'ARTIFICIAL INTELLIGENCE': 'CSE AIML'
+    };
+
+    // Check exact match first
+    if (branchMap[normalized]) {
+      return branchMap[normalized];
+    }
+
+    // Fallback: partial matching for edge cases
+    const b = normalized.toLowerCase();
+    if (b.includes('aiml') || b.includes('artificial')) return 'CSE AIML';
+    if (b.includes('civil')) return 'Civil';
+    if (b.includes('computer') || b.includes('cse')) return 'CSE';
+    if (b.includes('electronics') && (b.includes('communication') || b.includes('comm'))) return 'ECE';
+    if (b.includes('e&c') || b.includes('e & c')) return 'ECE';
+    if (b.includes('electrical') || b.includes('eee')) return 'EEE';
+    if (b.includes('mechanical') || b.includes('mech')) return 'MECH';
+
+    return branchName;
+  };
+
+  // Generate Placement Report
+  const generatePlacementReport = async () => {
+    try {
+      setReportLoading(true);
+
+      // Ensure we have placement data even if user comes directly to report tab
+      let allPlacements = placements;
+      if (!allPlacements || allPlacements.length === 0) {
+        allPlacements = await fetchPlacements();
+        if (!allPlacements || allPlacements.length === 0) {
+          alert('No placement records found. Please upload or add placement data first.');
+          return;
+        }
+      }
+
+      // Fetch total students from 7th semester registration data
+      const {
+        totalStudentsByBranch,
+        totalStudentsByBatch,
+        totalUniqueStudents,
+        offerBuckets
+      } = await fetchTotalStudentsByBranchAndBatch();
+
+      // Get unique registration numbers from placements
+      const placedRegNos = new Set(allPlacements.map(p => p.regNo));
+
+      // Unique batches & branches from registration data + placements
+      const uniqueBatchesSet = [
+        ...new Set([
+          ...Object.keys(totalStudentsByBatch),
+          ...allPlacements.map((p) => p.batch).filter(Boolean)
+        ])
+      ].sort();
+
+      let uniqueBranches = [
+        ...new Set([
+          ...Object.keys(totalStudentsByBranch),
+          ...allPlacements.map((p) => normalizeBranchName(p.branch)).filter(Boolean)
+        ])
+      ].sort();
+
+      // Calculate total students count (7th sem only)
+      const totalStudentsCount = totalUniqueStudents;
+      const placedStudentsCount = placedRegNos.size;
+      const placementRatio = ((placedStudentsCount / Math.max(totalStudentsCount, 1)) * 100).toFixed(2);
+
+      // Branch-wise analysis
+      const branchAnalysis = {};
+      uniqueBranches.forEach(branch => {
+        const branchPlacements = allPlacements.filter(p => normalizeBranchName(p.branch) === branch);
+
+        // Total students in this branch from registration (7th sem)
+        const totalInBranch = totalStudentsByBranch[branch] || branchPlacements.length;
+
+        branchAnalysis[branch] = {
+          totalStudents: totalInBranch,
+          placedStudents: branchPlacements.length,
+          placementRatio: ((branchPlacements.length / Math.max(totalInBranch, 1)) * 100).toFixed(2),
+          avgPackage: branchPlacements.length > 0
+            ? (branchPlacements.reduce((sum, p) => sum + parseFloat(p.package || 0), 0) / branchPlacements.length).toFixed(2)
+            : 0,
+          maxPackage: branchPlacements.length > 0
+            ? Math.max(...branchPlacements.map(p => parseFloat(p.package || 0))).toFixed(2)
+            : 0,
+          minPackage: branchPlacements.length > 0
+            ? Math.min(...branchPlacements.map(p => parseFloat(p.package || 0))).toFixed(2)
+            : 0,
+          companies: new Set(branchPlacements.map(p => p.companyName)).size
+        };
+      });
+
+      // Batch-wise analysis
+      const batchAnalysis = {};
+      uniqueBatchesSet.forEach(batch => {
+        const batchPlacements = allPlacements.filter(p => p.batch === batch);
+        const batchTotalStudents = totalStudentsByBatch[batch] || batchPlacements.length;
+
+        batchAnalysis[batch] = {
+          totalStudents: Math.max(batchTotalStudents, 1),
+          placedStudents: batchPlacements.length,
+          placementRatio: ((batchPlacements.length / Math.max(batchTotalStudents, 1)) * 100).toFixed(2),
+          avgPackage: batchPlacements.length > 0
+            ? (batchPlacements.reduce((sum, p) => sum + parseFloat(p.package || 0), 0) / batchPlacements.length).toFixed(2)
+            : 0,
+          maxPackage: batchPlacements.length > 0
+            ? Math.max(...batchPlacements.map(p => parseFloat(p.package || 0))).toFixed(2)
+            : 0,
+          minPackage: batchPlacements.length > 0
+            ? Math.min(...batchPlacements.map(p => parseFloat(p.package || 0))).toFixed(2)
+            : 0,
+          companies: new Set(batchPlacements.map(p => p.companyName)).size
+        };
+      });
+
+      // Company-wise analysis
+      const companyStats = {};
+      allPlacements.forEach(p => {
+        if (!companyStats[p.companyName]) {
+          companyStats[p.companyName] = {
+            count: 0,
+            packages: [],
+            branches: new Set()
+          };
+        }
+        companyStats[p.companyName].count++;
+        companyStats[p.companyName].packages.push(parseFloat(p.package || 0));
+        companyStats[p.companyName].branches.add(p.branch);
+      });
+
+      const topCompanies = Object.entries(companyStats)
+        .map(([name, data]) => ({
+          name,
+          count: data.count,
+          avgPackage: (data.packages.reduce((a, b) => a + b, 0) / data.count).toFixed(2),
+          maxPackage: Math.max(...data.packages).toFixed(2),
+          branches: Array.from(data.branches).join(', ')
+        }))
+        .sort((a, b) => b.count - a.count);
+
+      // Student-wise placement count
+      const studentPlacementCounts = {};
+      allPlacements.forEach(p => {
+        const regNo = p.regNo;
+        const normalizedBranch = normalizeBranchName(p.branch);
+        if (!studentPlacementCounts[regNo]) {
+          studentPlacementCounts[regNo] = {
+            regNo: regNo,
+            name: p.name || '',
+            branch: normalizedBranch || '',
+            batch: p.batch || '',
+            count: 0,
+            companies: [],
+            packages: []
+          };
+        }
+        studentPlacementCounts[regNo].count++;
+        studentPlacementCounts[regNo].companies.push(p.companyName || '');
+        studentPlacementCounts[regNo].packages.push(parseFloat(p.package || 0));
+      });
+
+      // Convert to array and sort by count (descending)
+      const studentPlacementList = Object.values(studentPlacementCounts)
+        .map(student => ({
+          ...student,
+          avgPackage: student.packages.length > 0
+            ? (student.packages.reduce((a, b) => a + b, 0) / student.packages.length).toFixed(2)
+            : '0.00',
+          maxPackage: student.packages.length > 0
+            ? Math.max(...student.packages).toFixed(2)
+            : '0.00',
+          companies: student.companies.join(', ')
+        }))
+        .sort((a, b) => b.count - a.count);
+
+      setReportData({
+        totalStudents: totalStudentsCount,
+        placedStudents: placedStudentsCount,
+        placementRatio,
+        avgPackage: allPlacements.length > 0
+          ? (allPlacements.reduce((sum, p) => sum + parseFloat(p.package || 0), 0) / allPlacements.length).toFixed(2)
+          : 0,
+        maxPackage: allPlacements.length > 0
+          ? Math.max(...allPlacements.map(p => parseFloat(p.package || 0))).toFixed(2)
+          : 0,
+        minPackage: allPlacements.length > 0
+          ? Math.min(...allPlacements.map(p => parseFloat(p.package || 0))).toFixed(2)
+          : 0,
+        uniqueBranches,
+        uniqueBatches: uniqueBatchesSet,
+        branchAnalysis,
+        batchAnalysis,
+        topCompanies,
+        companyCount: Object.keys(companyStats).length,
+        offerBuckets,
+        studentPlacementList
+      });
+
+      // Set branches for statistics filter
+      setStatBranches(uniqueBranches);
+      setSelectedStatBranch('all');
+    } catch (err) {
+      console.error('Error generating report:', err);
+      alert('Error generating report: ' + err.message);
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  // Download Report as PDF
+  const downloadReportPDF = () => {
+    if (!reportData) return;
+
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    let y = 20;
+
+    // Header
+    doc.setFontSize(20);
+    doc.setTextColor(0, 88, 254);
+    doc.text('PLACEMENT REPORT', pageWidth / 2, y, { align: 'center' });
+    y += 15;
+
+    doc.setFontSize(10);
+    doc.setTextColor(0, 0, 0);
+    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, pageWidth / 2, y, { align: 'center' });
+    y += 12;
+
+    // Summary Section
+    doc.setFontSize(12);
+    doc.setTextColor(25, 118, 210);
+    doc.text('SUMMARY', 20, y);
+    y += 8;
+
+    const summaryData = [
+      ['Total Students', reportData.totalStudents.toString()],
+      ['Placed Students', reportData.placedStudents.toString()],
+      ['Placement Ratio', `${reportData.placementRatio}%`],
+      ['Average Package', `${reportData.avgPackage} LPA`],
+      ['Highest Package', `${reportData.maxPackage} LPA`],
+      ['Lowest Package', `${reportData.minPackage} LPA`],
+      ['Total Companies', reportData.companyCount.toString()],
+      ['Total Branches', reportData.uniqueBranches.length.toString()]
+    ];
+
+    doc.autoTable({
+      startY: y,
+      head: [['Metric', 'Value']],
+      body: summaryData,
+      theme: 'grid',
+      headerStyles: { fillColor: [25, 118, 210], textColor: 255 },
+      bodyStyles: { textColor: 50 },
+      alternateRowStyles: { fillColor: [240, 248, 255] }
+    });
+
+    y = doc.lastAutoTable.finalY + 15;
+
+    // Branch-wise Analysis
+    if (reportData.uniqueBranches.length > 0) {
+      doc.setFontSize(12);
+      doc.setTextColor(25, 118, 210);
+      doc.text('BRANCH-WISE ANALYSIS', 20, y);
+      y += 8;
+
+      const branchData = reportData.uniqueBranches.map(branch => {
+        const stats = reportData.branchAnalysis[branch];
+        return [
+          branch,
+          stats.totalStudents.toString(),
+          stats.placedStudents.toString(),
+          `${stats.placementRatio}%`,
+          `${stats.avgPackage}`,
+          `${stats.maxPackage}`
+        ];
+      });
+
+      doc.autoTable({
+        startY: y,
+        head: [['Branch', 'Total', 'Placed', 'Ratio %', 'Avg LPA', 'Max LPA']],
+        body: branchData,
+        theme: 'grid',
+        headerStyles: { fillColor: [76, 175, 80], textColor: 255 },
+        bodyStyles: { textColor: 50 },
+        alternateRowStyles: { fillColor: [240, 255, 240] }
+      });
+    }
+
+    y = doc.lastAutoTable.finalY + 15;
+
+    // Batch-wise Analysis
+    if (reportData.uniqueBatches.length > 0) {
+      doc.setFontSize(12);
+      doc.setTextColor(25, 118, 210);
+      doc.text('BATCH-WISE ANALYSIS', 20, y);
+      y += 8;
+
+      const batchData = reportData.uniqueBatches.map(batch => {
+        const stats = reportData.batchAnalysis[batch];
+        return [
+          batch,
+          stats.totalStudents.toString(),
+          stats.placedStudents.toString(),
+          `${stats.placementRatio}%`,
+          `${stats.avgPackage}`,
+          `${stats.maxPackage}`
+        ];
+      });
+
+      doc.autoTable({
+        startY: y,
+        head: [['Batch', 'Total', 'Placed', 'Ratio %', 'Avg LPA', 'Max LPA']],
+        body: batchData,
+        theme: 'grid',
+        headerStyles: { fillColor: [156, 39, 176], textColor: 255 },
+        bodyStyles: { textColor: 50 },
+        alternateRowStyles: { fillColor: [250, 240, 255] }
+      });
+    }
+
+    y = doc.lastAutoTable.finalY + 15;
+
+    // Student Placement Per Student
+    if (reportData.studentPlacementList && reportData.studentPlacementList.length > 0) {
+      doc.setFontSize(12);
+      doc.setTextColor(25, 118, 210);
+      doc.text('PLACEMENT GOT PER STUDENT', 20, y);
+      y += 8;
+
+      // Limit to first 100 students for PDF (to avoid too large files)
+      const studentData = reportData.studentPlacementList.slice(0, 100).map(student => [
+        student.regNo,
+        student.name,
+        student.branch,
+        student.batch,
+        student.count.toString(),
+        `${student.avgPackage} LPA`,
+        `${student.maxPackage} LPA`,
+        student.companies.substring(0, 50) // Truncate long company lists
+      ]);
+
+      doc.autoTable({
+        startY: y,
+        head: [['Reg No', 'Name', 'Branch', 'Batch', 'Placements', 'Avg LPA', 'Max LPA', 'Companies']],
+        body: studentData,
+        theme: 'grid',
+        headerStyles: { fillColor: [99, 102, 241], textColor: 255 },
+        bodyStyles: { textColor: 50, fontSize: 7 },
+        alternateRowStyles: { fillColor: [238, 242, 255] },
+        styles: { overflow: 'linebreak', cellWidth: 'wrap' }
+      });
+
+      if (reportData.studentPlacementList.length > 100) {
+        y = doc.lastAutoTable.finalY + 10;
+        doc.setFontSize(8);
+        doc.setTextColor(100, 100, 100);
+        doc.text(`Note: Showing first 100 students. Total: ${reportData.studentPlacementList.length}`, 20, y);
+      }
+    }
+
+    // Save PDF
+    doc.save(`Placement_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+  };
+
+  // Download Report as Excel
+  const downloadReportExcel = () => {
+    if (!reportData) return;
+
+    const wb = XLSX.utils.book_new();
+
+    // Summary sheet
+    const summaryData = [
+      ['PLACEMENT REPORT SUMMARY'],
+      ['Generated on:', new Date().toLocaleDateString()],
+      [],
+      ['Metric', 'Value'],
+      ['Total Students', reportData.totalStudents],
+      ['Placed Students', reportData.placedStudents],
+      ['Placement Ratio (%)', parseFloat(reportData.placementRatio)],
+      ['Average Package (LPA)', parseFloat(reportData.avgPackage)],
+      ['Highest Package (LPA)', parseFloat(reportData.maxPackage)],
+      ['Lowest Package (LPA)', parseFloat(reportData.minPackage)],
+      ['Total Companies', reportData.companyCount],
+      ['Total Branches', reportData.uniqueBranches.length]
+    ];
+
+    const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
+    XLSX.utils.book_append_sheet(wb, summarySheet, 'Summary');
+
+    // Branch-wise sheet
+    if (reportData.uniqueBranches.length > 0) {
+      const branchHeaders = ['Branch', 'Total Students', 'Placed Students', 'Placement Ratio (%)', 'Avg Package (LPA)', 'Max Package (LPA)', 'Min Package (LPA)', 'Companies'];
+      const branchData = [branchHeaders, ...reportData.uniqueBranches.map(branch => {
+        const stats = reportData.branchAnalysis[branch];
+        return [branch, stats.totalStudents, stats.placedStudents, parseFloat(stats.placementRatio), parseFloat(stats.avgPackage), parseFloat(stats.maxPackage), parseFloat(stats.minPackage), stats.companies];
+      })];
+
+      const branchSheet = XLSX.utils.aoa_to_sheet(branchData);
+      XLSX.utils.book_append_sheet(wb, branchSheet, 'Branch Analysis');
+    }
+
+    // Batch-wise sheet
+    if (reportData.uniqueBatches.length > 0) {
+      const batchHeaders = ['Batch', 'Total Students', 'Placed Students', 'Placement Ratio (%)', 'Avg Package (LPA)', 'Max Package (LPA)', 'Companies'];
+      const batchData = [batchHeaders, ...reportData.uniqueBatches.map(batch => {
+        const stats = reportData.batchAnalysis[batch];
+        return [batch, stats.totalStudents, stats.placedStudents, parseFloat(stats.placementRatio), parseFloat(stats.avgPackage), parseFloat(stats.maxPackage), stats.companies];
+      })];
+
+      const batchSheet = XLSX.utils.aoa_to_sheet(batchData);
+      XLSX.utils.book_append_sheet(wb, batchSheet, 'Batch Analysis');
+    }
+
+    // Top companies sheet
+    if (reportData.topCompanies.length > 0) {
+      const companyHeaders = ['Company', 'Hires', 'Avg Package (LPA)', 'Max Package (LPA)', 'Branches'];
+      const companyData = [companyHeaders, ...reportData.topCompanies.slice(0, 20).map(c => [c.name, c.count, parseFloat(c.avgPackage), parseFloat(c.maxPackage), c.branches])];
+
+      const companySheet = XLSX.utils.aoa_to_sheet(companyData);
+      XLSX.utils.book_append_sheet(wb, companySheet, 'Top Companies');
+    }
+
+    // Student Placement Per Student sheet
+    if (reportData.studentPlacementList && reportData.studentPlacementList.length > 0) {
+      const studentHeaders = ['Reg No', 'Name', 'Branch', 'Batch', 'Placements', 'Avg Package (LPA)', 'Max Package (LPA)', 'Companies'];
+      const studentData = [studentHeaders, ...reportData.studentPlacementList.map(student => [
+        student.regNo,
+        student.name,
+        student.branch,
+        student.batch,
+        student.count,
+        parseFloat(student.avgPackage),
+        parseFloat(student.maxPackage),
+        student.companies
+      ])];
+
+      const studentSheet = XLSX.utils.aoa_to_sheet(studentData);
+      XLSX.utils.book_append_sheet(wb, studentSheet, 'Student Placements');
+    }
+
+    XLSX.writeFile(wb, `Placement_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  // Download Statistics Excel (only selected category)
+  const downloadStatisticsExcel = () => {
+    if (!reportData) return;
+
+    const wb = XLSX.utils.book_new();
+    let selectedData = [];
+    let sheetName = 'Statistics';
+
+    if (selectedStatCategory === 'all_students') {
+      selectedData = reportData.studentPlacementList.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch);
+      sheetName = 'All Students';
+    } else if (selectedStatCategory === 'zero') {
+      selectedData = unplacedStudents.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch);
+      sheetName = 'Unplaced Students';
+    } else if (selectedStatCategory === 'one') {
+      selectedData = reportData.studentPlacementList.filter(s => s.count === 1 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch));
+      sheetName = '1 Placement';
+    } else if (selectedStatCategory === 'two') {
+      selectedData = reportData.studentPlacementList.filter(s => s.count === 2 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch));
+      sheetName = '2 Placements';
+    } else if (selectedStatCategory === 'more_than_two') {
+      selectedData = reportData.studentPlacementList.filter(s => s.count > 2 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch));
+      sheetName = 'More than 2';
+    }
+
+    if (selectedData.length > 0) {
+      let headers, data;
+
+      if (selectedStatCategory === 'zero') {
+        // For unplaced students: Reg No, Name, Branch, Batch
+        headers = ['Reg No', 'Name', 'Branch', 'Batch'];
+        data = [headers, ...selectedData.map(student => [
+          student.regNo,
+          student.name,
+          student.branch,
+          student.batch
+        ])];
+      } else {
+        // For placed students: Reg No, Name, Branch, Batch, Placements, Avg Package, Max Package, Companies
+        headers = ['Reg No', 'Name', 'Branch', 'Batch', 'Placements', 'Avg Package (LPA)', 'Max Package (LPA)', 'Companies'];
+        data = [headers, ...selectedData.map(student => [
+          student.regNo,
+          student.name,
+          student.branch,
+          student.batch,
+          student.count,
+          parseFloat(student.avgPackage),
+          parseFloat(student.maxPackage),
+          student.companies
+        ])];
+      }
+
+      const sheet = XLSX.utils.aoa_to_sheet(data);
+      XLSX.utils.book_append_sheet(wb, sheet, sheetName);
+    }
+
+    XLSX.writeFile(wb, `Student_Statistics_${selectedStatCategory}_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  // Download Statistics PDF (only selected category)
+  const downloadStatisticsPDF = () => {
+    if (!reportData) return;
+
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    let y = 20;
+
+    // Header
+    doc.setFontSize(20);
+    doc.setTextColor(0, 88, 254);
+    doc.text('STUDENT STATISTICS REPORT', pageWidth / 2, y, { align: 'center' });
+    y += 15;
+
+    doc.setFontSize(10);
+    doc.setTextColor(0, 0, 0);
+    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, pageWidth / 2, y, { align: 'center' });
+    y += 12;
+
+    // Title and Summary
+    doc.setFontSize(12);
+    doc.setTextColor(25, 118, 210);
+
+    let categoryTitle = '';
+    let selectedData = [];
+
+    if (selectedStatCategory === 'all_students') {
+      categoryTitle = 'ALL STUDENTS';
+      selectedData = reportData.studentPlacementList.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch);
+    } else if (selectedStatCategory === 'zero') {
+      categoryTitle = 'UNPLACED STUDENTS';
+      selectedData = unplacedStudents.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch);
+    } else if (selectedStatCategory === 'one') {
+      categoryTitle = 'STUDENTS WITH 1 PLACEMENT';
+      selectedData = reportData.studentPlacementList.filter(s => s.count === 1 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch));
+    } else if (selectedStatCategory === 'two') {
+      categoryTitle = 'STUDENTS WITH 2 PLACEMENTS';
+      selectedData = reportData.studentPlacementList.filter(s => s.count === 2 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch));
+    } else if (selectedStatCategory === 'more_than_two') {
+      categoryTitle = 'STUDENTS WITH MORE THAN 2 PLACEMENTS';
+      selectedData = reportData.studentPlacementList.filter(s => s.count > 2 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch));
+    }
+
+    doc.text(categoryTitle, 20, y);
+    y += 8;
+    doc.text(`Total: ${selectedData.length}`, 20, y);
+    y += 8;
+
+    if (selectedData.length > 0) {
+      let studentData;
+      let headers;
+
+      if (selectedStatCategory === 'zero') {
+        // For unplaced students
+        headers = ['Reg No', 'Name', 'Branch', 'Batch'];
+        studentData = selectedData.slice(0, 100).map(student => [
+          student.regNo,
+          student.name,
+          student.branch,
+          student.batch
+        ]);
+      } else {
+        // For placed students
+        headers = ['Reg No', 'Name', 'Branch', 'Batch', 'Placements', 'Avg (LPA)', 'Max (LPA)', 'Companies'];
+        studentData = selectedData.slice(0, 100).map(student => [
+          student.regNo,
+          student.name,
+          student.branch,
+          student.batch,
+          student.count.toString(),
+          `${student.avgPackage} LPA`,
+          `${student.maxPackage} LPA`,
+          student.companies.substring(0, 40)
+        ]);
+      }
+
+      doc.autoTable({
+        startY: y,
+        head: [headers],
+        body: studentData,
+        theme: 'grid',
+        headerStyles: { fillColor: [25, 118, 210], textColor: 255 },
+        bodyStyles: { textColor: 50, fontSize: 7 },
+        alternateRowStyles: { fillColor: [238, 242, 255] },
+        styles: { overflow: 'linebreak', cellWidth: 'wrap' }
+      });
+
+      if (selectedData.length > 100) {
+        y = doc.lastAutoTable.finalY + 10;
+        doc.setFontSize(8);
+        doc.setTextColor(100, 100, 100);
+        doc.text(`Note: Showing first 100 students. Total: ${selectedData.length}`, 20, y);
+      }
+    }
+
+    doc.save(`Student_Statistics_${selectedStatCategory}_${new Date().toISOString().split('T')[0]}.pdf`);
+  };
+
   const handleBulkDelete = async () => {
     if (selectedIds.length === 0) {
       alert('Please select at least one record');
@@ -347,7 +1130,7 @@ function PlacementManagementContent() {
         headers.join(','),
         ...dataToExport.map(row => headers.map(h => `"${row[h] || ''}"`).join(','))
       ].join('\n');
-      
+
       const blob = new Blob([csv], { type: 'text/csv' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -401,31 +1184,33 @@ function PlacementManagementContent() {
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8 px-4">
       <div className="max-w-7xl mx-auto">
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">Placement Management</h1>
-          <p className="text-gray-600">Advanced placement data management and analytics</p>
-        </div>
-
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-          <div className="flex gap-4 border-b border-gray-200">
+          <div className="flex gap-4 border-b border-gray-200 overflow-x-auto">
             <button
               onClick={() => setActiveTab('data')}
-              className={`px-6 py-3 font-semibold transition-colors ${
-                activeTab === 'data'
-                  ? 'text-blue-600 border-b-2 border-blue-600'
-                  : 'text-gray-600 hover:text-gray-800'
-              }`}
+              className={`px-6 py-3 font-semibold transition-colors whitespace-nowrap ${activeTab === 'data'
+                ? 'text-blue-600 border-b-2 border-blue-600'
+                : 'text-gray-600 hover:text-gray-800'
+                }`}
             >
               Placement Data
             </button>
             <button
               onClick={() => setActiveTab('analytics')}
-              className={`px-6 py-3 font-semibold transition-colors ${
-                activeTab === 'analytics'
-                  ? 'text-blue-600 border-b-2 border-blue-600'
-                  : 'text-gray-600 hover:text-gray-800'
-              }`}
+              className={`px-6 py-3 font-semibold transition-colors whitespace-nowrap ${activeTab === 'analytics'
+                ? 'text-blue-600 border-b-2 border-blue-600'
+                : 'text-gray-600 hover:text-gray-800'
+                }`}
             >
               Analytics & Visualization
+            </button>
+            <button
+              onClick={() => setActiveTab('statistics')}
+              className={`px-6 py-3 font-semibold transition-colors whitespace-nowrap ${activeTab === 'statistics'
+                ? 'text-blue-600 border-b-2 border-blue-600'
+                : 'text-gray-600 hover:text-gray-800'
+                }`}
+            >
+              Student Statistics
             </button>
           </div>
         </div>
@@ -447,23 +1232,29 @@ function PlacementManagementContent() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Batch</label>
-                  <input
-                    type="text"
+                  <select
                     value={filters.batch}
-                    onChange={(e) => setFilters({...filters, batch: e.target.value})}
-                    placeholder="e.g., 2022"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  />
+                    onChange={(e) => setFilters({ ...filters, batch: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+                  >
+                    <option value="">All</option>
+                    {filterMeta.batches.map((b) => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Branch</label>
-                  <input
-                    type="text"
+                  <select
                     value={filters.branch}
-                    onChange={(e) => setFilters({...filters, branch: e.target.value})}
-                    placeholder="e.g., CSE"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  />
+                    onChange={(e) => setFilters({ ...filters, branch: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+                  >
+                    <option value="">All</option>
+                    {filterMeta.branches.map((br) => (
+                      <option key={br} value={br}>{br}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
@@ -471,7 +1262,7 @@ function PlacementManagementContent() {
                     <input
                       type="number"
                       value={filters.minPackage}
-                      onChange={(e) => setFilters({...filters, minPackage: e.target.value})}
+                      onChange={(e) => setFilters({ ...filters, minPackage: e.target.value })}
                       placeholder="Min LPA"
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     />
@@ -481,14 +1272,14 @@ function PlacementManagementContent() {
                     <input
                       type="number"
                       value={filters.maxPackage}
-                      onChange={(e) => setFilters({...filters, maxPackage: e.target.value})}
+                      onChange={(e) => setFilters({ ...filters, maxPackage: e.target.value })}
                       placeholder="Max LPA"
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                 </div>
               </div>
-              
+
               <div className="flex flex-wrap gap-3 items-center">
                 <label className="flex items-center px-4 py-2 bg-gray-100 border border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-200">
                   <input
@@ -535,7 +1326,7 @@ function PlacementManagementContent() {
                   </button>
                 </div>
               </div>
-              
+
               {uploadResult && (
                 <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-700">
                   ✅ Uploaded: {uploadResult.inserted} inserted, {uploadResult.updated} updated, {uploadResult.skipped} skipped (Total: {uploadResult.total})
@@ -676,6 +1467,385 @@ function PlacementManagementContent() {
           <PlacementAnalytics />
         )}
 
+        {activeTab === 'statistics' && (
+          <div>
+            {/* Statistics Header */}
+            <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+              <h2 className="text-2xl font-bold text-gray-800 mb-2">📊 Student Placement Statistics</h2>
+              <p className="text-gray-600">Detailed breakdown of students by their placement count</p>
+            </div>
+
+            {reportLoading && !reportData && (
+              <div className="bg-white rounded-2xl shadow-xl p-12 text-center mb-6">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                <p className="text-gray-600">Loading statistics...</p>
+              </div>
+            )}
+
+            {reportData && reportData.studentPlacementList && (
+              <div className="space-y-6">
+                {/* Summary Cards - Like Placement Report */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white">
+                    <h3 className="text-sm font-medium opacity-90 mb-2">Total Students</h3>
+                    <p className="text-4xl font-bold">{reportData.totalStudents}</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg p-6 text-white">
+                    <h3 className="text-sm font-medium opacity-90 mb-2">Placed Students</h3>
+                    <p className="text-4xl font-bold">{reportData.placedStudents}</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-xl shadow-lg p-6 text-white">
+                    <h3 className="text-sm font-medium opacity-90 mb-2">Unplaced Students</h3>
+                    <p className="text-4xl font-bold">{reportData.totalStudents - reportData.placedStudents}</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white">
+                    <h3 className="text-sm font-medium opacity-90 mb-2">Placement Ratio</h3>
+                    <p className="text-4xl font-bold">{reportData.placementRatio}%</p>
+                  </div>
+                </div>
+
+                {/* Category Filter Buttons */}
+                <div className="bg-white rounded-2xl shadow-xl p-6">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4">Select Category</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    {/* All Students */}
+                    <button
+                      onClick={() => setSelectedStatCategory('all_students')}
+                      className={`px-4 py-3 rounded-lg font-semibold transition-all ${selectedStatCategory === 'all_students'
+                        ? 'bg-gray-800 text-white shadow-lg'
+                        : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                        }`}
+                    >
+                      All Students
+                      <div className="text-2xl font-bold">{
+                        selectedStatBranch === 'all'
+                          ? reportData.totalStudents
+                          : (reportData.branchAnalysis[selectedStatBranch]?.totalStudents || 0)
+                      }</div>
+                    </button>
+
+                    {/* 0 Placements (Unplaced) */}
+                    <button
+                      onClick={() => setSelectedStatCategory('zero')}
+                      className={`px-4 py-3 rounded-lg font-semibold transition-all ${selectedStatCategory === 'zero'
+                        ? 'bg-red-600 text-white shadow-lg'
+                        : 'bg-red-100 text-red-800 hover:bg-red-200'
+                        }`}
+                    >
+                      0 Placements
+                      <div className="text-2xl font-bold">{
+                        selectedStatBranch === 'all'
+                          ? (reportData.totalStudents - reportData.placedStudents)
+                          : ((reportData.branchAnalysis[selectedStatBranch]?.totalStudents || 0) -
+                            reportData.studentPlacementList.filter(s => s.branch === selectedStatBranch).length)
+                      }</div>
+                    </button>
+
+                    {/* 1 Placement */}
+                    <button
+                      onClick={() => setSelectedStatCategory('one')}
+                      className={`px-4 py-3 rounded-lg font-semibold transition-all ${selectedStatCategory === 'one'
+                        ? 'bg-yellow-600 text-white shadow-lg'
+                        : 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'
+                        }`}
+                    >
+                      1 Placement
+                      <div className="text-2xl font-bold">{reportData.studentPlacementList.filter(s => s.count === 1 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch)).length}</div>
+                    </button>
+
+                    {/* 2 Placements */}
+                    <button
+                      onClick={() => setSelectedStatCategory('two')}
+                      className={`px-4 py-3 rounded-lg font-semibold transition-all ${selectedStatCategory === 'two'
+                        ? 'bg-blue-600 text-white shadow-lg'
+                        : 'bg-blue-100 text-blue-800 hover:bg-blue-200'
+                        }`}
+                    >
+                      2 Placements
+                      <div className="text-2xl font-bold">{reportData.studentPlacementList.filter(s => s.count === 2 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch)).length}</div>
+                    </button>
+
+                    {/* More than 2 Placements */}
+                    <button
+                      onClick={() => setSelectedStatCategory('more_than_two')}
+                      className={`px-4 py-3 rounded-lg font-semibold transition-all ${selectedStatCategory === 'more_than_two'
+                        ? 'bg-green-600 text-white shadow-lg'
+                        : 'bg-green-100 text-green-800 hover:bg-green-200'
+                        }`}
+                    >
+                      &gt; 2 Placements
+                      <div className="text-2xl font-bold">{reportData.studentPlacementList.filter(s => s.count > 2 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch)).length}</div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Branch Filter */}
+                <div className="bg-white rounded-2xl shadow-xl p-6">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4">Select Branch</h3>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setSelectedStatBranch('all')}
+                      className={`px-4 py-2 rounded-lg font-semibold transition-all ${selectedStatBranch === 'all'
+                        ? 'bg-blue-600 text-white shadow-lg'
+                        : 'bg-blue-100 text-blue-800 hover:bg-blue-200'
+                        }`}
+                    >
+                      All Branches
+                    </button>
+                    {statBranches.map((branch) => (
+                      <button
+                        key={branch}
+                        onClick={() => setSelectedStatBranch(branch)}
+                        className={`px-4 py-2 rounded-lg font-semibold transition-all ${selectedStatBranch === branch
+                          ? 'bg-purple-600 text-white shadow-lg'
+                          : 'bg-purple-100 text-purple-800 hover:bg-purple-200'
+                          }`}
+                      >
+                        {branch}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Download Buttons */}
+                <div className="bg-white rounded-xl shadow-lg p-6 flex gap-3 flex-wrap">
+                  <button
+                    onClick={downloadStatisticsPDF}
+                    className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold flex items-center gap-2"
+                  >
+                    📄 Download PDF
+                  </button>
+                  <button
+                    onClick={downloadStatisticsExcel}
+                    className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold flex items-center gap-2"
+                  >
+                    📊 Download Excel
+                  </button>
+                </div>
+
+                {/* Student Table */}
+                <div className="bg-white rounded-2xl shadow-xl p-6">
+                  {selectedStatCategory === 'all_students' && (
+                    <>
+                      <h3 className="text-xl font-bold text-gray-800 mb-4">All Students ({
+                        reportData.studentPlacementList.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch).length +
+                        unplacedStudents.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch).length
+                      })</h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead className="bg-gray-100">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Reg No</th>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Name</th>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Branch</th>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Batch</th>
+                              <th className="px-4 py-3 text-center text-sm font-semibold text-gray-700">Placements</th>
+                              <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">Avg LPA</th>
+                              <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">Max LPA</th>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Companies</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200">
+                            {/* Placed Students */}
+                            {reportData.studentPlacementList.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch).map((student, idx) => (
+                              <tr key={`placed-${idx}`} className="hover:bg-gray-50">
+                                <td className="px-4 py-3 text-sm font-medium text-gray-900">{student.regNo}</td>
+                                <td className="px-4 py-3 text-sm text-gray-800">{student.name}</td>
+                                <td className="px-4 py-3 text-sm text-gray-600">{student.branch}</td>
+                                <td className="px-4 py-3 text-sm text-gray-600">{student.batch}</td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${student.count === 1 ? 'bg-yellow-100 text-yellow-800' :
+                                    student.count === 2 ? 'bg-blue-100 text-blue-800' :
+                                      'bg-green-100 text-green-800'
+                                    }`}>
+                                    {student.count}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-right text-sm text-gray-600 font-semibold">{student.avgPackage} LPA</td>
+                                <td className="px-4 py-3 text-right text-sm font-semibold text-green-600">{student.maxPackage} LPA</td>
+                                <td className="px-4 py-3 text-sm text-gray-600">{student.companies}</td>
+                              </tr>
+                            ))}
+                            {/* Unplaced Students */}
+                            {unplacedStudents.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch).map((student, idx) => (
+                              <tr key={`unplaced-${idx}`} className="hover:bg-red-50 bg-red-50/30">
+                                <td className="px-4 py-3 text-sm font-medium text-gray-900">{student.regNo}</td>
+                                <td className="px-4 py-3 text-sm text-gray-800">{student.name}</td>
+                                <td className="px-4 py-3 text-sm text-gray-600">{student.branch}</td>
+                                <td className="px-4 py-3 text-sm text-gray-600">{student.batch}</td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">0</span>
+                                </td>
+                                <td className="px-4 py-3 text-right text-sm text-gray-400">-</td>
+                                <td className="px-4 py-3 text-right text-sm text-gray-400">-</td>
+                                <td className="px-4 py-3 text-sm text-gray-400">-</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+
+                  {selectedStatCategory === 'zero' && (
+                    <>
+                      <h3 className="text-xl font-bold text-gray-800 mb-4">
+                        <span className="text-red-600">Students with 0 Placements (Unplaced)</span> ({selectedStatBranch === 'all' ? unplacedStudents.length : unplacedStudents.filter(s => s.branch === selectedStatBranch).length})
+                      </h3>
+                      {unplacedLoading ? (
+                        <div className="text-center py-8">
+                          <p className="text-gray-600">Loading unplaced students...</p>
+                        </div>
+                      ) : unplacedStudents.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch).length > 0 ? (
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead className="bg-red-50">
+                              <tr>
+                                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Reg No</th>
+                                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Name</th>
+                                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Branch</th>
+                                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Batch</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                              {unplacedStudents.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch).map((student, idx) => (
+                                <tr key={idx} className="hover:bg-red-50">
+                                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{student.regNo}</td>
+                                  <td className="px-4 py-3 text-sm text-gray-800">{student.name}</td>
+                                  <td className="px-4 py-3 text-sm text-gray-600">{student.branch}</td>
+                                  <td className="px-4 py-3 text-sm text-gray-600">{student.batch}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                          <p className="text-sm text-green-800">
+                            ✓ Great! All students are placed or have placement records.
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {selectedStatCategory === 'one' && (
+                    <>
+                      <h3 className="text-xl font-bold text-gray-800 mb-4">
+                        <span className="text-yellow-600">Students with 1 Placement</span> ({reportData.studentPlacementList.filter(s => s.count === 1 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch)).length})
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead className="bg-yellow-50">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Reg No</th>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Name</th>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Branch</th>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Batch</th>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Company</th>
+                              <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">Package (LPA)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200">
+                            {reportData.studentPlacementList.filter(s => s.count === 1 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch)).map((student, idx) => (
+                              <tr key={idx} className="hover:bg-yellow-50">
+                                <td className="px-4 py-3 text-sm font-medium text-gray-900">{student.regNo}</td>
+                                <td className="px-4 py-3 text-sm text-gray-800">{student.name}</td>
+                                <td className="px-4 py-3 text-sm text-gray-600">{student.branch}</td>
+                                <td className="px-4 py-3 text-sm text-gray-600">{student.batch}</td>
+                                <td className="px-4 py-3 text-sm text-gray-600">{student.companies}</td>
+                                <td className="px-4 py-3 text-right text-sm font-semibold text-green-600">{student.maxPackage} LPA</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+
+                  {selectedStatCategory === 'two' && (
+                    <>
+                      <h3 className="text-xl font-bold text-gray-800 mb-4">
+                        <span className="text-blue-600">Students with 2 Placements</span> ({reportData.studentPlacementList.filter(s => s.count === 2 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch)).length})
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead className="bg-blue-50">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Reg No</th>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Name</th>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Branch</th>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Batch</th>
+                              <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">Avg Package</th>
+                              <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">Max Package</th>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Companies</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200">
+                            {reportData.studentPlacementList.filter(s => s.count === 2 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch)).map((student, idx) => (
+                              <tr key={idx} className="hover:bg-blue-50">
+                                <td className="px-4 py-3 text-sm font-medium text-gray-900">{student.regNo}</td>
+                                <td className="px-4 py-3 text-sm text-gray-800">{student.name}</td>
+                                <td className="px-4 py-3 text-sm text-gray-600">{student.branch}</td>
+                                <td className="px-4 py-3 text-sm text-gray-600">{student.batch}</td>
+                                <td className="px-4 py-3 text-right text-sm text-gray-600 font-semibold">{student.avgPackage} LPA</td>
+                                <td className="px-4 py-3 text-right text-sm font-semibold text-green-600">{student.maxPackage} LPA</td>
+                                <td className="px-4 py-3 text-sm text-gray-600">{student.companies}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+
+                  {selectedStatCategory === 'more_than_two' && (
+                    <>
+                      <h3 className="text-xl font-bold text-gray-800 mb-4">
+                        <span className="text-green-600">Students with More than 2 Placements</span> ({reportData.studentPlacementList.filter(s => s.count > 2 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch)).length})
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead className="bg-green-50">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Reg No</th>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Name</th>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Branch</th>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Batch</th>
+                              <th className="px-4 py-3 text-center text-sm font-semibold text-gray-700"># Placements</th>
+                              <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">Avg Package</th>
+                              <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">Max Package</th>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Companies</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200">
+                            {reportData.studentPlacementList.filter(s => s.count > 2 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch)).map((student, idx) => (
+                              <tr key={idx} className="hover:bg-green-50">
+                                <td className="px-4 py-3 text-sm font-medium text-gray-900">{student.regNo}</td>
+                                <td className="px-4 py-3 text-sm text-gray-800">{student.name}</td>
+                                <td className="px-4 py-3 text-sm text-gray-600">{student.branch}</td>
+                                <td className="px-4 py-3 text-sm text-gray-600">{student.batch}</td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className="inline-block bg-green-100 text-green-800 px-3 py-1 rounded-full text-xs font-semibold">
+                                    {student.count}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-right text-sm text-gray-600 font-semibold">{student.avgPackage} LPA</td>
+                                <td className="px-4 py-3 text-right text-sm font-semibold text-green-600">{student.maxPackage} LPA</td>
+                                <td className="px-4 py-3 text-sm text-gray-600">{student.companies}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Add/Edit Modal */}
         {showAddModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -691,7 +1861,7 @@ function PlacementManagementContent() {
                       type="text"
                       required
                       value={formData.batch}
-                      onChange={(e) => setFormData({...formData, batch: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, batch: e.target.value })}
                       placeholder="e.g., 2022"
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     />
@@ -702,7 +1872,7 @@ function PlacementManagementContent() {
                       type="text"
                       required
                       value={formData.branch}
-                      onChange={(e) => setFormData({...formData, branch: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
                       placeholder="e.g., CSE"
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     />
@@ -713,7 +1883,7 @@ function PlacementManagementContent() {
                       type="text"
                       required
                       value={formData.regNo}
-                      onChange={(e) => setFormData({...formData, regNo: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, regNo: e.target.value })}
                       placeholder="e.g., 220101120003"
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     />
@@ -724,7 +1894,7 @@ function PlacementManagementContent() {
                       type="text"
                       required
                       value={formData.name}
-                      onChange={(e) => setFormData({...formData, name: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                       placeholder="Student Name"
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     />
@@ -735,7 +1905,7 @@ function PlacementManagementContent() {
                       type="text"
                       required
                       value={formData.companyName}
-                      onChange={(e) => setFormData({...formData, companyName: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
                       placeholder="Company Name"
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     />
@@ -747,7 +1917,7 @@ function PlacementManagementContent() {
                       step="0.01"
                       required
                       value={formData.package}
-                      onChange={(e) => setFormData({...formData, package: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, package: e.target.value })}
                       placeholder="e.g., 8.5"
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     />
@@ -797,9 +1967,12 @@ function PlacementAnalytics() {
   const [analyticsData, setAnalyticsData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedView, setSelectedView] = useState('overview');
+  const [studentStrength, setStudentStrength] = useState(null);
+  const [activeCompanyIndex, setActiveCompanyIndex] = useState(null);
 
   useEffect(() => {
     fetchAnalytics();
+    fetchStudentStrength();
   }, []);
 
   const fetchAnalytics = async () => {
@@ -823,6 +1996,120 @@ function PlacementAnalytics() {
     }
   };
 
+  const fetchStudentStrength = async () => {
+    try {
+      const url = getSchoolApiUrl('placement/student-strength');
+      const response = await fetch(url, {
+        credentials: 'include'
+      });
+      if (!response.ok) return;
+      const data = await response.json();
+      if (data.success) {
+        setStudentStrength(data);
+      }
+    } catch (err) {
+      console.error('Error fetching student strength for analytics:', err);
+    }
+  };
+
+  // Prepare chart data (safe defaults when analyticsData not yet loaded)
+  const strengthByBranch = studentStrength?.byBranch || {};
+  const branchStats = analyticsData?.branchStats || {};
+  const batchStats = analyticsData?.batchStats || {};
+  const companyStats = analyticsData?.companyStats || {};
+
+  const branchChartData = Object.entries(branchStats).map(([branch, stats]) => {
+    const totalStudents = strengthByBranch[branch] || 0;
+    const placementPercent = totalStudents > 0
+      ? (stats.count / totalStudents) * 100
+      : 0;
+    return {
+      name: branch,
+      placements: stats.count,
+      totalStudents,
+      placementPercent: parseFloat(placementPercent.toFixed(2)),
+      avgPackage: parseFloat(stats.avgPackage?.toFixed(2) || 0),
+      maxPackage: parseFloat(stats.maxPackage?.toFixed(2) || 0)
+    };
+  });
+
+  const batchChartData = Object.entries(batchStats || {})
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([batch, stats]) => ({
+      name: batch,
+      placements: stats.count,
+      avgPackage: parseFloat(stats.avgPackage?.toFixed(2) || 0)
+    }));
+
+  const companyChartData = Object.entries(companyStats || {})
+    .sort(([, a], [, b]) => b.count - a.count)
+    .slice(0, 10)
+    .map(([company, stats]) => {
+      const branchCounts = stats.branchCounts || {};
+      const datum = {
+        name: company.length > 15 ? company.substring(0, 15) + '...' : company,
+        fullName: company,
+        hires: stats.count,
+        avgPackage: parseFloat(stats.avgPackage?.toFixed(2) || 0),
+        branchCounts
+      };
+
+      // Explicit fields per branch for stacked charts
+      const knownBranches = ['CSE', 'Civil', 'ECE', 'EEE', 'MECH'];
+      let other = 0;
+      Object.entries(branchCounts).forEach(([br, c]) => {
+        if (knownBranches.includes(br)) {
+          datum[br] = c;
+        } else {
+          other += c;
+        }
+      });
+      knownBranches.forEach(br => {
+        datum[br] = datum[br] || 0;
+      });
+      datum.Other = other;
+
+      return datum;
+    });
+
+  const companyChartWithActiveBranches = useMemo(
+    () =>
+      companyChartData.map((item, index) => {
+        const isActive = index === activeCompanyIndex;
+        return {
+          ...item,
+          CSE: isActive ? item.CSE : 0,
+          Civil: isActive ? item.Civil : 0,
+          ECE: isActive ? item.ECE : 0,
+          EEE: isActive ? item.EEE : 0,
+          MECH: isActive ? item.MECH : 0,
+          Other: isActive ? item.Other : 0
+        };
+      }),
+    [companyChartData, activeCompanyIndex]
+  );
+
+  const packageDistribution = branchChartData.map((item, idx) => ({
+    name: item.name,
+    value: item.avgPackage,
+    color: COLORS[idx % COLORS.length]
+  }));
+
+  // Histogram buckets for packages (LPA)
+  const allPackages = Object.values(companyStats || {})
+    .flatMap(s => (s.packages || []).map(n => Number(n)).filter(Number.isFinite));
+  const buckets = [
+    { label: "0-3", min: 0, max: 3 },
+    { label: "3-6", min: 3, max: 6 },
+    { label: "6-10", min: 6, max: 10 },
+    { label: "10-15", min: 10, max: 15 },
+    { label: "15+", min: 15, max: Infinity },
+  ];
+  const packageHistogram = buckets.map(b => ({
+    range: b.label,
+    count: allPackages.filter(p => p >= b.min && p < b.max).length,
+  }));
+
   if (loading) {
     return (
       <div className="bg-white rounded-2xl shadow-xl p-12 text-center">
@@ -839,53 +2126,6 @@ function PlacementAnalytics() {
       </div>
     );
   }
-
-  // Prepare chart data
-  const branchChartData = Object.entries(analyticsData.branchStats || {}).map(([branch, stats]) => ({
-    name: branch,
-    placements: stats.count,
-    avgPackage: parseFloat(stats.avgPackage?.toFixed(2) || 0),
-    maxPackage: parseFloat(stats.maxPackage?.toFixed(2) || 0)
-  }));
-
-  const batchChartData = Object.entries(analyticsData.batchStats || {})
-    .sort(([a], [b]) => b.localeCompare(a))
-    .map(([batch, stats]) => ({
-      name: batch,
-      placements: stats.count,
-      avgPackage: parseFloat(stats.avgPackage?.toFixed(2) || 0)
-    }));
-
-  const companyChartData = Object.entries(analyticsData.companyStats || {})
-    .sort(([, a], [, b]) => b.count - a.count)
-    .slice(0, 10)
-    .map(([company, stats]) => ({
-      name: company.length > 15 ? company.substring(0, 15) + '...' : company,
-      fullName: company,
-      hires: stats.count,
-      avgPackage: parseFloat(stats.avgPackage?.toFixed(2) || 0)
-    }));
-
-  const packageDistribution = branchChartData.map((item, idx) => ({
-    name: item.name,
-    value: item.avgPackage,
-    color: COLORS[idx % COLORS.length]
-  }));
-
-  // Histogram buckets for packages (LPA)
-  const allPackages = Object.values(analyticsData.companyStats || {})
-    .flatMap(s => (s.packages || []).map(n => Number(n)).filter(Number.isFinite));
-  const buckets = [
-    { label: "0-3", min: 0, max: 3 },
-    { label: "3-6", min: 3, max: 6 },
-    { label: "6-10", min: 6, max: 10 },
-    { label: "10-15", min: 10, max: 15 },
-    { label: "15+", min: 15, max: Infinity },
-  ];
-  const packageHistogram = buckets.map(b => ({
-    range: b.label,
-    count: allPackages.filter(p => p >= b.min && p < b.max).length,
-  }));
 
   return (
     <div className="space-y-6">
@@ -916,11 +2156,10 @@ function PlacementAnalytics() {
             <button
               key={view}
               onClick={() => setSelectedView(view)}
-              className={`px-4 py-2 font-semibold capitalize transition-colors ${
-                selectedView === view
-                  ? 'text-blue-600 border-b-2 border-blue-600'
-                  : 'text-gray-600 hover:text-gray-800'
-              }`}
+              className={`px-4 py-2 font-semibold capitalize transition-colors ${selectedView === view
+                ? 'text-blue-600 border-b-2 border-blue-600'
+                : 'text-gray-600 hover:text-gray-800'
+                }`}
             >
               {view} Analysis
             </button>
@@ -932,7 +2171,7 @@ function PlacementAnalytics() {
       {selectedView === 'branch' && branchChartData.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white rounded-2xl shadow-xl p-6">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4">Placements by Branch</h2>
+            <h2 className="text-xl font-semibold text-gray-800 mb-4">Placement Percent by Branch</h2>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={branchChartData}>
                 <CartesianGrid strokeDasharray="3 3" />
@@ -940,7 +2179,7 @@ function PlacementAnalytics() {
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="placements" fill="#0088FE" name="Placements" />
+                <Bar dataKey="placementPercent" fill="#0088FE" name="Placement %" />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -964,7 +2203,9 @@ function PlacementAnalytics() {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Branch</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Total Students</th>
                     <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Placements</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Placement %</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Avg Package (LPA)</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Max Package (LPA)</th>
                   </tr>
@@ -973,7 +2214,13 @@ function PlacementAnalytics() {
                   {branchChartData.map((item, idx) => (
                     <tr key={idx} className="hover:bg-gray-50">
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">{item.name}</td>
+                      <td className="px-4 py-3 text-sm text-center text-gray-600">
+                        {item.totalStudents || '—'}
+                      </td>
                       <td className="px-4 py-3 text-sm text-center text-gray-600">{item.placements}</td>
+                      <td className="px-4 py-3 text-sm text-center text-gray-600 font-semibold">
+                        {item.totalStudents ? `${item.placementPercent.toFixed(2)}%` : '—'}
+                      </td>
                       <td className="px-4 py-3 text-sm text-right text-gray-600 font-semibold">{item.avgPackage.toFixed(2)}</td>
                       <td className="px-4 py-3 text-sm text-right text-green-600 font-semibold">{item.maxPackage.toFixed(2)}</td>
                     </tr>
@@ -1083,7 +2330,7 @@ function PlacementAnalytics() {
             </ResponsiveContainer>
           </div>
           <div className="bg-white rounded-2xl shadow-xl p-6 lg:col-span-2">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4">Top Companies</h2>
+            <h2 className="text-xl font-semibold text-gray-800 mb-4">Top Companies (Branch Breakdown)</h2>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50">
@@ -1091,7 +2338,7 @@ function PlacementAnalytics() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Company</th>
                     <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Hires</th>
                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Avg Package (LPA)</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Max Package (LPA)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Branches</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -1100,8 +2347,31 @@ function PlacementAnalytics() {
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">{item.fullName}</td>
                       <td className="px-4 py-3 text-sm text-center text-gray-600">{item.hires}</td>
                       <td className="px-4 py-3 text-sm text-right text-gray-600 font-semibold">{item.avgPackage.toFixed(2)}</td>
-                      <td className="px-4 py-3 text-sm text-right text-green-600 font-semibold">
-                        {analyticsData.companyStats?.[item.fullName]?.maxPackage?.toFixed(2) || '0.00'}
+                      <td className="px-4 py-3 text-sm text-left">
+                        <div className="flex flex-wrap gap-1">
+                          {Object.entries(item.branchCounts || {}).map(([branch, count]) => (
+                            <span
+                              key={branch}
+                              className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold text-white"
+                              style={{
+                                backgroundColor:
+                                  branch === 'CSE'
+                                    ? '#3B82F6'
+                                    : branch === 'Civil'
+                                      ? '#F97316'
+                                      : branch === 'ECE'
+                                        ? '#A855F7'
+                                        : branch === 'EEE'
+                                          ? '#22C55E'
+                                          : branch === 'MECH'
+                                            ? '#0EA5E9'
+                                            : '#9CA3AF'
+                              }}
+                            >
+                              {branch}: {count}
+                            </span>
+                          ))}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1114,9 +2384,10 @@ function PlacementAnalytics() {
 
       {/* Overview */}
       {selectedView === 'overview' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-6">
+          {/* Row 1: Placement Percent by Branch (full width) */}
           <div className="bg-white rounded-2xl shadow-xl p-6">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4">Placements by Branch</h2>
+            <h2 className="text-xl font-semibold text-gray-800 mb-4">Placement Percent by Branch</h2>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={branchChartData}>
                 <CartesianGrid strokeDasharray="3 3" />
@@ -1124,61 +2395,53 @@ function PlacementAnalytics() {
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="placements" fill="#0088FE" name="Placements" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="bg-white rounded-2xl shadow-xl p-6">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4">Package Distribution</h2>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={packageDistribution}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                  outerRadius={100}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {packageDistribution.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="bg-white rounded-2xl shadow-xl p-6">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4">Batch Trend</h2>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={batchChartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="placements" stroke="#8884d8" strokeWidth={2} name="Placements" />
-                <Line type="monotone" dataKey="avgPackage" stroke="#82ca9d" strokeWidth={2} name="Avg Package (LPA)" />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="bg-white rounded-2xl shadow-xl p-6">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4">Top Companies</h2>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={companyChartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="hires" fill="#FF8042" name="Hires" />
+                <Bar dataKey="placementPercent" fill="#0088FE" name="Placement %" />
               </BarChart>
             </ResponsiveContainer>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-xl p-6 lg:col-span-2">
+          {/* Row 2: Batch Trend + Package Distribution */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-2xl shadow-xl p-6">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4">Batch Trend</h2>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={batchChartData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="placements" stroke="#8884d8" strokeWidth={2} name="Placements" />
+                  <Line type="monotone" dataKey="avgPackage" stroke="#82ca9d" strokeWidth={2} name="Avg Package (LPA)" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="bg-white rounded-2xl shadow-xl p-6">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4">Package Distribution</h2>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={packageDistribution}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                    outerRadius={100}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {packageDistribution.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Row 3: Package Histogram */}
+          <div className="bg-white rounded-2xl shadow-xl p-6">
             <h2 className="text-xl font-semibold text-gray-800 mb-4">Package Distribution (Histogram)</h2>
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={packageHistogram}>
@@ -1188,6 +2451,35 @@ function PlacementAnalytics() {
                 <Tooltip />
                 <Legend />
                 <Bar dataKey="count" fill="#00C49F" name="Students" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Row 4: Top Companies (bigger, last) */}
+          <div className="bg-white rounded-2xl shadow-xl p-6">
+            <h2 className="text-xl font-semibold text-gray-800 mb-4">Top Companies</h2>
+            <ResponsiveContainer width="100%" height={380}>
+              <BarChart
+                data={companyChartWithActiveBranches}
+                onMouseMove={(state) => {
+                  if (state && typeof state.activeTooltipIndex === 'number') {
+                    setActiveCompanyIndex(state.activeTooltipIndex);
+                  }
+                }}
+                onMouseLeave={() => setActiveCompanyIndex(null)}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="hires" fill="#F97316" name="Total Hires" />
+                <Bar dataKey="CSE" stackId="branches" fill="#3B82F6" name="CSE" />
+                <Bar dataKey="Civil" stackId="branches" fill="#F97316" name="Civil" />
+                <Bar dataKey="ECE" stackId="branches" fill="#A855F7" name="ECE" />
+                <Bar dataKey="EEE" stackId="branches" fill="#22C55E" name="EEE" />
+                <Bar dataKey="MECH" stackId="branches" fill="#0EA5E9" name="MECH" />
+                <Bar dataKey="Other" stackId="branches" fill="#9CA3AF" name="Other" />
               </BarChart>
             </ResponsiveContainer>
           </div>

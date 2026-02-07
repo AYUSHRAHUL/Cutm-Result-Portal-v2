@@ -13,6 +13,34 @@ async function verifyToken(token) {
   }
 }
 
+// Normalize branch names to match student-strength API
+function normalizeBranchName(branch) {
+  if (!branch) return "Unknown";
+  const b = String(branch).trim().toLowerCase();
+
+  // Check AIML first (before CSE check)
+  if (b.includes("aiml") || b.includes("artificial")) return "CSE AIML";
+
+  // Civil
+  if (b.includes("civil")) return "Civil";
+
+  // CSE
+  if (b.includes("computer") || b === "cse") return "CSE";
+
+  // ECE variations
+  if (b.includes("electronics") && (b.includes("communication") || b.includes("comm"))) return "ECE";
+  if (b === "ece" || b === "ec" || b === "e&c" || b === "e & c") return "ECE";
+  if (b.includes("e&c") || b.includes("e & c")) return "ECE";
+
+  // EEE variations
+  if (b.includes("electrical") || b === "eee" || b === "ee") return "EEE";
+
+  // Mechanical variations
+  if (b.includes("mechanical") || b.includes("mech") || b === "me") return "MECH";
+
+  return branch;
+}
+
 /**
  * GET /api/soet/placement/analytics
  * Get placement analytics and statistics
@@ -39,7 +67,7 @@ export async function GET(req) {
     const client = await clientPromise;
     const campusParam = req.nextUrl.searchParams.get('campus');
     const campus = campusParam || payload.campus || null;
-    
+
     const school = 'SOET';
     const dbName = getCampusSchoolDatabase(campus, school);
     const db = client.db(dbName);
@@ -48,18 +76,19 @@ export async function GET(req) {
     // Get all placements
     const placements = await placementsCollection.find({}).toArray();
 
-    // Calculate statistics
-    const totalPlacements = placements.length;
-    
+    // Calculate statistics - count unique students (not total offer records)
+    const uniquePlacedStudents = new Set(placements.map(p => p.regNo?.trim()).filter(Boolean));
+    const totalPlacements = uniquePlacedStudents.size;
+
     // Calculate package statistics
     const packages = placements
       .map(p => (typeof p.packageLpa === "number" ? p.packageLpa : (parseFloat(p.package) || 0)))
       .filter(p => p > 0);
-    
-    const avgPackage = packages.length > 0 
-      ? packages.reduce((sum, p) => sum + p, 0) / packages.length 
+
+    const avgPackage = packages.length > 0
+      ? packages.reduce((sum, p) => sum + p, 0) / packages.length
       : 0;
-    
+
     const maxPackage = packages.length > 0 ? Math.max(...packages) : 0;
     const minPackage = packages.length > 0 ? Math.min(...packages) : 0;
 
@@ -67,14 +96,27 @@ export async function GET(req) {
     const uniqueCompanies = new Set(placements.map(p => p.companyName?.trim()).filter(Boolean));
     const totalCompanies = uniqueCompanies.size;
 
-    // Branch-wise statistics
+    // Branch-wise statistics - count unique students (not total placements)
     const branchStats = {};
     placements.forEach(p => {
-      const branch = p.branch || 'Unknown';
+      const branch = normalizeBranchName(p.branch);
+      const regNo = p.regNo?.trim() || '';
+
       if (!branchStats[branch]) {
-        branchStats[branch] = { count: 0, totalPackage: 0, packages: [] };
+        branchStats[branch] = {
+          count: 0,
+          totalPackage: 0,
+          packages: [],
+          uniqueStudents: new Set()
+        };
       }
-      branchStats[branch].count++;
+
+      // Only count unique students (if student has 2 offers, count as 1)
+      if (regNo && !branchStats[branch].uniqueStudents.has(regNo)) {
+        branchStats[branch].uniqueStudents.add(regNo);
+        branchStats[branch].count++;
+      }
+
       const pkg = typeof p.packageLpa === "number" ? p.packageLpa : (parseFloat(p.package) || 0);
       if (pkg > 0) {
         branchStats[branch].totalPackage += pkg;
@@ -89,16 +131,31 @@ export async function GET(req) {
         ? stats.totalPackage / stats.packages.length
         : 0;
       stats.maxPackage = stats.packages.length > 0 ? Math.max(...stats.packages) : 0;
+      // Remove Set before sending response (Sets can't be JSON serialized)
+      delete stats.uniqueStudents;
     });
 
-    // Batch-wise statistics
+    // Batch-wise statistics - count unique students (not total placements)
     const batchStats = {};
     placements.forEach(p => {
       const batch = p.batch || 'Unknown';
+      const regNo = p.regNo?.trim() || '';
+
       if (!batchStats[batch]) {
-        batchStats[batch] = { count: 0, totalPackage: 0, packages: [] };
+        batchStats[batch] = {
+          count: 0,
+          totalPackage: 0,
+          packages: [],
+          uniqueStudents: new Set()
+        };
       }
-      batchStats[batch].count++;
+
+      // Only count unique students (if student has 2 offers, count as 1)
+      if (regNo && !batchStats[batch].uniqueStudents.has(regNo)) {
+        batchStats[batch].uniqueStudents.add(regNo);
+        batchStats[batch].count++;
+      }
+
       const pkg = typeof p.packageLpa === "number" ? p.packageLpa : (parseFloat(p.package) || 0);
       if (pkg > 0) {
         batchStats[batch].totalPackage += pkg;
@@ -113,16 +170,20 @@ export async function GET(req) {
         ? stats.totalPackage / stats.packages.length
         : 0;
       stats.maxPackage = stats.packages.length > 0 ? Math.max(...stats.packages) : 0;
+      // Remove Set before sending response
+      delete stats.uniqueStudents;
     });
 
-    // Company-wise statistics
+    // Company-wise statistics (including branch breakdown)
     const companyStats = {};
     placements.forEach(p => {
       const company = p.companyName?.trim() || 'Unknown';
+      const branch = normalizeBranchName(p.branch);
       if (!companyStats[company]) {
-        companyStats[company] = { count: 0, totalPackage: 0, packages: [] };
+        companyStats[company] = { count: 0, totalPackage: 0, packages: [], branchCounts: {} };
       }
       companyStats[company].count++;
+      companyStats[company].branchCounts[branch] = (companyStats[company].branchCounts[branch] || 0) + 1;
       const pkg = typeof p.packageLpa === "number" ? p.packageLpa : (parseFloat(p.package) || 0);
       if (pkg > 0) {
         companyStats[company].totalPackage += pkg;

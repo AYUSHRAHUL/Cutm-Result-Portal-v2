@@ -378,7 +378,7 @@ function ResultPageContent() {
 
         {/* Multiple Semesters View with Sidebar */}
         {isMultipleSemesters && allResults && (
-          <div className="flex flex-col lg:flex-row gap-6 max-w-7xl mx-auto">
+          <div className="print:hidden flex flex-col lg:flex-row gap-6 max-w-7xl mx-auto">
             {/* Sidebar Navigation */}
             <div className="w-full lg:w-80 bg-white rounded-lg shadow-sm p-4 lg:h-fit lg:sticky lg:top-4 order-2 lg:order-1">
               <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center">

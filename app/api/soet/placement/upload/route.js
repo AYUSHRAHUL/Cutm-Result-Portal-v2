@@ -292,17 +292,24 @@ export async function POST(req) {
     const db = client.db(dbName);
     const placementsCollection = db.collection("placements");
 
-    // Create index for regNo if not exists
+    // Drop old unique index on regNo alone (if it exists) and create new composite index
     try {
-      await placementsCollection.createIndex({ regNo: 1 }, { unique: true });
+      await placementsCollection.dropIndex("regNo_1");
+    } catch (e) {
+      // Index might not exist, ignore
+    }
+
+    // Create new index for regNo + companyName combination (unique per student-company pair)
+    try {
+      await placementsCollection.createIndex({ regNo: 1, companyName: 1 }, { unique: true });
     } catch (e) {
       // Index might already exist, ignore
     }
 
-    // Bulk upsert operations
+    // Bulk upsert operations - allow same student with different companies
     const operations = records.map(rec => ({
       updateOne: {
-        filter: { regNo: rec.regNo },
+        filter: { regNo: rec.regNo, companyName: rec.companyName },
         update: {
           $set: {
             batch: rec.batch,
