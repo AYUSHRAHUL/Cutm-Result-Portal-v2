@@ -58,14 +58,15 @@ export async function GET(req) {
     }
 
     const userRole = payload.role?.toLowerCase();
-    if (!["admin"].includes(userRole)) {
+    if (!["admin", "teacher"].includes(userRole)) {
       return NextResponse.json({
-        error: "Access denied - Only admins can access analytics"
+        error: "Access denied - Only admins and teachers can access analytics"
       }, { status: 403 });
     }
 
     const client = await clientPromise;
     const campusParam = req.nextUrl.searchParams.get('campus');
+    const batchParam = req.nextUrl.searchParams.get('batch');
     const campus = campusParam || payload.campus || null;
 
     const school = 'SOET';
@@ -73,8 +74,14 @@ export async function GET(req) {
     const db = client.db(dbName);
     const placementsCollection = db.collection("placements");
 
+    // Build query
+    const query = {};
+    if (batchParam && batchParam !== 'all') {
+      query.batch = batchParam;
+    }
+
     // Get all placements
-    const placements = await placementsCollection.find({}).toArray();
+    const placements = await placementsCollection.find(query).toArray();
 
     // Calculate statistics - count unique students (not total offer records)
     const uniquePlacedStudents = new Set(placements.map(p => p.regNo?.trim()).filter(Boolean));

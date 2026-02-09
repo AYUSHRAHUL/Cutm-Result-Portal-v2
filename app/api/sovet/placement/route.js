@@ -47,7 +47,7 @@ export async function GET(req) {
     const campusParam = searchParams.get('campus');
     const campus = campusParam || payload.campus || null;
 
-    const school = 'SOET';
+    const school = 'SOVET';
     const dbName = getCampusSchoolDatabase(campus, school);
     const db = client.db(dbName);
     const placementsCollection = db.collection("placements");
@@ -131,7 +131,7 @@ export async function POST(req) {
 
     const client = await clientPromise;
     const campus = payload.campus || null;
-    const school = 'SOET';
+    const school = 'SOVET';
     const dbName = getCampusSchoolDatabase(campus, school);
     const db = client.db(dbName);
     const placementsCollection = db.collection("placements");

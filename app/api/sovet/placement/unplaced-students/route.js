@@ -49,7 +49,7 @@ export async function GET(req) {
     const { searchParams } = new URL(req.url);
     const campus = searchParams.get('campus') || payload.campus || null;
     const batchParam = searchParams.get('batch');
-    const school = 'SOET';
+    const school = 'SOVET';
     const dbName = getCampusSchoolDatabase(campus, school);
 
     const client = await clientPromise;

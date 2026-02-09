@@ -295,6 +295,14 @@ export default function AdminDashboardPKDSOVET() {
               Override a student's branch by Reg_No; applies across all panels.
             </ModuleCard>
 
+            <ModuleCard
+              title="Placement Management"
+              icon="💼"
+              onClick={() => go("/dashboard/admin/pkd/sovet/placement")}
+              features={["Track Placements", "Analytics & Reports", "Export Data"]}
+            >
+              Manage diploma student placements, track companies and packages.
+            </ModuleCard>
 
           </div>
         </div>

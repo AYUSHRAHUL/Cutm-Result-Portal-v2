@@ -250,6 +250,16 @@ function TeacherDashboardPKDContent() {
             >
               View Passing Analysis, Subject comparisons and distributions.
             </ModuleCard>
+
+            <ModuleCard
+              title="Placement Management"
+              icon="💼"
+              gradient="from-[#3B82F6] to-[#2563EB]"
+              onClick={() => go("/dashboard/teacher/pkd/soet/placement")}
+              badge="View Only"
+            >
+              View placement records, statistics and analytics (Read-only access).
+            </ModuleCard>
           </div>
         </div>
       </section>
@@ -272,7 +282,7 @@ export default function TeacherDashboardPKD() {
   );
 }
 
-function ModuleCard({ title, icon, gradient, children, onClick }) {
+function ModuleCard({ title, icon, gradient, children, onClick, badge }) {
   return (
     <button
       onClick={onClick}
@@ -286,6 +296,15 @@ function ModuleCard({ title, icon, gradient, children, onClick }) {
       <div
         className={`absolute inset-x-0 top-0 h-1 scale-x-0 origin-left group-hover:scale-x-100 transition-transform duration-500 bg-gradient-to-r ${gradient}`}
       />
+
+      {/* Badge (if provided) */}
+      {badge && (
+        <div className="absolute top-3 right-3 z-10">
+          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200 shadow-sm">
+            👁️ {badge}
+          </span>
+        </div>
+      )}
 
       {/* Icon */}
       <div
@@ -343,4 +362,5 @@ function ModuleCard({ title, icon, gradient, children, onClick }) {
     </button>
   );
 }
+
 

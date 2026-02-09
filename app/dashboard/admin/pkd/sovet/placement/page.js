@@ -26,7 +26,7 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'
 
 function PlacementManagementContent() {
   const searchParams = useSearchParams();
-  const school = searchParams.get('school') || 'soet';
+  const school = searchParams.get('school') || 'sovet';
   const campus = searchParams.get('campus') || 'pkd';
 
   const [activeTab, setActiveTab] = useState('data');
@@ -495,10 +495,10 @@ function PlacementManagementContent() {
   const fetchTotalStudentsByBranchAndBatch = async (batchFilter = '') => {
     try {
       const baseUrl = getSchoolApiUrl("placement/student-strength");
-      const url = batchFilter && batchFilter !== 'all' 
+      const url = batchFilter && batchFilter !== 'all'
         ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}batch=${batchFilter}`
         : baseUrl;
-        
+
       const response = await fetch(url, { credentials: "include" });
 
       if (!response.ok) {
@@ -672,7 +672,7 @@ function PlacementManagementContent() {
 
         // Total students in this branch from registration (7th sem)
         const totalInBranch = totalStudentsByBranch[branch] || branchPlacements.length;
-        
+
         // Count unique placed students (not total placement records)
         const uniquePlacedInBranch = new Set(branchPlacements.map(p => p.regNo?.trim()).filter(Boolean)).size;
 
@@ -1674,11 +1674,11 @@ function PlacementManagementContent() {
                     >
                       0 Placements
                       <div className="text-2xl font-bold">{
-                        unplacedLoading 
+                        unplacedLoading
                           ? (selectedStatBranch === 'all'
-                              ? (reportData.totalStudents - reportData.placedStudents)
-                              : ((reportData.branchAnalysis[selectedStatBranch]?.totalStudents || 0) -
-                                (reportData.branchAnalysis[selectedStatBranch]?.placedStudents || 0)))
+                            ? (reportData.totalStudents - reportData.placedStudents)
+                            : ((reportData.branchAnalysis[selectedStatBranch]?.totalStudents || 0) -
+                              (reportData.branchAnalysis[selectedStatBranch]?.placedStudents || 0)))
                           : unplacedStudents.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch).length
                       }</div>
                     </button>
@@ -1771,7 +1771,7 @@ function PlacementManagementContent() {
                     <>
                       <h3 className="text-xl font-bold text-gray-800 mb-4">All Students ({
                         ((reportData.studentPlacementList || []).filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch).length +
-                        (unplacedStudents || []).filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch).length)
+                          (unplacedStudents || []).filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch).length)
                       })</h3>
                       <div className="overflow-x-auto">
                         <table className="w-full">
@@ -1816,11 +1816,10 @@ function PlacementManagementContent() {
                                         return (
                                           <span
                                             key={cIdx}
-                                            className={`inline-block mr-2 mb-1 px-2 py-1 rounded text-xs ${
-                                              isJoined
+                                            className={`inline-block mr-2 mb-1 px-2 py-1 rounded text-xs ${isJoined
                                                 ? 'bg-green-100 text-green-800 font-semibold border-2 border-green-500'
                                                 : 'bg-gray-100 text-gray-700'
-                                            }`}
+                                              }`}
                                             title={company}
                                           >
                                             {company}
@@ -1865,10 +1864,10 @@ function PlacementManagementContent() {
                       </div>
                       {reportData.studentPlacementList.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch).length === 0 &&
                         unplacedStudents.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch).length === 0 && (
-                        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mt-4">
-                          <p className="text-sm text-gray-600 text-center">No students found for the selected branch.</p>
-                        </div>
-                      )}
+                          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mt-4">
+                            <p className="text-sm text-gray-600 text-center">No students found for the selected branch.</p>
+                          </div>
+                        )}
                     </>
                   )}
 
@@ -1876,8 +1875,8 @@ function PlacementManagementContent() {
                     <>
                       <h3 className="text-xl font-bold text-gray-800 mb-4">
                         <span className="text-red-600">Students with 0 Placements (Unplaced)</span> ({
-                          unplacedLoading 
-                            ? 0 
+                          unplacedLoading
+                            ? 0
                             : unplacedStudents.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch).length
                         })
                       </h3>
@@ -1953,11 +1952,10 @@ function PlacementManagementContent() {
                                         return (
                                           <span
                                             key={cIdx}
-                                            className={`inline-block mr-2 mb-1 px-2 py-1 rounded text-xs ${
-                                              isJoined
+                                            className={`inline-block mr-2 mb-1 px-2 py-1 rounded text-xs ${isJoined
                                                 ? 'bg-green-100 text-green-800 font-semibold border-2 border-green-500'
                                                 : 'bg-gray-100 text-gray-700'
-                                            }`}
+                                              }`}
                                             title={company}
                                           >
                                             {company}
@@ -2032,11 +2030,10 @@ function PlacementManagementContent() {
                                         return (
                                           <span
                                             key={cIdx}
-                                            className={`inline-block mr-2 mb-1 px-2 py-1 rounded text-xs ${
-                                              isJoined
+                                            className={`inline-block mr-2 mb-1 px-2 py-1 rounded text-xs ${isJoined
                                                 ? 'bg-green-100 text-green-800 font-semibold border-2 border-green-500'
                                                 : 'bg-gray-100 text-gray-700'
-                                            }`}
+                                              }`}
                                             title={company}
                                           >
                                             {company}
@@ -2116,11 +2113,10 @@ function PlacementManagementContent() {
                                         return (
                                           <span
                                             key={cIdx}
-                                            className={`inline-block mr-2 mb-1 px-2 py-1 rounded text-xs ${
-                                              isJoined
+                                            className={`inline-block mr-2 mb-1 px-2 py-1 rounded text-xs ${isJoined
                                                 ? 'bg-green-100 text-green-800 font-semibold border-2 border-green-500'
                                                 : 'bg-gray-100 text-gray-700'
-                                            }`}
+                                              }`}
                                             title={company}
                                           >
                                             {company}
@@ -2305,7 +2301,7 @@ function PlacementAnalytics() {
     const initialize = async () => {
       // First, load batch options
       const batches = await fetchMeta();
-      
+
       // Determine the batch to use
       let batchToUse = selectedBatch;
       if (selectedBatch === 'all' && batches.length > 0) {
@@ -2314,14 +2310,14 @@ function PlacementAnalytics() {
         setSelectedBatch(latestBatch);
         try {
           localStorage.setItem('analyticsSelectedBatch', latestBatch);
-        } catch {}
+        } catch { }
       }
-      
+
       // Fetch data with the determined batch
       fetchAnalytics(batchToUse);
       fetchStudentStrength(batchToUse);
       fetchAllBatchesAnalytics(); // Always fetch all batches for Batch Analysis and Batch Trend
-      
+
       hasInitialFetch.current = true;
       setIsInitialized(true);
     };
@@ -2332,7 +2328,7 @@ function PlacementAnalytics() {
   useEffect(() => {
     // Only fetch data when batch changes after initial fetch
     if (!hasInitialFetch.current) return;
-    
+
     if (selectedBatch) {
       fetchAnalytics(selectedBatch);
       fetchAllBatchesAnalytics(); // Always fetch all batches for Batch Analysis and Batch Trend
@@ -2428,7 +2424,7 @@ function PlacementAnalytics() {
       if (typeof window !== 'undefined') {
         await import('jspdf-autotable');
       }
-      
+
       const doc = new jsPDF();
       const pageWidth = doc.internal.pageSize.getWidth();
       let y = 20;
@@ -2450,7 +2446,7 @@ function PlacementAnalytics() {
       doc.setTextColor(25, 118, 210);
       doc.text('Company Statistics', 20, y);
       y += 8;
-      
+
       // Subtitle/Description
       doc.setFontSize(10);
       doc.setTextColor(100, 100, 100);
@@ -2471,13 +2467,13 @@ function PlacementAnalytics() {
           startY: y,
           head: [['Index', 'Company', 'No of Students', 'Package (LPA)', 'Branch']],
           body: companyTableData,
-          styles: { 
+          styles: {
             fontSize: 8,
             cellPadding: 2,
             overflow: 'linebreak',
             cellWidth: 'wrap'
           },
-          headStyles: { 
+          headStyles: {
             fillColor: [59, 130, 246],
             textColor: [255, 255, 255],
             fontStyle: 'bold'
@@ -2497,7 +2493,7 @@ function PlacementAnalytics() {
         const headers = ['Index', 'Company', 'No of Students', 'Package (LPA)', 'Branch'];
         const colWidths = [15, 55, 25, 25, 70]; // Adjusted column widths including Index
         let x = 20;
-        
+
         // Draw headers
         doc.setFontSize(10);
         doc.setTextColor(255, 255, 255);
@@ -2508,7 +2504,7 @@ function PlacementAnalytics() {
           x += colWidths[idx];
         });
         y += 8;
-        
+
         // Draw rows
         doc.setTextColor(0, 0, 0);
         doc.setFontSize(8);
@@ -2517,7 +2513,7 @@ function PlacementAnalytics() {
             doc.addPage();
             y = 20;
           }
-          
+
           // Calculate row height based on longest cell (especially branches)
           let rowHeight = 8;
           const branchText = String(row[4]); // Branch is now at index 4
@@ -2536,12 +2532,12 @@ function PlacementAnalytics() {
             });
           }
           rowHeight = Math.max(8, branchLines * 4 + 4);
-          
+
           x = 20;
           row.forEach((cell, colIdx) => {
             doc.rect(x, y, colWidths[colIdx], rowHeight, 'S');
             let cellText = String(cell);
-            
+
             // For branches column (index 4), show full text with wrapping
             if (colIdx === 4) {
               if (branchText.length > maxCharsPerLine) {
@@ -2591,8 +2587,8 @@ function PlacementAnalytics() {
   const strengthByBranch = studentStrength?.byBranch || {};
   const branchStats = analyticsData?.branchStats || {};
   // Use allBatchesAnalyticsData for batch stats to show trends across all batches
-  const batchStats = (selectedView === 'batch' || selectedView === 'overview') 
-    ? (allBatchesAnalyticsData?.batchStats || {}) 
+  const batchStats = (selectedView === 'batch' || selectedView === 'overview')
+    ? (allBatchesAnalyticsData?.batchStats || {})
     : (analyticsData?.batchStats || {});
   const companyStats = analyticsData?.companyStats || {};
 
@@ -2749,7 +2745,7 @@ function PlacementAnalytics() {
                 setSelectedBatch(val);
                 try {
                   localStorage.setItem('analyticsSelectedBatch', val);
-                } catch {}
+                } catch { }
               }}
               className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
             >
@@ -2903,9 +2899,9 @@ function PlacementAnalytics() {
               <BarChart data={companyChartData} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" />
-                <YAxis 
-                  dataKey="name" 
-                  type="category" 
+                <YAxis
+                  dataKey="name"
+                  type="category"
                   width={200}
                   tick={{ fontSize: 12 }}
                   angle={0}
@@ -3070,10 +3066,10 @@ function PlacementAnalytics() {
                 onMouseLeave={() => setActiveCompanyIndex(null)}
               >
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="name" 
-                  angle={-45} 
-                  textAnchor="end" 
+                <XAxis
+                  dataKey="name"
+                  angle={-45}
+                  textAnchor="end"
                   height={Math.max(100, companyChartData.length * 15)}
                   tick={{ fontSize: 11 }}
                   interval={0}

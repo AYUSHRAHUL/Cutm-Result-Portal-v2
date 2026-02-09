@@ -145,50 +145,6 @@ function PlacementManagementContent() {
     }
   };
 
-  const handleJoinedCompanyChange = async (regNo, joinedCompany) => {
-    try {
-      // Update local state immediately for better UX
-      setJoinedCompanies(prev => ({
-        ...prev,
-        [regNo]: joinedCompany
-      }));
-
-      // Save to backend
-      const baseUrl = getSchoolApiUrl('placement/joined-companies');
-      const response = await fetch(baseUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          regNo,
-          joinedCompany
-        })
-      });
-
-      const data = await response.json();
-      if (!response.ok || !data.success) {
-        // Revert on error
-        setJoinedCompanies(prev => {
-          const updated = { ...prev };
-          delete updated[regNo];
-          return updated;
-        });
-        alert('Failed to update joined company. Please try again.');
-      }
-    } catch (err) {
-      console.error('Error updating joined company:', err);
-      // Revert on error
-      setJoinedCompanies(prev => {
-        const updated = { ...prev };
-        delete updated[regNo];
-        return updated;
-      });
-      alert('Error updating joined company. Please try again.');
-    }
-  };
-
   const fetchFilterMeta = async () => {
     try {
       const url = getSchoolApiUrl("placement/meta");
@@ -495,10 +451,10 @@ function PlacementManagementContent() {
   const fetchTotalStudentsByBranchAndBatch = async (batchFilter = '') => {
     try {
       const baseUrl = getSchoolApiUrl("placement/student-strength");
-      const url = batchFilter && batchFilter !== 'all' 
+      const url = batchFilter && batchFilter !== 'all'
         ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}batch=${batchFilter}`
         : baseUrl;
-        
+
       const response = await fetch(url, { credentials: "include" });
 
       if (!response.ok) {
@@ -672,7 +628,7 @@ function PlacementManagementContent() {
 
         // Total students in this branch from registration (7th sem)
         const totalInBranch = totalStudentsByBranch[branch] || branchPlacements.length;
-        
+
         // Count unique placed students (not total placement records)
         const uniquePlacedInBranch = new Set(branchPlacements.map(p => p.regNo?.trim()).filter(Boolean)).size;
 
@@ -1304,6 +1260,25 @@ function PlacementManagementContent() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-8 px-4">
       <div className="max-w-7xl mx-auto">
+        {/* Read-Only Mode Header */}
+        {/* <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500 rounded-lg p-4 mb-6 shadow-md">
+          <div className="flex items-center gap-3">
+            <div className="flex-shrink-0">
+              <svg className="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold text-blue-900">📊 Placement Management Portal - View Only Mode</h3>
+              <p className="text-xs text-blue-700 mt-1">You have read-only access. You can view, search, filter and export placement data but cannot add, edit or delete records.</p>
+            </div>
+            <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
+              👁️ Read Only
+            </span>
+          </div>
+        </div> */}
+
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
           <div className="flex gap-4 border-b border-gray-200 overflow-x-auto">
             <button
@@ -1401,64 +1376,31 @@ function PlacementManagementContent() {
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-3 items-center">
-                <label className="flex items-center px-4 py-2 bg-gray-100 border border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-200">
-                  <input
-                    type="file"
-                    accept=".csv,.xlsx,.xls"
-                    className="hidden"
-                    onChange={(e) => handleUpload(e.target.files?.[0])}
-                    disabled={uploading}
-                  />
-                  <span className="text-sm font-semibold text-gray-700">{uploading ? "Uploading..." : "📁 Upload CSV/Excel"}</span>
-                </label>
-                <button
-                  onClick={handleDownloadTemplate}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold flex items-center gap-2"
-                >
-                  📄 View Template
-                </button>
-                <button
-                  onClick={handleAddClick}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
-                >
-                  + Add Placement
-                </button>
-                {selectedIds.length > 0 && (
-                  <button
-                    onClick={handleBulkDelete}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold"
-                  >
-                    🗑️ Delete Selected ({selectedIds.length})
-                  </button>
-                )}
-                <div className="ml-auto flex gap-2">
+              <div className="flex flex-wrap gap-3 items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-600 font-medium">📊 Export Data:</span>
+                </div>
+                <div className="flex gap-2">
                   <button
                     onClick={() => handleExport('csv')}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-semibold shadow-sm transition-all hover:shadow-md"
                   >
-                    📥 CSV
+                    📥 Export CSV
                   </button>
                   <button
                     onClick={() => handleExport('excel')}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-semibold shadow-sm transition-all hover:shadow-md"
                   >
-                    📊 Excel
+                    📊 Export Excel
                   </button>
                   <button
                     onClick={() => handleExport('pdf')}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-semibold shadow-sm transition-all hover:shadow-md"
                   >
-                    📄 PDF
+                    📄 Export PDF
                   </button>
                 </div>
               </div>
-
-              {uploadResult && (
-                <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-700">
-                  ✅ Uploaded: {uploadResult.inserted} inserted, {uploadResult.updated} updated, {uploadResult.skipped} skipped (Total: {uploadResult.total})
-                </div>
-              )}
             </div>
 
             {/* Table */}
@@ -1496,14 +1438,6 @@ function PlacementManagementContent() {
                     <table className="w-full">
                       <thead className="bg-gray-50">
                         <tr>
-                          <th className="px-4 py-3 text-left">
-                            <input
-                              type="checkbox"
-                              checked={selectedIds.length === paginatedPlacements.length && paginatedPlacements.length > 0}
-                              onChange={toggleSelectAll}
-                              className="rounded"
-                            />
-                          </th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100" onClick={() => handleSort('batch')}>
                             Batch {sortField === 'batch' && (sortDirection === 'asc' ? '↑' : '↓')}
                           </th>
@@ -1522,40 +1456,17 @@ function PlacementManagementContent() {
                           <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100" onClick={() => handleSort('package')}>
                             Package (LPA) {sortField === 'package' && (sortDirection === 'asc' ? '↑' : '↓')}
                           </th>
-                          <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
                         {paginatedPlacements.map((placement, idx) => (
                           <tr key={idx} className="hover:bg-gray-50">
-                            <td className="px-4 py-3">
-                              <input
-                                type="checkbox"
-                                checked={selectedIds.includes(placement._id)}
-                                onChange={() => toggleSelect(placement._id)}
-                                className="rounded"
-                              />
-                            </td>
                             <td className="px-4 py-3 text-sm text-gray-900">{placement.batch}</td>
                             <td className="px-4 py-3 text-sm text-gray-700">{placement.branch}</td>
                             <td className="px-4 py-3 text-sm font-medium text-gray-900">{placement.regNo}</td>
                             <td className="px-4 py-3 text-sm text-gray-700">{placement.name}</td>
                             <td className="px-4 py-3 text-sm text-gray-700">{placement.companyName}</td>
                             <td className="px-4 py-3 text-sm text-right text-gray-600 font-semibold">{placement.package}</td>
-                            <td className="px-4 py-3 text-sm text-center">
-                              <button
-                                onClick={() => handleEditClick(placement)}
-                                className="mr-2 px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-xs"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                onClick={() => handleDelete(placement._id)}
-                                className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-xs"
-                              >
-                                Delete
-                              </button>
-                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -1674,11 +1585,11 @@ function PlacementManagementContent() {
                     >
                       0 Placements
                       <div className="text-2xl font-bold">{
-                        unplacedLoading 
+                        unplacedLoading
                           ? (selectedStatBranch === 'all'
-                              ? (reportData.totalStudents - reportData.placedStudents)
-                              : ((reportData.branchAnalysis[selectedStatBranch]?.totalStudents || 0) -
-                                (reportData.branchAnalysis[selectedStatBranch]?.placedStudents || 0)))
+                            ? (reportData.totalStudents - reportData.placedStudents)
+                            : ((reportData.branchAnalysis[selectedStatBranch]?.totalStudents || 0) -
+                              (reportData.branchAnalysis[selectedStatBranch]?.placedStudents || 0)))
                           : unplacedStudents.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch).length
                       }</div>
                     </button>
@@ -1771,7 +1682,7 @@ function PlacementManagementContent() {
                     <>
                       <h3 className="text-xl font-bold text-gray-800 mb-4">All Students ({
                         ((reportData.studentPlacementList || []).filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch).length +
-                        (unplacedStudents || []).filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch).length)
+                          (unplacedStudents || []).filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch).length)
                       })</h3>
                       <div className="overflow-x-auto">
                         <table className="w-full">
@@ -1816,11 +1727,10 @@ function PlacementManagementContent() {
                                         return (
                                           <span
                                             key={cIdx}
-                                            className={`inline-block mr-2 mb-1 px-2 py-1 rounded text-xs ${
-                                              isJoined
-                                                ? 'bg-green-100 text-green-800 font-semibold border-2 border-green-500'
-                                                : 'bg-gray-100 text-gray-700'
-                                            }`}
+                                            className={`inline-block mr-2 mb-1 px-2 py-1 rounded text-xs ${isJoined
+                                              ? 'bg-green-100 text-green-800 font-semibold border-2 border-green-500'
+                                              : 'bg-gray-100 text-gray-700'
+                                              }`}
                                             title={company}
                                           >
                                             {company}
@@ -1831,16 +1741,7 @@ function PlacementManagementContent() {
                                     </div>
                                   </td>
                                   <td className="px-4 py-3 text-sm">
-                                    <select
-                                      value={currentJoinedCompany}
-                                      onChange={(e) => handleJoinedCompanyChange(student.regNo, e.target.value)}
-                                      className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                    >
-                                      <option value="Not yet joined">Not yet joined</option>
-                                      {studentCompanies.map((company, cIdx) => (
-                                        <option key={cIdx} value={company}>{company}</option>
-                                      ))}
-                                    </select>
+                                    <span className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-md text-sm font-medium border border-gray-300">{currentJoinedCompany}</span>
                                   </td>
                                 </tr>
                               );
@@ -1865,10 +1766,10 @@ function PlacementManagementContent() {
                       </div>
                       {reportData.studentPlacementList.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch).length === 0 &&
                         unplacedStudents.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch).length === 0 && (
-                        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mt-4">
-                          <p className="text-sm text-gray-600 text-center">No students found for the selected branch.</p>
-                        </div>
-                      )}
+                          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mt-4">
+                            <p className="text-sm text-gray-600 text-center">No students found for the selected branch.</p>
+                          </div>
+                        )}
                     </>
                   )}
 
@@ -1876,8 +1777,8 @@ function PlacementManagementContent() {
                     <>
                       <h3 className="text-xl font-bold text-gray-800 mb-4">
                         <span className="text-red-600">Students with 0 Placements (Unplaced)</span> ({
-                          unplacedLoading 
-                            ? 0 
+                          unplacedLoading
+                            ? 0
                             : unplacedStudents.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch).length
                         })
                       </h3>
@@ -1953,11 +1854,10 @@ function PlacementManagementContent() {
                                         return (
                                           <span
                                             key={cIdx}
-                                            className={`inline-block mr-2 mb-1 px-2 py-1 rounded text-xs ${
-                                              isJoined
-                                                ? 'bg-green-100 text-green-800 font-semibold border-2 border-green-500'
-                                                : 'bg-gray-100 text-gray-700'
-                                            }`}
+                                            className={`inline-block mr-2 mb-1 px-2 py-1 rounded text-xs ${isJoined
+                                              ? 'bg-green-100 text-green-800 font-semibold border-2 border-green-500'
+                                              : 'bg-gray-100 text-gray-700'
+                                              }`}
                                             title={company}
                                           >
                                             {company}
@@ -1969,16 +1869,7 @@ function PlacementManagementContent() {
                                   </td>
                                   <td className="px-4 py-3 text-right text-sm font-semibold text-green-600">{student.maxPackage} LPA</td>
                                   <td className="px-4 py-3 text-sm">
-                                    <select
-                                      value={currentJoinedCompany}
-                                      onChange={(e) => handleJoinedCompanyChange(student.regNo, e.target.value)}
-                                      className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                    >
-                                      <option value="Not yet joined">Not yet joined</option>
-                                      {studentCompanies.map((company, cIdx) => (
-                                        <option key={cIdx} value={company}>{company}</option>
-                                      ))}
-                                    </select>
+                                    <span className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-md text-sm font-medium border border-gray-300">{currentJoinedCompany}</span>
                                   </td>
                                 </tr>
                               );
@@ -2032,11 +1923,10 @@ function PlacementManagementContent() {
                                         return (
                                           <span
                                             key={cIdx}
-                                            className={`inline-block mr-2 mb-1 px-2 py-1 rounded text-xs ${
-                                              isJoined
-                                                ? 'bg-green-100 text-green-800 font-semibold border-2 border-green-500'
-                                                : 'bg-gray-100 text-gray-700'
-                                            }`}
+                                            className={`inline-block mr-2 mb-1 px-2 py-1 rounded text-xs ${isJoined
+                                              ? 'bg-green-100 text-green-800 font-semibold border-2 border-green-500'
+                                              : 'bg-gray-100 text-gray-700'
+                                              }`}
                                             title={company}
                                           >
                                             {company}
@@ -2047,16 +1937,7 @@ function PlacementManagementContent() {
                                     </div>
                                   </td>
                                   <td className="px-4 py-3 text-sm">
-                                    <select
-                                      value={currentJoinedCompany}
-                                      onChange={(e) => handleJoinedCompanyChange(student.regNo, e.target.value)}
-                                      className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                    >
-                                      <option value="Not yet joined">Not yet joined</option>
-                                      {studentCompanies.map((company, cIdx) => (
-                                        <option key={cIdx} value={company}>{company}</option>
-                                      ))}
-                                    </select>
+                                    <span className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-md text-sm font-medium border border-gray-300">{currentJoinedCompany}</span>
                                   </td>
                                 </tr>
                               );
@@ -2116,11 +1997,10 @@ function PlacementManagementContent() {
                                         return (
                                           <span
                                             key={cIdx}
-                                            className={`inline-block mr-2 mb-1 px-2 py-1 rounded text-xs ${
-                                              isJoined
-                                                ? 'bg-green-100 text-green-800 font-semibold border-2 border-green-500'
-                                                : 'bg-gray-100 text-gray-700'
-                                            }`}
+                                            className={`inline-block mr-2 mb-1 px-2 py-1 rounded text-xs ${isJoined
+                                              ? 'bg-green-100 text-green-800 font-semibold border-2 border-green-500'
+                                              : 'bg-gray-100 text-gray-700'
+                                              }`}
                                             title={company}
                                           >
                                             {company}
@@ -2131,16 +2011,7 @@ function PlacementManagementContent() {
                                     </div>
                                   </td>
                                   <td className="px-4 py-3 text-sm">
-                                    <select
-                                      value={currentJoinedCompany}
-                                      onChange={(e) => handleJoinedCompanyChange(student.regNo, e.target.value)}
-                                      className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                    >
-                                      <option value="Not yet joined">Not yet joined</option>
-                                      {studentCompanies.map((company, cIdx) => (
-                                        <option key={cIdx} value={company}>{company}</option>
-                                      ))}
-                                    </select>
+                                    <span className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-md text-sm font-medium border border-gray-300">{currentJoinedCompany}</span>
                                   </td>
                                 </tr>
                               );
@@ -2161,102 +2032,6 @@ function PlacementManagementContent() {
           </div>
         )}
 
-        {/* Add/Edit Modal */}
-        {showAddModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
-              <h3 className="text-xl font-bold text-gray-800 mb-4">
-                {editingPlacement ? 'Edit Placement' : 'Add New Placement'}
-              </h3>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Batch *</label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.batch}
-                      onChange={(e) => setFormData({ ...formData, batch: e.target.value })}
-                      placeholder="e.g., 2022"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Branch *</label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.branch}
-                      onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
-                      placeholder="e.g., CSE"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Registration Number *</label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.regNo}
-                      onChange={(e) => setFormData({ ...formData, regNo: e.target.value })}
-                      placeholder="e.g., 220101120003"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Name *</label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      placeholder="Student Name"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Company Name *</label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.companyName}
-                      onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
-                      placeholder="Company Name"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Package (LPA) *</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      required
-                      value={formData.package}
-                      onChange={(e) => setFormData({ ...formData, package: e.target.value })}
-                      placeholder="e.g., 8.5"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-                <div className="flex gap-3 pt-4">
-                  <button
-                    type="submit"
-                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold"
-                  >
-                    {editingPlacement ? 'Update' : 'Add'} Placement
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowAddModal(false)}
-                    className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
@@ -2279,6 +2054,10 @@ export default function PlacementManagement() {
 
 // Advanced Analytics Component
 function PlacementAnalytics() {
+  const searchParams = useSearchParams();
+  const school = searchParams.get('school') || 'soet';
+  const campus = searchParams.get('campus') || 'pkd';
+
   const [analyticsData, setAnalyticsData] = useState(null);
   const [allBatchesAnalyticsData, setAllBatchesAnalyticsData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -2305,7 +2084,7 @@ function PlacementAnalytics() {
     const initialize = async () => {
       // First, load batch options
       const batches = await fetchMeta();
-      
+
       // Determine the batch to use
       let batchToUse = selectedBatch;
       if (selectedBatch === 'all' && batches.length > 0) {
@@ -2314,14 +2093,14 @@ function PlacementAnalytics() {
         setSelectedBatch(latestBatch);
         try {
           localStorage.setItem('analyticsSelectedBatch', latestBatch);
-        } catch {}
+        } catch { }
       }
-      
+
       // Fetch data with the determined batch
       fetchAnalytics(batchToUse);
       fetchStudentStrength(batchToUse);
       fetchAllBatchesAnalytics(); // Always fetch all batches for Batch Analysis and Batch Trend
-      
+
       hasInitialFetch.current = true;
       setIsInitialized(true);
     };
@@ -2332,7 +2111,7 @@ function PlacementAnalytics() {
   useEffect(() => {
     // Only fetch data when batch changes after initial fetch
     if (!hasInitialFetch.current) return;
-    
+
     if (selectedBatch) {
       fetchAnalytics(selectedBatch);
       fetchAllBatchesAnalytics(); // Always fetch all batches for Batch Analysis and Batch Trend
@@ -2418,7 +2197,7 @@ function PlacementAnalytics() {
   };
 
   const handleExportCompanyPDF = async () => {
-    if (!analyticsData || !companyChartData.length) {
+    if (!analyticsData || !companyChartData || companyChartData.length === 0) {
       alert('No company data available to export');
       return;
     }
@@ -2428,7 +2207,7 @@ function PlacementAnalytics() {
       if (typeof window !== 'undefined') {
         await import('jspdf-autotable');
       }
-      
+
       const doc = new jsPDF();
       const pageWidth = doc.internal.pageSize.getWidth();
       let y = 20;
@@ -2439,8 +2218,17 @@ function PlacementAnalytics() {
       doc.text('COMPANY ANALYSIS REPORT', pageWidth / 2, y, { align: 'center' });
       y += 10;
 
+      // School and Campus parameters
       doc.setFontSize(12);
       doc.setTextColor(0, 0, 0);
+      const schoolText = `School: ${school.toUpperCase()}`;
+      const campusText = `Campus: ${campus.toUpperCase()}`;
+      doc.text(schoolText, pageWidth / 2, y, { align: 'center' });
+      y += 7;
+      doc.text(campusText, pageWidth / 2, y, { align: 'center' });
+      y += 7;
+
+      // Batch information
       const batchText = selectedBatch && selectedBatch !== 'all' ? `Batch: ${selectedBatch}` : 'All Batches';
       doc.text(batchText, pageWidth / 2, y, { align: 'center' });
       y += 15;
@@ -2450,20 +2238,31 @@ function PlacementAnalytics() {
       doc.setTextColor(25, 118, 210);
       doc.text('Company Statistics', 20, y);
       y += 8;
-      
+
       // Subtitle/Description
       doc.setFontSize(10);
       doc.setTextColor(100, 100, 100);
       doc.text('Top Companies with Branch-wise Breakdown', 20, y);
       y += 10;
 
-      const companyTableData = companyChartData.map((item, idx) => [
-        (idx + 1).toString(), // Index
-        item.fullName, // Company
-        item.hires.toString(), // No of Students
-        item.avgPackage.toFixed(2), // Package
-        Object.entries(item.branchCounts || {}).map(([br, cnt]) => `${br}: ${cnt}`).join(', ') // Branch
-      ]);
+      // Prepare table data with proper validation and formatting
+      const companyTableData = companyChartData.map((item, idx) => {
+        // Ensure all values are properly formatted and converted to strings
+        const index = String(idx + 1);
+        const companyName = String(item?.fullName || item?.name || 'N/A').trim();
+        const hiresValue = item?.hires ?? item?.count ?? 0;
+        const noOfStudents = String(hiresValue);
+        const avgPkg = item?.avgPackage ?? 0;
+        const packageValue = (typeof avgPkg === 'number' && !isNaN(avgPkg))
+          ? parseFloat(avgPkg).toFixed(2)
+          : '0.00';
+        const branchCounts = item?.branchCounts || {};
+        const branchText = Object.entries(branchCounts)
+          .map(([br, cnt]) => `${String(br).trim()}: ${String(cnt)}`)
+          .join(', ') || 'N/A';
+
+        return [index, companyName, noOfStudents, packageValue, branchText];
+      });
 
       // Use autoTable if available (same pattern as other files)
       if (typeof doc.autoTable !== 'undefined') {
@@ -2471,13 +2270,13 @@ function PlacementAnalytics() {
           startY: y,
           head: [['Index', 'Company', 'No of Students', 'Package (LPA)', 'Branch']],
           body: companyTableData,
-          styles: { 
+          styles: {
             fontSize: 8,
             cellPadding: 2,
             overflow: 'linebreak',
             cellWidth: 'wrap'
           },
-          headStyles: { 
+          headStyles: {
             fillColor: [59, 130, 246],
             textColor: [255, 255, 255],
             fontStyle: 'bold'
@@ -2497,7 +2296,7 @@ function PlacementAnalytics() {
         const headers = ['Index', 'Company', 'No of Students', 'Package (LPA)', 'Branch'];
         const colWidths = [15, 55, 25, 25, 70]; // Adjusted column widths including Index
         let x = 20;
-        
+
         // Draw headers
         doc.setFontSize(10);
         doc.setTextColor(255, 255, 255);
@@ -2508,7 +2307,7 @@ function PlacementAnalytics() {
           x += colWidths[idx];
         });
         y += 8;
-        
+
         // Draw rows
         doc.setTextColor(0, 0, 0);
         doc.setFontSize(8);
@@ -2517,10 +2316,13 @@ function PlacementAnalytics() {
             doc.addPage();
             y = 20;
           }
-          
+
+          // Ensure all row values are strings
+          const rowData = row.map(cell => String(cell || ''));
+
           // Calculate row height based on longest cell (especially branches)
           let rowHeight = 8;
-          const branchText = String(row[4]); // Branch is now at index 4
+          const branchText = rowData[4] || 'N/A'; // Branch is at index 4
           const maxCharsPerLine = Math.floor(colWidths[4] / 2.5);
           let branchLines = 1;
           if (branchText.length > maxCharsPerLine) {
@@ -2536,12 +2338,11 @@ function PlacementAnalytics() {
             });
           }
           rowHeight = Math.max(8, branchLines * 4 + 4);
-          
+
           x = 20;
-          row.forEach((cell, colIdx) => {
+          rowData.forEach((cellText, colIdx) => {
             doc.rect(x, y, colWidths[colIdx], rowHeight, 'S');
-            let cellText = String(cell);
-            
+
             // For branches column (index 4), show full text with wrapping
             if (colIdx === 4) {
               if (branchText.length > maxCharsPerLine) {
@@ -2562,14 +2363,19 @@ function PlacementAnalytics() {
                 doc.text(branchText, x + 2, y + rowHeight / 2);
               }
             } else {
-              // For other columns (Index, Company, No of Students, Package), center align and truncate if needed
-              cellText = cellText.substring(0, Math.floor(colWidths[colIdx] / 2.5));
+              // For other columns (Index, Company, No of Students, Package)
+              // Don't truncate - show full text
               const textX = colIdx === 0 || colIdx === 2 || colIdx === 3 ? x + colWidths[colIdx] / 2 : x + 2; // Center for Index, No of Students, Package
               const textY = y + rowHeight / 2;
               if (colIdx === 0 || colIdx === 2 || colIdx === 3) {
                 doc.text(cellText, textX, textY, { align: 'center' });
               } else {
-                doc.text(cellText, textX, textY);
+                // For company name, truncate if too long
+                const maxWidth = colWidths[colIdx] - 4;
+                const truncatedText = cellText.length > maxWidth / 2.5
+                  ? cellText.substring(0, Math.floor(maxWidth / 2.5)) + '...'
+                  : cellText;
+                doc.text(truncatedText, x + 2, textY);
               }
             }
             x += colWidths[colIdx];
@@ -2585,14 +2391,52 @@ function PlacementAnalytics() {
     }
   };
 
+  const handleExportCompanyExcel = () => {
+    if (!analyticsData || !companyChartData.length) {
+      alert('No company data available to export');
+      return;
+    }
+
+    try {
+      const wb = XLSX.utils.book_new();
+
+      // Prepare data with Index, Company, No of Students, Package, Branch
+      const headers = [['Index', 'Company', 'No of Students', 'Package (LPA)', 'Branch']];
+      const data = companyChartData.map((item, idx) => [
+        idx + 1, // Index
+        item.fullName, // Company
+        item.hires, // No of Students
+        parseFloat(item.avgPackage.toFixed(2)), // Package
+        Object.entries(item.branchCounts || {}).map(([br, cnt]) => `${br}: ${cnt}`).join(', ') // Branch
+      ]);
+
+      const ws = XLSX.utils.aoa_to_sheet([...headers, ...data]);
+
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 8 },  // Index
+        { wch: 40 }, // Company
+        { wch: 15 }, // No of Students
+        { wch: 15 }, // Package
+        { wch: 50 }  // Branch
+      ];
+
+      XLSX.utils.book_append_sheet(wb, ws, 'Company Analysis');
+      XLSX.writeFile(wb, `Company_Analysis_${selectedBatch !== 'all' ? selectedBatch : 'All'}_${new Date().toISOString().split('T')[0]}.xlsx`);
+    } catch (error) {
+      console.error('Error generating Excel:', error);
+      alert('Error generating Excel file. Please try again.');
+    }
+  };
+
   // Prepare chart data (safe defaults when analyticsData not yet loaded)
   // For Batch Analysis and Batch Trend, use all batches data
   // For other views, use filtered data based on selectedBatch
   const strengthByBranch = studentStrength?.byBranch || {};
   const branchStats = analyticsData?.branchStats || {};
   // Use allBatchesAnalyticsData for batch stats to show trends across all batches
-  const batchStats = (selectedView === 'batch' || selectedView === 'overview') 
-    ? (allBatchesAnalyticsData?.batchStats || {}) 
+  const batchStats = (selectedView === 'batch' || selectedView === 'overview')
+    ? (allBatchesAnalyticsData?.batchStats || {})
     : (analyticsData?.batchStats || {});
   const companyStats = analyticsData?.companyStats || {};
 
@@ -2749,7 +2593,7 @@ function PlacementAnalytics() {
                 setSelectedBatch(val);
                 try {
                   localStorage.setItem('analyticsSelectedBatch', val);
-                } catch {}
+                } catch { }
               }}
               className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
             >
@@ -2903,9 +2747,9 @@ function PlacementAnalytics() {
               <BarChart data={companyChartData} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" />
-                <YAxis 
-                  dataKey="name" 
-                  type="category" 
+                <YAxis
+                  dataKey="name"
+                  type="category"
                   width={200}
                   tick={{ fontSize: 12 }}
                   angle={0}
@@ -2934,7 +2778,23 @@ function PlacementAnalytics() {
             </ResponsiveContainer>
           </div>
           <div className="bg-white rounded-2xl shadow-xl p-6 lg:col-span-2">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4">All Companies (Branch Breakdown)</h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-gray-800">All Companies (Branch Breakdown)</h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleExportCompanyExcel}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold text-sm flex items-center gap-2"
+                >
+                  📊 Export Excel
+                </button>
+                <button
+                  onClick={handleExportCompanyPDF}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold text-sm flex items-center gap-2"
+                >
+                  📄 Export PDF
+                </button>
+              </div>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50">
@@ -3070,10 +2930,10 @@ function PlacementAnalytics() {
                 onMouseLeave={() => setActiveCompanyIndex(null)}
               >
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="name" 
-                  angle={-45} 
-                  textAnchor="end" 
+                <XAxis
+                  dataKey="name"
+                  angle={-45}
+                  textAnchor="end"
                   height={Math.max(100, companyChartData.length * 15)}
                   tick={{ fontSize: 11 }}
                   interval={0}
@@ -3096,3 +2956,5 @@ function PlacementAnalytics() {
     </div>
   );
 }
+
+

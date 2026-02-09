@@ -59,15 +59,16 @@ export async function GET(req) {
     }
 
     const role = String(payload.role || "").toLowerCase();
-    if (!["admin"].includes(role)) {
+    if (!["admin", "teacher"].includes(role)) {
       return NextResponse.json(
-        { error: "Access denied - Only admins can access student strength" },
+        { error: "Access denied - Only admins and teachers can access student strength" },
         { status: 403 }
       );
     }
 
     const { searchParams } = new URL(req.url);
     const campusParam = searchParams.get("campus");
+    const batchParam = searchParams.get("batch");
     const campus = campusParam || payload.campus || null;
 
     const client = await clientPromise;
@@ -78,6 +79,12 @@ export async function GET(req) {
     const registrationCol = db.collection("RegistrationData");
     const resultCol = db.collection("result");
     const placementsCol = db.collection("placements");
+
+    // Build placement match query
+    const placementMatch = {};
+    if (batchParam && batchParam !== 'all') {
+      placementMatch.batch = batchParam;
+    }
 
     // Fetch only 7th semester rows from both RegistrationData and result
     const semVariants = ["Sem 7", "SEM 7", "sem 7", "7"];
@@ -98,6 +105,7 @@ export async function GET(req) {
         .toArray(),
       placementsCol
         .aggregate([
+          { $match: placementMatch },
           {
             $group: {
               _id: "$regNo",
@@ -142,6 +150,8 @@ export async function GET(req) {
 
       if (!branchShort || !batchYear) continue;
 
+      if (batchParam && batchParam !== 'all' && batchYear !== batchParam) continue;
+
       if (!unique.has(reg)) {
         unique.set(reg, {
           branch: branchShort,
@@ -170,6 +180,8 @@ export async function GET(req) {
       const batchYear = parsed.year || `20${reg.slice(0, 2)}`;
 
       if (!branchShort || !batchYear) continue;
+
+      if (batchParam && batchParam !== 'all' && batchYear !== batchParam) continue;
 
       unique.set(reg, {
         branch: branchShort,
