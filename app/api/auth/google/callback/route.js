@@ -255,8 +255,12 @@ export async function GET(req) {
 
     let target;
 
+    // Check for Student (numeric username) vs Teacher
+    const username = email.split('@')[0];
+    const isStudent = /\d/.test(username); // Check if username contains numbers
+
     // Check if user needs to complete profile (Teacher with @cutm.ac.in but no Employee ID)
-    if (email.endsWith('@cutm.ac.in') && !user.employeeId) {
+    if (email.endsWith('@cutm.ac.in') && !user.employeeId && !isStudent) {
       target = "/complete-profile";
     } else {
       target =
