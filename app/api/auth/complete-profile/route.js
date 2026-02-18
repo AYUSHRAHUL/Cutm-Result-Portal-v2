@@ -40,7 +40,7 @@ export async function POST(req) {
         }
 
         const empId = String(employeeId).trim().toUpperCase();
-        const campus = detectCampus(empId);
+        const campus = detectCampus(empId).toLowerCase();
 
         // Connect to DB
         const client = await clientPromise;
@@ -53,7 +53,7 @@ export async function POST(req) {
                 $set: {
                     role: "teacher",
                     employeeId: empId,
-                    campus: campus,
+                    campus: campus.toLowerCase(),
                     updatedAt: new Date()
                 }
             }
@@ -73,7 +73,7 @@ export async function POST(req) {
         );
 
         // Determines redirect path based on campus
-        const redirectPath = campus ? `/dashboard/teacher/${campus}` : getTeacherDashboardPath(campus);
+        const redirectPath = "/dashboard/teacher";
 
         const response = NextResponse.json({
             success: true,

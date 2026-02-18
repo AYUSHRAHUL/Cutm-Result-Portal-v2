@@ -10,7 +10,7 @@ export default function TeacherDashboard() {
   const [loadingSchools, setLoadingSchools] = useState(true);
   const [schoolError, setSchoolError] = useState(null);
   const [initialized, setInitialized] = useState(false);
-  
+
   // Get default schools for campus
   const getDefaultSchools = (campus) => {
     if (campus === 'pkd') {
@@ -28,53 +28,51 @@ export default function TeacherDashboard() {
     }
     return [];
   };
-  
+
   // Initialize - check localStorage first, then API
   useEffect(() => {
     let isMounted = true;
-    
+
     const initializeCampus = async () => {
       try {
-        // Step 1: Check localStorage first
+        // Always prioritize API for source of truth
+        console.log('[TEACHER DASHBOARD] Fetching campus from API...');
+        const res = await fetch('/api/auth/me');
+
+        if (res.ok) {
+          const data = await res.json();
+          const apiCampus = data.user?.campus ? data.user.campus.toLowerCase() : null;
+          console.log('[TEACHER DASHBOARD] Campus from API:', apiCampus);
+
+          if (apiCampus) {
+            if (isMounted) {
+              localStorage.setItem('campus', apiCampus); // Update local storage with fresh data
+              const schools = getDefaultSchools(apiCampus);
+              setUserCampus(apiCampus);
+              setUserSchools(schools);
+              setLoadingSchools(false);
+              setInitialized(true);
+            }
+            return;
+          }
+        }
+
+        // Fallback: Check localStorage if API failed or returned no campus
         const savedCampus = localStorage.getItem('campus');
-        console.log('[TEACHER DASHBOARD] Checking localStorage:', savedCampus);
-        
         if (savedCampus) {
-          console.log('[TEACHER DASHBOARD] Using campus from localStorage:', savedCampus);
-          const schools = getDefaultSchools(savedCampus);
+          const campus = savedCampus.toLowerCase();
+          console.log('[TEACHER DASHBOARD] API failed/empty, using fallback campus from localStorage:', campus);
+          const schools = getDefaultSchools(campus);
           if (isMounted) {
-            setUserCampus(savedCampus);
+            setUserCampus(campus);
             setUserSchools(schools);
             setLoadingSchools(false);
             setInitialized(true);
           }
           return;
         }
-        
-        // Step 2: Try API if localStorage is empty
-        console.log('[TEACHER DASHBOARD] No campus in localStorage, fetching from API...');
-        const res = await fetch('/api/auth/me');
-        
-        if (!res.ok) {
-          console.error('[TEACHER DASHBOARD] API error:', res.status);
-          throw new Error('Failed to fetch user info');
-        }
-        
-        const data = await res.json();
-        const campus = data.user?.campus;
-        console.log('[TEACHER DASHBOARD] Campus from API:', campus);
-        
-        if (!campus) {
-          throw new Error('No campus detected');
-        }
-        
         if (isMounted) {
-          localStorage.setItem('campus', campus);
-          const schools = getDefaultSchools(campus);
-          setUserCampus(campus);
-          setUserSchools(schools);
-          setLoadingSchools(false);
-          setInitialized(true);
+          throw new Error('Failed to fetch user info and no local fallback found');
         }
       } catch (err) {
         console.error('[TEACHER DASHBOARD] Initialization error:', err);
@@ -85,14 +83,14 @@ export default function TeacherDashboard() {
         }
       }
     };
-    
+
     initializeCampus();
-    
+
     return () => {
       isMounted = false;
     };
   }, []);
-  
+
   // Handle school selection
   const handleSchoolSelect = (schoolCode) => {
     if (!userCampus) {
@@ -100,15 +98,15 @@ export default function TeacherDashboard() {
       setSchoolError('Campus not detected');
       return;
     }
-    
+
     console.log('[TEACHER DASHBOARD] School selected:', schoolCode, 'Campus:', userCampus);
     localStorage.setItem('selectedSchool', schoolCode);
-    
+
     // Redirect to campus-specific dashboard with school
-    const redirectPath = userCampus === 'pkd' 
+    const redirectPath = userCampus.toLowerCase() === 'pkd'
       ? `/dashboard/teacher/pkd?school=${schoolCode}`
       : `/dashboard/teacher/bbsr?school=${schoolCode}`;
-    
+
     console.log('[TEACHER DASHBOARD] Redirecting to:', redirectPath);
     router.replace(redirectPath);
   };
@@ -135,7 +133,7 @@ export default function TeacherDashboard() {
   // Loading state
   if (loadingSchools) {
     return (
-      <div 
+      <div
         className="fixed inset-0 flex flex-col items-center justify-center z-50"
         style={{
           background: 'linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)',
@@ -146,21 +144,21 @@ export default function TeacherDashboard() {
         {/* Spinner Container */}
         <div className="relative flex items-center justify-center mb-8">
           <div className="w-28 h-28 sm:w-32 sm:h-32 lg:w-36 lg:h-36">
-            <img 
+            <img
               className="w-full h-full rounded-full object-cover p-2 backdrop-blur-lg"
               style={{
                 border: '4px solid rgba(255, 255, 255, 0.4)',
                 boxShadow: '0 0 60px rgba(255, 255, 255, 0.6)',
                 animation: 'logoSpin 3s ease-in-out infinite'
               }}
-              src="/spinner.jpg"  
-              alt="CUTM Logo Loading" 
+              src="/spinner.jpg"
+              alt="CUTM Logo Loading"
             />
           </div>
         </div>
 
         {/* Loading Text */}
-        <div 
+        <div
           className="text-white text-xl sm:text-2xl lg:text-3xl font-black text-center mb-6 px-4"
           style={{
             textShadow: '0 0 20px rgba(255, 255, 255, 0.8)',
@@ -169,10 +167,10 @@ export default function TeacherDashboard() {
         >
           Loading School Options...
         </div>
-        
+
         {/* Progress Bar */}
         <div className="w-56 sm:w-64 lg:w-72 h-1.5 sm:h-2 bg-white/20 rounded-full overflow-hidden mb-4">
-          <div 
+          <div
             className="h-full rounded-full"
             style={{
               background: 'linear-gradient(90deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.5) 100%)',
@@ -180,7 +178,7 @@ export default function TeacherDashboard() {
             }}
           ></div>
         </div>
-        
+
         {/* Status */}
         <div className="text-white/90 text-sm sm:text-base text-center px-4 font-semibold flex items-center gap-2">
           <span className="text-xl">👨‍🏫</span>
@@ -209,7 +207,7 @@ export default function TeacherDashboard() {
 
   // School Selection Screen - Main
   return (
-    <div 
+    <div
       className="min-h-screen flex flex-col items-center justify-center p-4"
       style={{
         background: 'linear-gradient(135deg, #F5F8FA 0%, #E8F4F8 50%, #D1E9F6 100%)',
@@ -217,7 +215,7 @@ export default function TeacherDashboard() {
     >
       {/* Top accent bar */}
       <div className="fixed top-0 left-0 right-0 h-1 sm:h-1.5 z-50">
-        <div 
+        <div
           className="h-full w-full animate-pulse"
           style={{
             background: "linear-gradient(90deg, #05A3C7 0%, #F18F01 50%, #04748F 100%)",
@@ -231,7 +229,7 @@ export default function TeacherDashboard() {
         {/* Header */}
         <div className="text-center mb-12">
           <div className="flex items-center justify-center gap-4 mb-6">
-            <div 
+            <div
               className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl shadow-lg"
               style={{
                 background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
@@ -240,7 +238,7 @@ export default function TeacherDashboard() {
             >
               🏫
             </div>
-            <h1 
+            <h1
               className="text-3xl sm:text-4xl md:text-5xl font-black"
               style={{
                 background: "linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)",
@@ -274,15 +272,15 @@ export default function TeacherDashboard() {
               }}
             >
               {/* Top gradient bar */}
-              <div 
+              <div
                 className="absolute inset-x-0 top-0 h-1 scale-x-0 origin-left group-hover:scale-x-100 transition-transform duration-500"
                 style={{
                   background: "linear-gradient(90deg, #05A3C7 0%, #F18F01 100%)"
                 }}
               />
-              
+
               {/* Icon */}
-              <div 
+              <div
                 className="w-16 h-16 mx-auto mb-4 rounded-2xl flex items-center justify-center text-3xl text-white shadow-lg transition-all duration-300 group-hover:scale-110 group-hover:rotate-3"
                 style={{
                   background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)"
@@ -290,20 +288,20 @@ export default function TeacherDashboard() {
               >
                 📚
               </div>
-              
+
               {/* Title */}
               <h3 className="text-lg font-black text-[#1A1F29] text-center mb-2 group-hover:text-[#05A3C7] transition-colors">
                 {school.name}
               </h3>
-              
+
               {/* Code */}
               <p className="text-sm text-[#5A6C7D] text-center mb-4 font-mono font-semibold">
                 {school.code}
               </p>
-              
+
               {/* Click to select */}
               <div className="flex justify-center">
-                <span 
+                <span
                   className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 group-hover:gap-3"
                   style={{
                     background: "linear-gradient(135deg, rgba(5,163,199,0.1) 0%, rgba(241,143,1,0.1) 100%)",
@@ -319,7 +317,7 @@ export default function TeacherDashboard() {
               </div>
 
               {/* Background decoration */}
-              <div 
+              <div
                 className="absolute top-0 right-0 w-24 h-24 opacity-5 pointer-events-none"
                 style={{
                   background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
@@ -352,8 +350,8 @@ export default function TeacherDashboard() {
 
 function ModuleCard({ title, icon, gradient, children, onClick }) {
   return (
-    <button 
-      onClick={onClick} 
+    <button
+      onClick={onClick}
       className="group text-left rounded-xl sm:rounded-2xl border-2 bg-white p-4 sm:p-5 lg:p-6 transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl focus:outline-none focus:ring-4 focus:ring-[#05A3C7]/20 relative overflow-hidden"
       style={{
         borderColor: "rgba(5,163,199,0.2)",
@@ -361,45 +359,45 @@ function ModuleCard({ title, icon, gradient, children, onClick }) {
       }}
     >
       {/* Top gradient bar */}
-      <div 
+      <div
         className={`absolute inset-x-0 top-0 h-1 scale-x-0 origin-left group-hover:scale-x-100 transition-transform duration-500 bg-gradient-to-r ${gradient}`}
       />
-      
+
       {/* Icon */}
-      <div 
+      <div
         className={`w-14 h-14 sm:w-16 sm:h-16 lg:w-18 lg:h-18 mx-auto mb-4 sm:mb-5 rounded-2xl flex items-center justify-center text-2xl sm:text-3xl text-white shadow-lg bg-gradient-to-br ${gradient} transition-all duration-300 group-hover:scale-110 group-hover:rotate-3`}
       >
         <span className="group-hover:animate-bounce">{icon}</span>
       </div>
-      
+
       {/* Title */}
       <h4 className="text-base sm:text-lg font-black text-[#1A1F29] text-center mb-2 sm:mb-3 group-hover:text-[#05A3C7] transition-colors">
         {title}
       </h4>
-      
+
       {/* Description */}
       <p className="text-xs sm:text-sm text-[#5A6C7D] text-center mb-4 sm:mb-5 font-medium leading-relaxed">
         {children}
       </p>
-      
+
       {/* Features List */}
-      <ul 
+      <ul
         className="text-[10px] sm:text-xs space-y-1.5 mb-4 sm:mb-5 rounded-lg p-2 sm:p-3"
         style={{ background: "rgba(5,163,199,0.05)" }}
       >
         <li className="flex items-center gap-2 text-[#1A1F29]">
-          <span className="text-green-500 group-hover:scale-125 transition-transform text-sm">✓</span> 
+          <span className="text-green-500 group-hover:scale-125 transition-transform text-sm">✓</span>
           <span className="group-hover:text-[#05A3C7] transition-colors font-medium">Quick Access</span>
         </li>
         <li className="flex items-center gap-2 text-[#1A1F29]">
-          <span className="text-green-500 group-hover:scale-125 transition-transform text-sm">✓</span> 
+          <span className="text-green-500 group-hover:scale-125 transition-transform text-sm">✓</span>
           <span className="group-hover:text-[#05A3C7] transition-colors font-medium">Real-time Data</span>
         </li>
       </ul>
-      
+
       {/* Button */}
       <div className="flex justify-center">
-        <span 
+        <span
           className="inline-flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all duration-300 group-hover:gap-3"
           style={{
             background: "linear-gradient(135deg, rgba(5,163,199,0.1) 0%, rgba(241,143,1,0.1) 100%)",
@@ -415,7 +413,7 @@ function ModuleCard({ title, icon, gradient, children, onClick }) {
       </div>
 
       {/* Background decoration */}
-      <div 
+      <div
         className={`absolute top-0 right-0 w-20 h-20 sm:w-24 sm:h-24 opacity-5 pointer-events-none bg-gradient-to-br ${gradient} rounded-full blur-2xl`}
       />
     </button>
@@ -424,7 +422,7 @@ function ModuleCard({ title, icon, gradient, children, onClick }) {
 
 function StatCard({ label, value, icon, gradient }) {
   return (
-    <div 
+    <div
       className="relative overflow-hidden rounded-xl sm:rounded-2xl border-2 bg-white p-4 sm:p-5 transition-all duration-300 hover:shadow-lg hover:-translate-y-1"
       style={{
         borderColor: "rgba(5,163,199,0.2)",
@@ -432,10 +430,10 @@ function StatCard({ label, value, icon, gradient }) {
       }}
     >
       {/* Background decoration */}
-      <div 
+      <div
         className={`absolute -top-8 -right-8 w-24 h-24 sm:w-28 sm:h-28 rounded-full opacity-10 blur-2xl bg-gradient-to-br ${gradient}`}
       />
-      
+
       <div className="relative flex items-center justify-between">
         <div className="flex-1 min-w-0">
           <div className="text-xs sm:text-sm uppercase tracking-wider text-[#5A6C7D] font-bold mb-1">
@@ -449,10 +447,10 @@ function StatCard({ label, value, icon, gradient }) {
           {icon}
         </div>
       </div>
-      
+
       {/* Progress indicator */}
       <div className="mt-3 w-full h-1 rounded-full bg-gray-100 overflow-hidden">
-        <div 
+        <div
           className={`h-full rounded-full bg-gradient-to-r ${gradient} transition-all duration-500`}
           style={{ width: '75%' }}
         />

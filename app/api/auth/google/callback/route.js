@@ -263,7 +263,7 @@ export async function GET(req) {
         role === "admin"
           ? "/dashboard/admin"
           : role === "teacher"
-            ? getTeacherDashboardPath(campus)
+            ? "/dashboard/teacher"
             : "/dashboard/user";
     }
 
