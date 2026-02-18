@@ -18,10 +18,10 @@ function parseCSVLine(line) {
   const result = [];
   let current = '';
   let inQuotes = false;
-  
+
   for (let i = 0; i < line.length; i++) {
     const char = line[i];
-    
+
     if (char === '"') {
       if (inQuotes && line[i + 1] === '"') {
         current += '"';
@@ -88,18 +88,19 @@ export async function POST(req) {
     if (isExcel) {
       // Handle Excel files
       try {
-        const { default: XLSX } = await import("xlsx");
+        const xlsxModule = await import("xlsx");
+        const XLSX = xlsxModule.default || xlsxModule;
         const arrayBuffer = await file.arrayBuffer();
         const workbook = XLSX.read(arrayBuffer, { type: "array" });
         const sheetName = workbook.SheetNames?.[0];
-        
+
         if (!sheetName) {
           return NextResponse.json({ error: "No sheet found in Excel file" }, { status: 400 });
         }
-        
+
         const sheet = workbook.Sheets[sheetName];
         const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
-        
+
         if (rows.length === 0) {
           return NextResponse.json({ error: "No data rows found in Excel file" }, { status: 400 });
         }
@@ -118,7 +119,7 @@ export async function POST(req) {
           regno: ['regno', 'reg', 'registrationnumber', 'registration'],
           name: ['name', 'studentname', 'student'],
           companyname: ['companyname', 'company', 'employer'],
-          package: ['package', 'pkg', 'ctc', 'salary', 'lpa']
+          package: ['package', 'pkg', 'ctc', 'salary', 'lpa', 'packagelpa']
         };
 
         // Find actual column names
@@ -191,7 +192,7 @@ export async function POST(req) {
       // Handle CSV files
       const text = await file.text();
       const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
-      
+
       if (lines.length === 0) {
         return NextResponse.json({ error: "Empty file" }, { status: 400 });
       }
@@ -199,14 +200,14 @@ export async function POST(req) {
       // Parse headers
       const headerLine = parseCSVLine(lines[0]);
       const headers = headerLine.map(normalizeHeader);
-      
+
       const requiredFields = {
         batch: ['batch'],
         branch: ['branch'],
         regno: ['regno', 'reg', 'registrationnumber', 'registration'],
         name: ['name', 'studentname', 'student'],
         companyname: ['companyname', 'company', 'employer'],
-        package: ['package', 'pkg', 'ctc', 'salary', 'lpa']
+        package: ['package', 'pkg', 'ctc', 'salary', 'lpa', 'packagelpa']
       };
 
       // Find column indices
@@ -233,7 +234,7 @@ export async function POST(req) {
       // Process data rows
       lines.slice(1).forEach((line, index) => {
         const cols = parseCSVLine(line);
-        
+
         if (cols.every(c => !c)) return; // Skip empty rows
 
         const batch = (cols[fieldIndices.batch] || "").trim();
@@ -287,7 +288,7 @@ export async function POST(req) {
     const client = await clientPromise;
     const campusParam = req.nextUrl.searchParams.get("campus");
     const campus = campusParam || payload.campus || null;
-    const school = "SOET";
+    const school = "SOVET";
     const dbName = getCampusSchoolDatabase(campus, school);
     const db = client.db(dbName);
     const placementsCollection = db.collection("placements");
@@ -328,7 +329,7 @@ export async function POST(req) {
     }));
 
     const result = await placementsCollection.bulkWrite(operations, { ordered: false });
-    
+
     const inserted = result.upsertedCount || 0;
     const updated = result.modifiedCount || 0;
     const skipped = records.length - inserted - updated;

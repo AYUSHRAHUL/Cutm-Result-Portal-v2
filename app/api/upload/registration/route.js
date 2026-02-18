@@ -204,47 +204,50 @@ export async function POST(req) {
     const db = client.db(dbName);
     const collection = db.collection("RegistrationData");
 
+    // Ensure indexes for fast lookups (idempotent)
+    await collection.createIndex({ Reg_No: 1, Subject_Code: 1, Sem: 1, Type: 1 });
+
     // Check if data already exists for this semester
     const existingCount = await collection.countDocuments({
       Type: 'Registration',
       Sem: dbSemester
     });
 
+    const BATCH_SIZE = 500;
     let updateStrategy = 'replace'; // Default strategy
     let recordsUpdated = 0;
     let recordsInserted = 0;
     let recordsSkipped = 0;
 
     if (existingCount > 0) {
-      console.log(`Found ${existingCount} existing records for ${dbSemester}. Using update strategy.`);
+      console.log(`Found ${existingCount} existing records for ${dbSemester}. Using bulk upsert strategy.`);
 
-      // Use upsert strategy: update existing records, insert new ones
-      for (const record of processedData) {
-        const result = await collection.updateOne(
-          {
-            Reg_No: record.Reg_No,
-            Subject_Code: record.Subject_Code,
-            Sem: dbSemester,
-            Type: 'Registration'
-          },
-          { $set: record },
-          { upsert: true }
-        );
+      // Bulk upsert in batches to avoid N+1 writes
+      for (let i = 0; i < processedData.length; i += BATCH_SIZE) {
+        const batch = processedData.slice(i, i + BATCH_SIZE);
+        const ops = batch.map(record => ({
+          updateOne: {
+            filter: { Reg_No: record.Reg_No, Subject_Code: record.Subject_Code, Sem: dbSemester, Type: 'Registration' },
+            update: { $set: record },
+            upsert: true
+          }
+        }));
 
-        if (result.upsertedCount > 0) {
-          recordsInserted++;
-        } else if (result.modifiedCount > 0) {
-          recordsUpdated++;
-        } else {
-          recordsSkipped++;
-        }
+        if (ops.length === 0) continue;
+        const res = await collection.bulkWrite(ops, { ordered: false });
+        recordsInserted += res.upsertedCount || 0;
+        recordsUpdated += res.modifiedCount || 0;
       }
-    } else {
-      console.log(`No existing records found for ${dbSemester}. Inserting new data.`);
 
-      // Insert all new data
-      const result = await collection.insertMany(processedData);
-      recordsInserted = result.insertedCount;
+      recordsSkipped = Math.max(0, processedData.length - recordsInserted - recordsUpdated);
+    } else {
+      console.log(`No existing records found for ${dbSemester}. Inserting new data in batches.`);
+
+      for (let i = 0; i < processedData.length; i += BATCH_SIZE) {
+        const batch = processedData.slice(i, i + BATCH_SIZE);
+        const res = await collection.insertMany(batch);
+        recordsInserted += res.insertedCount || 0;
+      }
     }
 
     console.log(`Registration data processing complete for ${dbSemester}: ${recordsInserted} inserted, ${recordsUpdated} updated, ${recordsSkipped} skipped`);

@@ -287,6 +287,14 @@ export default function AdminDashboardPKDSOVET() {
               Comprehensive data visualization and insights with Chart.js integration.
             </ModuleCard>
             <ModuleCard
+              title="Placement Management"
+              icon="💼"
+              onClick={() => go("/dashboard/admin/pkd/sovet/placement")}
+              features={["Track Placements", "Upload/Update Data", "Placement Analytics"]}
+            >
+              Manage student placements, track offers, and analyze placement statistics.
+            </ModuleCard>
+            <ModuleCard
               title="Branch & Batch Change"
               icon="🔁"
               onClick={() => go("/dashboard/admin/branch-change")}
@@ -295,14 +303,6 @@ export default function AdminDashboardPKDSOVET() {
               Override a student's branch by Reg_No; applies across all panels.
             </ModuleCard>
 
-            <ModuleCard
-              title="Placement Management"
-              icon="💼"
-              onClick={() => go("/dashboard/admin/pkd/sovet/placement")}
-              features={["Track Placements", "Analytics & Reports", "Export Data"]}
-            >
-              Manage diploma student placements, track companies and packages.
-            </ModuleCard>
 
           </div>
         </div>

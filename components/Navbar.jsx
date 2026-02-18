@@ -80,25 +80,25 @@ export default function Navbar() {
 
   if (!mounted) {
     return (
-      <nav 
+      <nav
         className="text-white flex justify-between items-center px-4 sm:px-6 py-3 min-h-[64px] relative z-50 shadow-lg"
         style={{
           background: "linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)",
         }}
       >
-        <button 
-          className="font-black text-lg sm:text-xl flex items-center gap-2 sm:gap-3 flex-shrink-0 hover:opacity-90 transition-opacity touch-manipulation" 
+        <button
+          className="font-black text-lg sm:text-xl flex items-center gap-2 sm:gap-3 flex-shrink-0 hover:opacity-90 transition-opacity touch-manipulation"
           onClick={() => router.push("/")}
           aria-label="CUTM Portal Home"
         >
           <div className="relative w-12 h-12 sm:w-14 sm:h-14 rounded-xl overflow-hidden shadow-lg ring-2 ring-white/30 bg-white p-1">
-            <Image 
-              src="/cutmlogo.png" 
-              alt="CUTM Logo" 
-              width={56} 
-              height={56} 
-              className="object-contain w-full h-full" 
-              priority 
+            <Image
+              src="/cutmlogo.png"
+              alt="CUTM Logo"
+              width={56}
+              height={56}
+              className="object-contain w-full h-full"
+              priority
             />
           </div>
           <span>CUTM Portal</span>
@@ -110,25 +110,25 @@ export default function Navbar() {
 
   return (
     <>
-      <nav 
+      <nav
         className="text-white flex justify-between items-center px-4 sm:px-6 py-3 min-h-[64px] relative z-50 shadow-lg"
         style={{
           background: "linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)",
         }}
       >
-        <button 
-          className="font-black text-lg sm:text-xl flex items-center gap-2 sm:gap-3 flex-shrink-0 hover:opacity-90 transition-opacity touch-manipulation" 
+        <button
+          className="font-black text-lg sm:text-xl flex items-center gap-2 sm:gap-3 flex-shrink-0 hover:opacity-90 transition-opacity touch-manipulation"
           onClick={() => router.push("/")}
           aria-label="CUTM Portal Home"
         >
           <div className="relative w-12 h-12 sm:w-14 sm:h-14 rounded-xl overflow-hidden shadow-lg ring-2 ring-white/30 bg-white p-1">
-            <Image 
-              src="/cutmlogo.png" 
-              alt="CUTM Logo" 
-              width={56} 
-              height={56} 
-              className="object-contain w-full h-full" 
-              priority 
+            <Image
+              src="/cutmlogo.png"
+              alt="CUTM Logo"
+              width={56}
+              height={56}
+              className="object-contain w-full h-full"
+              priority
             />
           </div>
           <span className="hidden xs:inline">CUTM Portal</span>
@@ -140,11 +140,10 @@ export default function Navbar() {
           <div className="hidden md:flex items-center gap-2 lg:gap-3 mx-2 overflow-x-auto scrollbar-none">
             <button
               onClick={() => router.push("/dashboard/user")}
-              className={`px-3 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all duration-200 touch-manipulation ${
-                isActive("/dashboard/user") && !isActive("/dashboard/user/")
+              className={`px-3 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all duration-200 touch-manipulation ${isActive("/dashboard/user") && !isActive("/dashboard/user/")
                   ? "bg-white text-[#05A3C7] shadow-md"
                   : "bg-white/10 hover:bg-white/20 text-white backdrop-blur-sm"
-              }`}
+                }`}
               title="View Results"
               style={{ minHeight: "40px" }}
             >
@@ -153,11 +152,10 @@ export default function Navbar() {
 
             <button
               onClick={() => router.push("/dashboard/user/basket-track")}
-              className={`px-3 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all duration-200 touch-manipulation ${
-                isActive("/dashboard/user/basket-track") 
-                  ? "bg-white text-[#05A3C7] shadow-md" 
+              className={`px-3 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all duration-200 touch-manipulation ${isActive("/dashboard/user/basket-track")
+                  ? "bg-white text-[#05A3C7] shadow-md"
                   : "bg-white/10 hover:bg-white/20 text-white backdrop-blur-sm"
-              }`}
+                }`}
               title="Basket Track"
               style={{ minHeight: "40px" }}
             >
@@ -166,15 +164,26 @@ export default function Navbar() {
 
             <button
               onClick={() => router.push("/dashboard/user/backlog-track")}
-              className={`px-3 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all duration-200 touch-manipulation ${
-                isActive("/dashboard/user/backlog-track") 
-                  ? "bg-white text-[#05A3C7] shadow-md" 
+              className={`px-3 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all duration-200 touch-manipulation ${isActive("/dashboard/user/backlog-track")
+                  ? "bg-white text-[#05A3C7] shadow-md"
                   : "bg-white/10 hover:bg-white/20 text-white backdrop-blur-sm"
-              }`}
+                }`}
               title="Backlog Track"
               style={{ minHeight: "40px" }}
             >
               ⚠️ Backlogs
+            </button>
+
+            <button
+              onClick={() => router.push("/dashboard/user/placement")}
+              className={`px-3 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all duration-200 touch-manipulation ${isActive("/dashboard/user/placement")
+                  ? "bg-white text-[#05A3C7] shadow-md"
+                  : "bg-white/10 hover:bg-white/20 text-white backdrop-blur-sm"
+                }`}
+              title="Placement Portal"
+              style={{ minHeight: "40px" }}
+            >
+              💼 Placement
             </button>
           </div>
         )}
@@ -216,8 +225,8 @@ export default function Navbar() {
           {/* User Dropdown */}
           {user && !userLoading && (
             <div className="relative user-dropdown">
-              <button 
-                onClick={() => setOpen(v => !v)} 
+              <button
+                onClick={() => setOpen(v => !v)}
                 className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 transition-all duration-200 backdrop-blur-sm touch-manipulation"
                 style={{ minHeight: "44px" }}
               >
@@ -238,10 +247,10 @@ export default function Navbar() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                 </svg>
               </button>
-              
+
               {open && (
                 <div className="absolute right-0 mt-3 w-64 rounded-2xl bg-white text-gray-900 shadow-2xl overflow-hidden z-50 border-2 border-[#05A3C7]/20 animate-fade-in">
-                  <div 
+                  <div
                     className="px-4 py-4 border-b-2 border-[#05A3C7]/10"
                     style={{
                       background: "linear-gradient(135deg, rgba(5,163,199,0.05) 0%, rgba(241,143,1,0.05) 100%)",
@@ -264,7 +273,7 @@ export default function Navbar() {
                       {user?.email || ''}
                     </div>
                   </div>
-                  
+
                   <div className="py-2">
                     <button
                       className="w-full text-left px-4 py-3 text-sm font-bold text-[#2E4057] hover:bg-[#05A3C7]/5 transition-colors flex items-center gap-3 touch-manipulation"
@@ -281,7 +290,7 @@ export default function Navbar() {
                       </svg>
                       View Profile
                     </button>
-                    
+
                     <button
                       className="w-full text-left px-4 py-3 text-sm font-bold text-[#2E4057] hover:bg-[#05A3C7]/5 transition-colors flex items-center gap-3 touch-manipulation"
                       onClick={() => {
@@ -298,7 +307,7 @@ export default function Navbar() {
                       </svg>
                       Edit Profile
                     </button>
-                    
+
                     <button
                       className="w-full text-left px-4 py-3 text-sm font-bold text-[#2E4057] hover:bg-[#05A3C7]/5 transition-colors flex items-center gap-3 touch-manipulation"
                       onClick={() => {
@@ -316,9 +325,9 @@ export default function Navbar() {
                       My Dashboard
                     </button>
                   </div>
-                  
+
                   <div className="border-t-2 border-[#05A3C7]/10" />
-                  
+
                   <button
                     className="w-full text-left px-4 py-3 text-sm font-bold text-red-600 hover:bg-red-50 transition-colors flex items-center gap-3 touch-manipulation"
                     onClick={logout}
@@ -338,11 +347,11 @@ export default function Navbar() {
 
       {/* Mobile Menu Overlay for User Panel */}
       {isUserPanel && !userLoading && mobileMenuOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 md:hidden transition-opacity duration-300"
           onClick={() => setMobileMenuOpen(false)}
         >
-          <div 
+          <div
             className="fixed top-[64px] left-0 right-0 bottom-0 bg-white shadow-2xl transform transition-transform duration-300 ease-out mobile-menu-container overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
             style={{
@@ -356,17 +365,16 @@ export default function Navbar() {
                 </svg>
                 Quick Navigation
               </h3>
-              
+
               <button
                 onClick={() => {
                   setMobileMenuOpen(false);
                   router.push("/dashboard/user");
                 }}
-                className={`w-full text-left px-5 py-4 rounded-xl text-base font-bold transition-all duration-200 flex items-center gap-4 shadow-md touch-manipulation ${
-                  isActive("/dashboard/user") && !isActive("/dashboard/user/")
+                className={`w-full text-left px-5 py-4 rounded-xl text-base font-bold transition-all duration-200 flex items-center gap-4 shadow-md touch-manipulation ${isActive("/dashboard/user") && !isActive("/dashboard/user/")
                     ? "bg-white text-[#05A3C7] border-2 border-[#05A3C7]"
                     : "bg-white text-[#2E4057] border-2 border-transparent hover:border-[#05A3C7]/30"
-                }`}
+                  }`}
                 style={{ minHeight: "56px" }}
               >
                 <span className="text-2xl">📊</span>
@@ -381,11 +389,10 @@ export default function Navbar() {
                   setMobileMenuOpen(false);
                   router.push("/dashboard/user/basket-track");
                 }}
-                className={`w-full text-left px-5 py-4 rounded-xl text-base font-bold transition-all duration-200 flex items-center gap-4 shadow-md touch-manipulation ${
-                  isActive("/dashboard/user/basket-track")
+                className={`w-full text-left px-5 py-4 rounded-xl text-base font-bold transition-all duration-200 flex items-center gap-4 shadow-md touch-manipulation ${isActive("/dashboard/user/basket-track")
                     ? "bg-white text-[#05A3C7] border-2 border-[#05A3C7]"
                     : "bg-white text-[#2E4057] border-2 border-transparent hover:border-[#05A3C7]/30"
-                }`}
+                  }`}
                 style={{ minHeight: "56px" }}
               >
                 <span className="text-2xl">📋</span>
@@ -400,17 +407,34 @@ export default function Navbar() {
                   setMobileMenuOpen(false);
                   router.push("/dashboard/user/backlog-track");
                 }}
-                className={`w-full text-left px-5 py-4 rounded-xl text-base font-bold transition-all duration-200 flex items-center gap-4 shadow-md touch-manipulation ${
-                  isActive("/dashboard/user/backlog-track")
+                className={`w-full text-left px-5 py-4 rounded-xl text-base font-bold transition-all duration-200 flex items-center gap-4 shadow-md touch-manipulation ${isActive("/dashboard/user/backlog-track")
                     ? "bg-white text-[#05A3C7] border-2 border-[#05A3C7]"
                     : "bg-white text-[#2E4057] border-2 border-transparent hover:border-[#05A3C7]/30"
-                }`}
+                  }`}
                 style={{ minHeight: "56px" }}
               >
                 <span className="text-2xl">⚠️</span>
                 <div>
                   <div>Backlog Track</div>
                   <div className="text-xs text-[#5A6C7D] font-medium mt-0.5">View pending subjects</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  router.push("/dashboard/user/placement");
+                }}
+                className={`w-full text-left px-5 py-4 rounded-xl text-base font-bold transition-all duration-200 flex items-center gap-4 shadow-md touch-manipulation ${isActive("/dashboard/user/placement")
+                    ? "bg-white text-[#05A3C7] border-2 border-[#05A3C7]"
+                    : "bg-white text-[#2E4057] border-2 border-transparent hover:border-[#05A3C7]/30"
+                  }`}
+                style={{ minHeight: "56px" }}
+              >
+                <span className="text-2xl">💼</span>
+                <div>
+                  <div>Placement Portal</div>
+                  <div className="text-xs text-[#5A6C7D] font-medium mt-0.5">Check offers & status</div>
                 </div>
               </button>
             </div>

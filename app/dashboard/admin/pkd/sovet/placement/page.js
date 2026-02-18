@@ -198,7 +198,7 @@ function PlacementManagementContent() {
       if (data?.success) {
         setFilterMeta({
           batches: Array.isArray(data.batches) ? data.batches : [],
-          branches: Array.isArray(data.branches) ? data.branches : []
+          branches: [...new Set((Array.isArray(data.branches) ? data.branches : []).map(b => normalizeBranchName(b)).filter(Boolean))].sort()
         });
       }
     } catch (e) {
@@ -473,6 +473,13 @@ function PlacementManagementContent() {
 
     const branchCode = reg.slice(5, 8); // index 5-7
     const map = {
+      "102": "CIVIL",
+      "104": "ELECTRICAL",
+      "105": "MECHANICAL",
+      "109": "CSE",
+      "106": "MINING",
+      "107": "AUTOMOBILE",
+      "103": "E&TC",
       "111": "Civil",
       "112": "CSE",
       "113": "ECE",
@@ -547,28 +554,33 @@ function PlacementManagementContent() {
     const normalized = String(branchName).trim().toUpperCase();
 
     const branchMap = {
-      'CIVIL': 'Civil',
-      'CIVIL ENGINEERING': 'Civil',
-      'CE': 'Civil',
+      'CIVIL': 'CIVIL',
+      'CIVIL ENGINEERING': 'CIVIL',
+      'CE': 'CIVIL',
       'CSE': 'CSE',
       'COMPUTER SCIENCE ENGINEERING': 'CSE',
       'COMPUTER SCIENCE AND ENGINEERING': 'CSE',
       'COMPUTER SCIENCE': 'CSE',
-      'ECE': 'ECE',
-      'EC': 'ECE',
-      'E&C': 'ECE',
-      'ELECTRONICS & COMMUNICATION ENGINEERING': 'ECE',
-      'ELECTRONICS AND COMMUNICATION ENGINEERING': 'ECE',
-      'ELECTRONICS & COMMUNICATION': 'ECE',
-      'EEE': 'EEE',
-      'EE': 'EEE',
-      'ELECTRICAL & ELECTRONICS ENGINEERING': 'EEE',
-      'ELECTRICAL AND ELECTRONICS ENGINEERING': 'EEE',
-      'ELECTRICAL ENGINEERING': 'EEE',
-      'MECHANICAL': 'MECH',
-      'MECHANICAL ENGINEERING': 'MECH',
-      'MECH': 'MECH',
-      'ME': 'MECH',
+      'ELECTRICAL': 'ELECTRICAL',
+      'ELECTRICAL ENGINEERING': 'ELECTRICAL',
+      'EE': 'ELECTRICAL',
+      'EEE': 'ELECTRICAL',
+      'MECHANICAL': 'MECHANICAL',
+      'MECHANICAL ENGINEERING': 'MECHANICAL',
+      'MECH': 'MECHANICAL',
+      'ME': 'MECHANICAL',
+      'MINING': 'MINING',
+      'MINING ENGINEERING': 'MINING',
+      'AUTOMOBILE': 'AUTOMOBILE',
+      'AUTOMOBILE ENGINEERING': 'AUTOMOBILE',
+      'E&TC': 'E&TC',
+      'ELECTRONICS & TELECOMMUNICATION': 'E&TC',
+      'ECE': 'E&TC',
+      'EC': 'E&TC',
+      'E&C': 'E&TC',
+      'ELECTRONICS & COMMUNICATION ENGINEERING': 'E&TC',
+      'ELECTRONICS AND COMMUNICATION ENGINEERING': 'E&TC',
+      'ELECTRONICS & COMMUNICATION': 'E&TC',
       'AIML': 'CSE AIML',
       'CSE AIML': 'CSE AIML',
       'AI AND ML': 'CSE AIML',
@@ -655,10 +667,10 @@ function PlacementManagementContent() {
 
       let uniqueBranches = [
         ...new Set([
-          ...Object.keys(totalStudentsByBranch),
+          ...Object.keys(totalStudentsByBranch).map(b => normalizeBranchName(b)),
           ...allPlacements.map((p) => normalizeBranchName(p.branch)).filter(Boolean)
         ])
-      ].sort();
+      ].filter(Boolean).sort();
 
       // Calculate total students count (7th sem only)
       const totalStudentsCount = totalUniqueStudents;
@@ -1817,8 +1829,8 @@ function PlacementManagementContent() {
                                           <span
                                             key={cIdx}
                                             className={`inline-block mr-2 mb-1 px-2 py-1 rounded text-xs ${isJoined
-                                                ? 'bg-green-100 text-green-800 font-semibold border-2 border-green-500'
-                                                : 'bg-gray-100 text-gray-700'
+                                              ? 'bg-green-100 text-green-800 font-semibold border-2 border-green-500'
+                                              : 'bg-gray-100 text-gray-700'
                                               }`}
                                             title={company}
                                           >
@@ -1953,8 +1965,8 @@ function PlacementManagementContent() {
                                           <span
                                             key={cIdx}
                                             className={`inline-block mr-2 mb-1 px-2 py-1 rounded text-xs ${isJoined
-                                                ? 'bg-green-100 text-green-800 font-semibold border-2 border-green-500'
-                                                : 'bg-gray-100 text-gray-700'
+                                              ? 'bg-green-100 text-green-800 font-semibold border-2 border-green-500'
+                                              : 'bg-gray-100 text-gray-700'
                                               }`}
                                             title={company}
                                           >
@@ -2031,8 +2043,8 @@ function PlacementManagementContent() {
                                           <span
                                             key={cIdx}
                                             className={`inline-block mr-2 mb-1 px-2 py-1 rounded text-xs ${isJoined
-                                                ? 'bg-green-100 text-green-800 font-semibold border-2 border-green-500'
-                                                : 'bg-gray-100 text-gray-700'
+                                              ? 'bg-green-100 text-green-800 font-semibold border-2 border-green-500'
+                                              : 'bg-gray-100 text-gray-700'
                                               }`}
                                             title={company}
                                           >
@@ -2114,8 +2126,8 @@ function PlacementManagementContent() {
                                           <span
                                             key={cIdx}
                                             className={`inline-block mr-2 mb-1 px-2 py-1 rounded text-xs ${isJoined
-                                                ? 'bg-green-100 text-green-800 font-semibold border-2 border-green-500'
-                                                : 'bg-gray-100 text-gray-700'
+                                              ? 'bg-green-100 text-green-800 font-semibold border-2 border-green-500'
+                                              : 'bg-gray-100 text-gray-700'
                                               }`}
                                             title={company}
                                           >

@@ -43,7 +43,9 @@ export async function DELETE(req) {
     }
 
     const client = await clientPromise;
-    const campus = payload.campus || null;
+    const { searchParams } = new URL(req.url);
+    const campusParam = searchParams.get("campus");
+    const campus = campusParam || payload.campus || null;
     const school = 'SOVET';
     const dbName = getCampusSchoolDatabase(campus, school);
     const db = client.db(dbName);

@@ -14,8 +14,8 @@ async function verifyToken(token) {
 }
 
 /**
- * POST /api/soet/result-data/otp
- * Generate and send OTP for deletion authentication
+ * POST /api/sovet/result-data/otp
+ * Generate and send OTP for deletion authentication (diploma)
  */
 export async function POST(req) {
   try {
@@ -64,7 +64,7 @@ export async function POST(req) {
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8f9fa;">
         <div style="background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); padding: 30px; border-radius: 10px; text-align: center; margin-bottom: 20px;">
           <h1 style="color: white; margin: 0; font-size: 28px;">CUTM Result Portal</h1>
-          <p style="color: white; margin: 10px 0 0 0; opacity: 0.9;">Subject Data Deletion - OTP Verification</p>
+          <p style="color: white; margin: 10px 0 0 0; opacity: 0.9;">Diploma Subject Data Deletion - OTP Verification</p>
         </div>
         
         <div style="background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
@@ -76,7 +76,7 @@ export async function POST(req) {
           <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0;">
             <p style="margin: 5px 0;"><strong>Subject:</strong> ${subject}</p>
             <p style="margin: 5px 0;"><strong>Batch:</strong> ${batch}</p>
-            <p style="margin: 5px 0;"><strong>Branch:</strong> ${branch}</p>
+            <p style="margin: 5px 0;"><strong>Branch/Program:</strong> ${branch}</p>
             <p style="margin: 5px 0;"><strong>Semester:</strong> ${semester}</p>
           </div>
           
@@ -101,19 +101,16 @@ export async function POST(req) {
             </p>
           </div>
         </div>
-        
-        <div style="text-align: center; margin-top: 20px; color: #6c757d; font-size: 12px;">
-          <p>© 2025 CUTM Result Portal. All rights reserved.</p>
-          <p>This is an automated message. Please do not reply to this email.</p>
-        </div>
       </div>
     `;
 
-    await sendEmail({
-      to: adminEmail,
-      subject: 'CUTM Portal - Subject Data Deletion OTP',
-      html: emailHtml
-    });
+    const emailResult = await sendEmail(adminEmail, "Subject Data Deletion OTP", emailHtml);
+
+    if (!emailResult.success) {
+      return NextResponse.json({
+        error: "Failed to send OTP email"
+      }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,
@@ -121,28 +118,9 @@ export async function POST(req) {
     });
 
   } catch (error) {
-    console.error('Error sending OTP:', error);
+    console.error('Error generating OTP:', error);
     return NextResponse.json({
-      error: `Failed to send OTP: ${error.message}`
+      error: `Failed to generate OTP: ${error.message}`
     }, { status: 500 });
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

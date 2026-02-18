@@ -35,10 +35,15 @@ export async function POST(req) {
         const client = await clientPromise;
         const db = await (async () => { const { getDatabaseFromRequest } = await import("@/lib/db-helper"); const dbName = await getDatabaseFromRequest(req); return client.db(dbName); })();
 
+        // Create unique index on SubjectCode to prevent duplicates and speed lookups
+        const skillCol = db.collection("skill_courses");
+        await skillCol.createIndex({ SubjectCode: 1 }, { unique: true, background: true });
+
         let successCount = 0;
         let failedCount = 0;
         let duplicates = 0;
 
+        const ops = [];
         for (const row of data) {
             // Normalize keys (trim spaces, handle variations)
             const normalizedRow = {};
@@ -51,29 +56,32 @@ export async function POST(req) {
             });
 
             if (normalizedRow.SubjectCode && normalizedRow.SubjectName) {
-                // Check for duplicate
-                const existing = await db.collection("skill_courses").findOne({
-                    SubjectCode: normalizedRow.SubjectCode
+                ops.push({
+                    updateOne: {
+                        filter: { SubjectCode: normalizedRow.SubjectCode },
+                        update: {
+                            $setOnInsert: {
+                                SubjectCode: normalizedRow.SubjectCode,
+                                SubjectName: normalizedRow.SubjectName,
+                                Credits: normalizedRow.Credits || "0",
+                                Type: "Skill",
+                                Category: normalizedRow.Category || "",
+                                createdAt: new Date(),
+                                updatedAt: new Date()
+                            }
+                        },
+                        upsert: true
+                    }
                 });
-
-                if (existing) {
-                    duplicates++;
-                    continue;
-                }
-
-                await db.collection("skill_courses").insertOne({
-                    SubjectCode: normalizedRow.SubjectCode,
-                    SubjectName: normalizedRow.SubjectName,
-                    Credits: normalizedRow.Credits || "0",
-                    Type: "Skill",
-                    Category: normalizedRow.Category || "",
-                    createdAt: new Date(),
-                    updatedAt: new Date()
-                });
-                successCount++;
             } else {
                 failedCount++;
             }
+        }
+
+        if (ops.length > 0) {
+            const res = await skillCol.bulkWrite(ops, { ordered: false });
+            successCount = res.upsertedCount || 0;
+            duplicates = ops.length - successCount - failedCount;
         }
 
         return NextResponse.json({

@@ -208,8 +208,82 @@ export async function POST(req) {
 }
 
 /**
- * Delete a student's subject record (admin/teacher only)
+ * Update a student's grade (admin/teacher only)
  */
+export async function PUT(req) {
+  try {
+    const token = req.cookies.get("token")?.value;
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized - Please login first" }, { status: 401 });
+    }
+
+    const payload = await verifyToken(token);
+    if (!payload?.email) {
+      return NextResponse.json({ error: "Unauthorized - Invalid token" }, { status: 401 });
+    }
+
+    const role = String(payload.role || "").toLowerCase();
+    if (!["admin", "teacher", "superadmin"].includes(role)) {
+      return NextResponse.json({ error: "Access denied - Only admin or teacher can update grades" }, { status: 403 });
+    }
+
+    const body = await req.json();
+    const { Reg_No, Subject_Code, Sem, Grade } = body || {};
+
+    // Basic validations
+    if (!Reg_No || !Subject_Code || !Sem || !Grade) {
+      return NextResponse.json({ error: "Reg_No, Subject_Code, Sem and Grade are required" }, { status: 400 });
+    }
+
+    const grade = String(Grade).trim().toUpperCase();
+    const validGrades = ["O", "E", "A", "B", "C", "D", "F", "S", "M", "I", "R"];
+    if (!validGrades.includes(grade)) {
+      return NextResponse.json({ error: "Invalid grade value" }, { status: 400 });
+    }
+
+    const client = await clientPromise;
+    const { searchParams } = new URL(req.url);
+    const campusParam = searchParams.get("campus");
+    const campus = campusParam || payload.campus || null;
+
+    // Force school to SOVET
+    const school = "SOVET";
+    const dbName = getCampusSchoolDatabase(campus, school);
+    const db = client.db(dbName);
+    const cutm = db.collection("result");
+
+    const filter = {
+      Reg_No: String(Reg_No).toUpperCase(),
+      Subject_Code: String(Subject_Code).toUpperCase(),
+      Sem: String(Sem).trim(),
+    };
+
+    const update = {
+      $set: {
+        Grade: grade,
+        Updated_By: payload.email,
+        Updated_At: new Date(),
+      },
+    };
+
+    const updateResult = await cutm.updateOne(filter, update);
+
+    if (updateResult.matchedCount === 0) {
+      return NextResponse.json({ error: "Record not found" }, { status: 404 });
+    }
+
+    const updated = await cutm.findOne(filter, { projection: { _id: 0 } });
+
+    return NextResponse.json({
+      success: true,
+      message: "Grade updated successfully",
+      record: updated,
+    });
+  } catch (err) {
+    console.error("/api/sovet/students PUT error", err);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
+}
 export async function DELETE(req) {
   try {
     const token = req.cookies.get("token")?.value;

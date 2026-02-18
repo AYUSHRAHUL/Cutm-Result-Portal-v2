@@ -13,38 +13,50 @@ async function verifyToken(token) {
   }
 }
 
-// Map long branch names to short codes used in placements UI
+// Map long Diploma branch names to short codes
 function toShortBranch(branch) {
   if (!branch) return null;
-  const b = String(branch).trim().toLowerCase();
+  const b = String(branch).trim().toUpperCase();
 
-  // Check AIML first (before CSE check)
-  if (b.includes("aiml") || b.includes("artificial")) return "CSE AIML";
+  const branchMap = {
+    'CIVIL': 'Civil',
+    'CIVIL ENGINEERING': 'Civil',
+    'DIPLOMA IN CIVIL ENGINEERING': 'Civil',
+    'CSE': 'CSE',
+    'COMPUTER SCIENCE': 'CSE',
+    'COMPUTER SCIENCE & ENGINEERING': 'CSE',
+    'DIPLOMA IN COMPUTER SCIENCE & ENGINEERING': 'CSE',
+    'ELECTRICAL': 'Electrical',
+    'ELECTRICAL ENGINEERING': 'Electrical',
+    'DIPLOMA IN ELECTRICAL ENGINEERING': 'Electrical',
+    'MECHANICAL': 'Mechanical',
+    'MECHANICAL ENGINEERING': 'Mechanical',
+    'DIPLOMA IN MECHANICAL ENGINEERING': 'Mechanical',
+    'MINING': 'Mining',
+    'MINING ENGINEERING': 'Mining',
+    'DIPLOMA IN MINING ENGINEERING': 'Mining',
+    'AUTOMOBILE': 'Automobile',
+    'AUTOMOBILE ENGINEERING': 'Automobile',
+    'DIPLOMA IN AUTOMOBILE ENGINEERING': 'Automobile'
+  };
 
-  // Civil variations
-  if (b.includes("civil")) return "Civil";
+  // Direct map check
+  if (branchMap[b]) return branchMap[b];
 
-  // CSE variations
-  if (b.includes("computer") || b === "cse") return "CSE";
-
-  // ECE variations - check multiple patterns
-  if (b.includes("electronics") && (b.includes("communication") || b.includes("comm"))) return "ECE";
-  if (b === "ece" || b === "ec" || b === "e&c" || b === "e & c") return "ECE";
-  if (b.includes("e&c") || b.includes("e & c")) return "ECE";
-
-  // EEE variations
-  if (b.includes("electrical") || b === "eee" || b === "ee") return "EEE";
-
-  // Mechanical variations
-  if (b.includes("mechanical") || b.includes("mech") || b === "me") return "MECH";
+  // Fuzzy check
+  if (b.includes("CIVIL")) return "Civil";
+  if (b.includes("COMPUTER") || b.includes("CSE")) return "CSE";
+  if (b.includes("ELECTRICAL")) return "Electrical";
+  if (b.includes("MECHANICAL") || b.includes("MECH")) return "Mechanical";
+  if (b.includes("MINING")) return "Mining";
+  if (b.includes("AUTOMOBILE")) return "Automobile";
 
   return branch;
 }
 
 /**
- * GET /api/soet/placement/student-strength
- * Returns unique student counts by branch & batch using Sem 7 registration data.
- * Used for accurate Total Students in placement analytics/report.
+ * GET /api/sovet/placement/student-strength
+ * Returns unique student counts by branch & batch using Sem 5/6 registration data (Diploma).
  */
 export async function GET(req) {
   try {
@@ -72,7 +84,7 @@ export async function GET(req) {
     const campus = campusParam || payload.campus || null;
 
     const client = await clientPromise;
-    const school = "SOET";
+    const school = "SOVET";
     const dbName = getCampusSchoolDatabase(campus, school);
     const db = client.db(dbName);
 
@@ -86,8 +98,9 @@ export async function GET(req) {
       placementMatch.batch = batchParam;
     }
 
-    // Fetch only 7th semester rows from both RegistrationData and result
-    const semVariants = ["Sem 7", "SEM 7", "sem 7", "7"];
+    // Fetch final year/sem students (Diploma is 3 years, so Sem 5/6)
+    // Adjust sem variants for Diploma
+    const semVariants = ["Sem 5", "SEM 5", "sem 5", "5", "Sem 6", "SEM 6", "sem 6", "6"];
 
     const [regDocs, resultDocs, placementAgg] = await Promise.all([
       registrationCol
@@ -125,8 +138,9 @@ export async function GET(req) {
       });
     }
 
-    const { parseBTechRegistration, getBranchFromRegistration } = await import(
-      "@/app/api/soet/parse-registration/route"
+    // Import Diploma parser
+    const { parseDiplomaRegistration, getBranchFromRegistration } = await import(
+      "@/app/api/sovet/parse-registration/route"
     );
 
     const unique = new Map(); // reg -> { branchShort, batch }
@@ -138,9 +152,9 @@ export async function GET(req) {
       const reg = String(regRaw).trim();
       if (!reg) continue;
 
-      // Parse using central SOET parser for accuracy
-      const parsed = parseBTechRegistration(reg);
-      if (!parsed || !parsed.isValid || !parsed.isBTech) continue;
+      // Parse using Diploma parser
+      const parsed = parseDiplomaRegistration(reg);
+      if (!parsed || !parsed.isValid) continue;
 
       const longBranch =
         getBranchFromRegistration(reg, doc.Department) || parsed.branch || doc.Department;
@@ -160,7 +174,7 @@ export async function GET(req) {
       }
     }
 
-    // Also include result data (students who may be missing from RegistrationData)
+    // Also include result data
     for (const doc of resultDocs) {
       const regRaw = doc.Reg_No;
       if (!regRaw) continue;
@@ -169,8 +183,8 @@ export async function GET(req) {
 
       if (unique.has(reg)) continue; // already counted via registration
 
-      const parsed = parseBTechRegistration(reg);
-      if (!parsed || !parsed.isValid || !parsed.isBTech) continue;
+      const parsed = parseDiplomaRegistration(reg);
+      if (!parsed || !parsed.isValid) continue;
 
       const longBranch =
         getBranchFromRegistration(reg, doc.Branch || doc.Department) ||

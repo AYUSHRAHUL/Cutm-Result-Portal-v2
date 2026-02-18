@@ -111,6 +111,8 @@ export async function POST(req) {
         const dbName = getCampusSchoolDatabase(campus, school);
         const db = client.db(dbName);
         const registrationCollection = db.collection("RegistrationData");
+        // Ensure index for fast upserts
+        await registrationCollection.createIndex({ Reg_No: 1, Subject_Code: 1, Type: 1 });
 
         // Import parser to verify B.Tech students
         const { parseBTechRegistration } = await import('../../parse-registration/route');
@@ -235,19 +237,25 @@ export async function POST(req) {
                 }
             }
 
-            // 3. Third Pass: Database Upsert
-            for (const doc of aggregatedMap.values()) {
-                // Add Metadata
-                doc.Type = "Registration";
-                doc.UpdatedAt = new Date();
+            // 3. Third Pass: Database Upsert (bulk)
+            const docs = Array.from(aggregatedMap.values());
+            const BATCH_SIZE = 500;
+            for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+                const batch = docs.slice(i, i + BATCH_SIZE).map(doc => {
+                    doc.Type = "Registration";
+                    doc.UpdatedAt = new Date();
+                    return {
+                        updateOne: {
+                            filter: { Reg_No: doc.Reg_No, Subject_Code: doc.Subject_Code, Type: "Registration" },
+                            update: { $set: doc },
+                            upsert: true
+                        }
+                    };
+                });
 
-                // Upsert with strictly Reg_No + Subject_Code
-                await registrationCollection.updateOne(
-                    { Reg_No: doc.Reg_No, Subject_Code: doc.Subject_Code, Type: "Registration" },
-                    { $set: doc },
-                    { upsert: true }
-                );
-                insertedCount++;
+                if (batch.length === 0) continue;
+                const res = await registrationCollection.bulkWrite(batch, { ordered: false });
+                insertedCount += (res.upsertedCount || 0) + (res.modifiedCount || 0);
             }
 
         } catch (fileError) {

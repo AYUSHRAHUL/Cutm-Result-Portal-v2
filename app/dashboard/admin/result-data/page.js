@@ -9,6 +9,16 @@ function ResultDataManagementContent() {
   const school = searchParams.get('school') || 'soet';
   const campus = searchParams.get('campus') || 'pkd';
 
+  const [selectedProgram, setSelectedProgram] = useState(school);
+
+  // Helper function to get school-specific API URL based on selected program
+  const getApiUrl = (endpoint) => {
+    const schoolPath = selectedProgram === 'sovet' ? 'sovet' : 'soet';
+    const basePath = `/api/${schoolPath}/${endpoint}`;
+    const campusParam = campus ? `?campus=${campus}` : '';
+    return basePath + campusParam;
+  };
+
   const [selectedBatch, setSelectedBatch] = useState("");
   const [selectedBranch, setSelectedBranch] = useState("");
   const [selectedSemester, setSelectedSemester] = useState("");
@@ -21,6 +31,20 @@ function ResultDataManagementContent() {
   const [loading, setLoading] = useState(false);
   const [loadingBatches, setLoadingBatches] = useState(true);
   const [error, setError] = useState("");
+
+  // Handle program selection change
+  const handleProgramChange = (newProgram) => {
+    setSelectedProgram(newProgram);
+    localStorage.setItem('selectedSchool', newProgram);
+    localStorage.setItem('school', newProgram);
+    // Reset filters when switching programs
+    setSelectedBatch("");
+    setSelectedBranch("");
+    setSelectedSemester("");
+    setBatches([]);
+    setBranches([]);
+    setSubjects([]);
+  };
 
   // OTP for subject deletion
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -44,8 +68,8 @@ function ResultDataManagementContent() {
   // Set localStorage
   useEffect(() => {
     if (campus) localStorage.setItem('selectedCampus', campus);
-    if (school) localStorage.setItem('selectedSchool', school);
-  }, [campus, school]);
+    if (selectedProgram) localStorage.setItem('selectedSchool', selectedProgram);
+  }, [campus, selectedProgram]);
 
   // Fetch batches
   useEffect(() => {
@@ -55,7 +79,7 @@ function ResultDataManagementContent() {
         setError("");
         
         // Build URL with explicit campus and school params
-        const batchesUrl = getSchoolApiUrl('result-data/batches');
+        const batchesUrl = getApiUrl('result-data/batches');
         console.log('Fetching batches from:', batchesUrl);
         
         // Try dedicated batches endpoint first
@@ -78,7 +102,7 @@ function ResultDataManagementContent() {
         }
         
         // Fallback to analytics API
-        response = await fetch(getSchoolApiUrl('analytics'), {
+        response = await fetch(getApiUrl('analytics'), {
           credentials: 'include'
         });
         
@@ -105,7 +129,7 @@ function ResultDataManagementContent() {
     };
     
     fetchBatches();
-  }, [school, campus]);
+  }, [selectedProgram, campus]);
 
   // Fetch branches when batch is selected
   useEffect(() => {
@@ -117,7 +141,7 @@ function ResultDataManagementContent() {
     const fetchBranches = async () => {
       try {
         // Try dedicated branches endpoint first
-        let response = await fetch(`${getSchoolApiUrl('result-data/branches')}?batch=${selectedBatch}`, {
+        let response = await fetch(`${getApiUrl('result-data/branches')}?batch=${selectedBatch}`, {
           credentials: 'include'
         });
         
@@ -132,7 +156,7 @@ function ResultDataManagementContent() {
         }
         
         // Fallback to analytics API
-        response = await fetch(`${getSchoolApiUrl('analytics')}?batch=${selectedBatch}`, {
+        response = await fetch(`${getApiUrl('analytics')}?batch=${selectedBatch}`, {
           credentials: 'include'
         });
         
@@ -177,7 +201,7 @@ function ResultDataManagementContent() {
           return;
         }
 
-        const baseUrl = getSchoolApiUrl('result-data/subjects');
+        const baseUrl = getApiUrl('result-data/subjects');
         // Check if baseUrl already has query params
         const separator = baseUrl.includes('?') ? '&' : '?';
         
@@ -233,7 +257,7 @@ function ResultDataManagementContent() {
     setStudents([]);
 
     try {
-      const baseUrl = getSchoolApiUrl('result-data/students');
+      const baseUrl = getApiUrl('result-data/students');
       const separator = baseUrl.includes('?') ? '&' : '?';
       
       const params = new URLSearchParams({
@@ -286,7 +310,7 @@ function ResultDataManagementContent() {
     if (!editingStudent) return;
 
     try {
-      const baseUrl = getSchoolApiUrl('result-data/student/update');
+      const baseUrl = getApiUrl('result-data/student/update');
       const response = await fetch(baseUrl, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -321,7 +345,7 @@ function ResultDataManagementContent() {
     }
 
     try {
-      const baseUrl = getSchoolApiUrl('result-data/student/delete');
+      const baseUrl = getApiUrl('result-data/student/delete');
       const response = await fetch(baseUrl, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
@@ -373,7 +397,7 @@ function ResultDataManagementContent() {
 
   const handleRequestOTP = async () => {
     try {
-      const response = await fetch(getSchoolApiUrl('result-data/otp'), {
+      const response = await fetch(getApiUrl('result-data/otp'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -381,7 +405,8 @@ function ResultDataManagementContent() {
           subject: selectedSubject.code,
           batch: selectedBatch,
           branch: selectedBranch,
-          semester: selectedSemester
+          semester: selectedSemester,
+          campus: campus
         })
       });
 
@@ -405,7 +430,7 @@ function ResultDataManagementContent() {
     }
 
     try {
-      const response = await fetch(getSchoolApiUrl('result-data/delete'), {
+      const response = await fetch(getApiUrl('result-data/delete'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -414,6 +439,7 @@ function ResultDataManagementContent() {
           batch: selectedBatch,
           branch: selectedBranch,
           semester: selectedSemester,
+          campus: campus,
           otp: otp.trim()
         })
       });
@@ -451,6 +477,33 @@ function ResultDataManagementContent() {
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
           <h1 className="text-3xl font-bold text-gray-800 mb-2">Result Data Management</h1>
           <p className="text-gray-600">Filter by batch, branch, and semester to view and manage subject data</p>
+        </div>
+
+        {/* Program Selector */}
+        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+          <h2 className="text-sm font-semibold text-gray-600 mb-3 uppercase">Select Program</h2>
+          <div className="flex gap-3">
+            <button
+              onClick={() => handleProgramChange('soet')}
+              className={`px-6 py-3 rounded-lg font-medium transition-all ${
+                selectedProgram === 'soet'
+                  ? 'bg-blue-600 text-white shadow-lg'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              B.Tech (SOET)
+            </button>
+            <button
+              onClick={() => handleProgramChange('sovet')}
+              className={`px-6 py-3 rounded-lg font-medium transition-all ${
+                selectedProgram === 'sovet'
+                  ? 'bg-purple-600 text-white shadow-lg'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Diploma (SOVET)
+            </button>
+          </div>
         </div>
 
         {/* Filters */}

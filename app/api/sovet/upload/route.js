@@ -105,6 +105,8 @@ export async function POST(req) {
     const dbName = getCampusSchoolDatabase(campus, school);
     const db = client.db(dbName);
     const cutmCollection = db.collection("result");
+    // Ensure index for result lookups
+    await cutmCollection.createIndex({ Reg_No: 1, Subject_Code: 1 }, { background: true });
 
     // Import parser to verify Diploma students
     const { parseDiplomaRegistration } = await import('../parse-registration/route');
@@ -153,17 +155,17 @@ export async function POST(req) {
         let fileInserted = 0;
         let skippedNonDiploma = 0;
 
+        // Parse rows first and prepare for batched DB operations
+        const rowsToProcess = [];
         for (const row of data) {
           const regNo = String(row[regNoCol] || "").trim().toUpperCase();
           const subjectCode = String(row[subjectCodeCol] || "").trim().toUpperCase();
-          
           if (!regNo || !subjectCode) continue;
 
-          // Verify this is a Diploma student
           const parsed = parseDiplomaRegistration(regNo);
           if (!parsed || !parsed.isValid || !parsed.isDiploma) {
             skippedNonDiploma++;
-            continue; // Skip non-Diploma students
+            continue;
           }
 
           const subjectName = String(row[subjectNameCol] || "").trim();
@@ -172,35 +174,56 @@ export async function POST(req) {
           const credits = String(row[creditsCol] || "").trim();
           const grade = String(row[gradeCol] || "").trim().toUpperCase();
           const subjectType = String(row[subjectTypeCol] || "").trim();
-          
           const semValue = sem && sem.match(/^\d+$/) ? `Sem ${sem}` : sem;
 
-          const existingRecord = await cutmCollection.findOne(
-            { Reg_No: regNo, Subject_Code: subjectCode },
-            { projection: { Grade: 1 } }
-          );
+          rowsToProcess.push({ regNo, subjectCode, subjectName, name, semValue, credits, grade, subjectType });
+        }
 
-          if (existingRecord) {
-            const currentGrade = existingRecord.Grade || '';
-            if (['F', 'S', 'M', 'I', 'R', ''].includes(currentGrade)) {
-              await cutmCollection.updateOne(
-                { Reg_No: regNo, Subject_Code: subjectCode },
-                { $set: { Grade: grade } }
-              );
-              fileUpdated++;
+        // Process in batches to avoid N+1 DB operations
+        const BATCH_SIZE = 500;
+        for (let i = 0; i < rowsToProcess.length; i += BATCH_SIZE) {
+          const batch = rowsToProcess.slice(i, i + BATCH_SIZE);
+
+          // Find existing records for this batch in a single query
+          const filters = batch.map(r => ({ Reg_No: r.regNo, Subject_Code: r.subjectCode }));
+          const existingDocs = await cutmCollection.find({ $or: filters }, { projection: { Reg_No: 1, Subject_Code: 1, Grade: 1 } }).toArray();
+          const existingMap = new Map(existingDocs.map(d => [`${d.Reg_No}::${d.Subject_Code}`, d]));
+
+          const ops = [];
+          for (const r of batch) {
+            const key = `${r.regNo}::${r.subjectCode}`;
+            const existing = existingMap.get(key);
+
+            if (existing) {
+              const currentGrade = (existing.Grade || '').toUpperCase();
+              if (['F', 'S', 'M', 'I', 'R', ''].includes(currentGrade)) {
+                ops.push({
+                  updateOne: {
+                    filter: { Reg_No: r.regNo, Subject_Code: r.subjectCode },
+                    update: { $set: { Grade: r.grade } }
+                  }
+                });
+                fileUpdated++;
+              }
+            } else {
+              ops.push({
+                insertOne: { document: {
+                  Reg_No: r.regNo,
+                  Subject_Code: r.subjectCode,
+                  Grade: r.grade,
+                  Name: r.name,
+                  Sem: r.semValue,
+                  Subject_Name: r.subjectName,
+                  Subject_Type: r.subjectType,
+                  Credits: r.credits
+                } }
+              });
+              fileInserted++;
             }
-          } else {
-            await cutmCollection.insertOne({
-              Reg_No: regNo,
-              Subject_Code: subjectCode,
-              Grade: grade,
-              Name: name,
-              Sem: semValue,
-              Subject_Name: subjectName,
-              Subject_Type: subjectType,
-              Credits: credits
-            });
-            fileInserted++;
+          }
+
+          if (ops.length > 0) {
+            await cutmCollection.bulkWrite(ops, { ordered: false });
           }
         }
 

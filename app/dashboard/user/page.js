@@ -10,7 +10,7 @@ import { FaGithub, FaLinkedinIn, FaTwitter, FaFacebookF } from "react-icons/fa";
 
 export default function UserDashboard() {
   const router = useRouter();
-  
+
   // Existing state
   const [registration, setRegistration] = useState("");
   const [semesters, setSemesters] = useState([]);
@@ -18,7 +18,7 @@ export default function UserDashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [user, setUser] = useState(null);
-  
+
   // Enhanced UI state
   const [isLoading, setIsLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState('Loading CUTM Portal...');
@@ -79,18 +79,18 @@ export default function UserDashboard() {
           const data = await response.json();
           const userData = data.user || data; // Handle both response formats
           setUser(userData);
-          
-    // User data loaded successfully
-    console.log('User data loaded:', userData);
-    
-    // Auto-fill registration number for user's own results
-    // Support both @cutm.ac.in and @centurionuniv.edu.in domains
-    if (userData.email && (userData.email.includes('@cutm.ac.in') || userData.email.includes('@centurionuniv.edu.in'))) {
-      const regNumber = userData.email.split('@')[0];
-      setRegistration(regNumber);
-      console.log('Auto-filled registration number:', regNumber, 'Length:', regNumber.length);
-      console.log('Registration type:', typeof regNumber);
-    }
+
+          // User data loaded successfully
+          console.log('User data loaded:', userData);
+
+          // Auto-fill registration number for user's own results
+          // Support both @cutm.ac.in and @centurionuniv.edu.in domains
+          if (userData.email && (userData.email.includes('@cutm.ac.in') || userData.email.includes('@centurionuniv.edu.in'))) {
+            const regNumber = userData.email.split('@')[0];
+            setRegistration(regNumber);
+            console.log('Auto-filled registration number:', regNumber, 'Length:', regNumber.length);
+            console.log('Registration type:', typeof regNumber);
+          }
         }
       } catch (error) {
         console.error('Error fetching user data:', error);
@@ -104,7 +104,7 @@ export default function UserDashboard() {
   useEffect(() => {
     const handleScroll = () => {
       const scrollTop = window.pageYOffset;
-      
+
       if (scrollTop > 100) {
         setShowScrollTop(true);
       } else {
@@ -128,11 +128,11 @@ export default function UserDashboard() {
     try {
       setLoading(true);
       setError("");
-      
+
       // For user panel, determine school from registration number
       const school = getSchoolFromRegistration(reg);
       const semestersApiUrl = school === 'SOVET' ? '/api/sovet/semesters' : '/api/soet/semesters';
-      
+
       const res = await fetch(semestersApiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -185,7 +185,7 @@ export default function UserDashboard() {
     setRegistration(reg);
     setError("");
     setSelectedSemesters([]); // Reset selection when registration changes
-    
+
     // Auto-fetch when registration has 6+ characters
     if (reg.length >= 6) {
       fetchSemesters(reg);
@@ -197,15 +197,15 @@ export default function UserDashboard() {
   // Your original form submission
   const handleViewResult = async (e) => {
     e.preventDefault();
-    
+
     console.log('Form submission - Registration:', registration, 'Type:', typeof registration, 'Length:', registration?.length);
     console.log('Selected semesters:', selectedSemesters);
-    
+
     if (!registration || registration.trim() === '') {
       setError("⚠️ Please enter a valid registration number");
       return;
     }
-    
+
     if (selectedSemesters.length === 0) {
       setError("📅 Please select at least one semester to search");
       return;
@@ -213,13 +213,13 @@ export default function UserDashboard() {
 
     setIsFormSubmitting(true);
     setError("");
-    
+
     console.log('About to navigate to result page with:', {
       registration,
       selectedSemesters,
       semesterParam: selectedSemesters.join(',')
     });
-    
+
     // Simulate processing time for better UX
     await new Promise(resolve => setTimeout(resolve, 1500));
 
@@ -233,26 +233,26 @@ export default function UserDashboard() {
   // Animated counter component
   const AnimatedCounter = ({ end, duration = 2500, suffix = "" }) => {
     const [count, setCount] = useState(0);
-    
+
     useEffect(() => {
       if (!statsAnimated) return;
-      
+
       let startTime;
       const animate = (timestamp) => {
         if (!startTime) startTime = timestamp;
         const progress = Math.min((timestamp - startTime) / duration, 1);
-        
+
         // Easing function for smooth animation
         const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
         const easedProgress = easeOutCubic(progress);
-        
+
         setCount(Math.floor(easedProgress * end));
-        
+
         if (progress < 1) {
           requestAnimationFrame(animate);
         }
       };
-      
+
       requestAnimationFrame(animate);
     }, [statsAnimated, end, duration]);
 
@@ -281,7 +281,7 @@ export default function UserDashboard() {
   // Loading overlay (match Teacher panel animation style)
   if (isLoading) {
     return (
-      <div 
+      <div
         className="fixed inset-0 flex flex-col items-center justify-center z-50"
         style={{
           background: 'linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)',
@@ -292,21 +292,21 @@ export default function UserDashboard() {
         {/* Spinner Container */}
         <div className="relative flex items-center justify-center mb-8">
           <div className="w-28 h-28 sm:w-32 sm:h-32 lg:w-36 lg:h-36">
-            <img 
+            <img
               className="w-full h-full rounded-full object-cover p-2 backdrop-blur-lg"
               style={{
                 border: '4px solid rgba(255, 255, 255, 0.4)',
                 boxShadow: '0 0 60px rgba(255, 255, 255, 0.6)',
                 animation: 'logoSpin 3s ease-in-out infinite'
               }}
-              src="/spinner.jpg"  
-              alt="CUTM Logo Loading" 
+              src="/spinner.jpg"
+              alt="CUTM Logo Loading"
             />
-            </div>
           </div>
+        </div>
 
         {/* Loading Text */}
-        <div 
+        <div
           className="text-white text-xl sm:text-2xl lg:text-3xl font-black text-center mb-6 px-4"
           style={{
             textShadow: '0 0 20px rgba(255, 255, 255, 0.8)',
@@ -315,10 +315,10 @@ export default function UserDashboard() {
         >
           {loadingMessage}
         </div>
-        
+
         {/* Progress Bar */}
         <div className="w-56 sm:w-64 lg:w-72 h-1.5 sm:h-2 bg-white/20 rounded-full overflow-hidden mb-4">
-          <div 
+          <div
             className="h-full rounded-full"
             style={{
               background: 'linear-gradient(90deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.5) 100%)',
@@ -326,7 +326,7 @@ export default function UserDashboard() {
             }}
           ></div>
         </div>
-        
+
         {/* Status */}
         <div className="text-white/90 text-sm sm:text-base text-center px-4 font-semibold flex items-center gap-2">
           <span className="text-xl">🎓</span>
@@ -414,10 +414,10 @@ export default function UserDashboard() {
       {/* Hero Section */}
       <section
         className="user-hero-section"
-        style={{padding: '40px 0 10px', textAlign: 'center', position: 'relative', overflow: 'hidden'}}
+        style={{ padding: '40px 0 10px', textAlign: 'center', position: 'relative', overflow: 'hidden' }}
       >
         <div className="container mx-auto px-6">
-          <div style={{animation: 'heroFadeInUp 1.2s ease-out'}}>
+          <div style={{ animation: 'heroFadeInUp 1.2s ease-out' }}>
             <h1 style={{
               fontFamily: "'Poppins', serif",
               fontSize: '3rem',
@@ -429,7 +429,7 @@ export default function UserDashboard() {
               position: 'relative'
             }}>
               Welcome to CUTM Academic Tracker
-          </h1>
+            </h1>
             <p style={{
               fontSize: '1.25rem',
               color: 'rgba(255, 255, 255, 0.9)',
@@ -440,16 +440,16 @@ export default function UserDashboard() {
             }}>
               Excellence in Education • Transparency in Results • Future in Your Hands
             </p>
-            </div>
-            </div>
+          </div>
+        </div>
       </section>
 
-      
+
 
       {/* Main Form Section */}
       <section
         className="user-main-section"
-        style={{padding: '60px 0', position: 'relative', zIndex: 10}}
+        style={{ padding: '60px 0', position: 'relative', zIndex: 10 }}
       >
         <div className="container mx-auto px-6">
           <div className="flex justify-center">
@@ -478,7 +478,7 @@ export default function UserDashboard() {
                   justifyContent: 'center',
                   gap: '0.75rem'
                 }}>
-                  <span style={{color: '#3b82f6'}}>🎓</span>
+                  <span style={{ color: '#3b82f6' }}>🎓</span>
                   Check Your Results
                 </h2>
 
@@ -495,13 +495,13 @@ export default function UserDashboard() {
                     color: '#dc2626',
                     borderLeft: '4px solid #dc2626'
                   }}>
-                    <i className="fas fa-exclamation-triangle" style={{marginRight: '0.5rem'}}></i>
+                    <i className="fas fa-exclamation-triangle" style={{ marginRight: '0.5rem' }}></i>
                     {error}
-              </div>
+                  </div>
                 )}
 
                 <form ref={formRef} onSubmit={handleViewResult}>
-                  <div style={{marginBottom: '1.75rem', position: 'relative', animation: 'formGroupSlide 0.8s ease-out'}}>
+                  <div style={{ marginBottom: '1.75rem', position: 'relative', animation: 'formGroupSlide 0.8s ease-out' }}>
                     <label style={{
                       fontWeight: 600,
                       marginBottom: '0.75rem',
@@ -511,23 +511,23 @@ export default function UserDashboard() {
                       fontSize: '1rem',
                       transition: 'all 0.3s ease'
                     }}>
-                      <i className="fas fa-id-card" style={{color: '#3b82f6', marginRight: '0.5rem', width: '20px', textAlign: 'center'}}></i>
-                  Registration Number
-                </label>
-                  <input
-                    type="text"
-                    value={registration}
-                    onChange={handleRegistrationChange}
-                    placeholder="Your registration number"
-                    readOnly
-                    required
-                    style={{
-                      background: 'rgba(255, 255, 255, 0.7)',
-                      cursor: 'not-allowed',
-                      opacity: 0.8,
-                      border: '2px solid rgba(59, 130, 246, 0.1)',
-                      borderRadius: '12px',
-                      padding: '1rem 1.25rem',
+                      <i className="fas fa-id-card" style={{ color: '#3b82f6', marginRight: '0.5rem', width: '20px', textAlign: 'center' }}></i>
+                      Registration Number
+                    </label>
+                    <input
+                      type="text"
+                      value={registration}
+                      onChange={handleRegistrationChange}
+                      placeholder="Your registration number"
+                      readOnly
+                      required
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.7)',
+                        cursor: 'not-allowed',
+                        opacity: 0.8,
+                        border: '2px solid rgba(59, 130, 246, 0.1)',
+                        borderRadius: '12px',
+                        padding: '1rem 1.25rem',
                         fontSize: '1rem',
                         transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
                         width: '100%',
@@ -546,7 +546,7 @@ export default function UserDashboard() {
                         e.target.style.transform = 'none';
                       }}
                     />
-                    
+
                     {/* Security notice */}
                     <div style={{
                       marginTop: '0.5rem',
@@ -560,19 +560,19 @@ export default function UserDashboard() {
                       alignItems: 'center',
                       gap: '0.5rem'
                     }}>
-                      <span style={{fontSize: '1rem'}}>🔒</span>
+                      <span style={{ fontSize: '1rem' }}>🔒</span>
                       <span>You can only view your own academic results for security purposes.</span>
-                </div>
-              </div>
+                    </div>
+                  </div>
 
                   {/* Enhanced Multi-Select for Semesters */}
                   <div style={{
-                    marginBottom: '1.75rem', 
-                    position: 'relative', 
+                    marginBottom: '1.75rem',
+                    position: 'relative',
                     animationName: 'formGroupSlide',
                     animationDuration: '0.8s',
                     animationTimingFunction: 'ease-out',
-                    animationDelay: '1.2s', 
+                    animationDelay: '1.2s',
                     animationFillMode: 'both'
                   }}>
                     <label style={{
@@ -583,10 +583,10 @@ export default function UserDashboard() {
                       alignItems: 'center',
                       fontSize: '1rem'
                     }}>
-                      <i className="fas fa-calendar-alt" style={{color: '#3b82f6', marginRight: '0.5rem', width: '20px', textAlign: 'center'}}></i>
+                      <i className="fas fa-calendar-alt" style={{ color: '#3b82f6', marginRight: '0.5rem', width: '20px', textAlign: 'center' }}></i>
                       Select Semester(s)
                     </label>
-                    <div ref={multiSelectRef} className="custom-multi-select" style={{position: 'relative', width: '100%', zIndex: 100}}>
+                    <div ref={multiSelectRef} className="custom-multi-select" style={{ position: 'relative', width: '100%', zIndex: 100 }}>
                       <div
                         onClick={toggleMultiSelect}
                         onKeyDown={(e) => {
@@ -611,8 +611,8 @@ export default function UserDashboard() {
                           transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
                           color: '#1f2937',
                           fontSize: '1rem',
-                          boxShadow: showMultiSelect 
-                            ? '0 0 0 4px rgba(59, 130, 246, 0.1), 0 8px 25px rgba(59, 130, 246, 0.15)' 
+                          boxShadow: showMultiSelect
+                            ? '0 0 0 4px rgba(59, 130, 246, 0.1), 0 8px 25px rgba(59, 130, 246, 0.15)'
                             : '0 4px 6px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.1)',
                           outline: 'none',
                           backdropFilter: 'blur(10px)',
@@ -644,7 +644,7 @@ export default function UserDashboard() {
                           }
                         }}
                       >
-                        <div style={{display: 'flex', alignItems: 'center', flex: 1}}>
+                        <div style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
                           <span style={{
                             color: selectedSemesters.length === 0 ? '#6b7280' : '#1f2937',
                             fontWeight: selectedSemesters.length === 0 ? 400 : 500,
@@ -666,8 +666,8 @@ export default function UserDashboard() {
                             }}>
                               +{selectedSemesters.length - 1}
                             </span>
-                  )}
-                  </div>
+                          )}
+                        </div>
                         <div style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -695,10 +695,10 @@ export default function UserDashboard() {
                             transform: showMultiSelect ? 'rotate(180deg) scale(1.1)' : 'none',
                             fontSize: '0.9rem'
                           }}></i>
-                </div>
-                  </div>
+                        </div>
+                      </div>
                       {showMultiSelect && (
-                        <div 
+                        <div
                           role="listbox"
                           aria-label="Select semesters"
                           style={{
@@ -736,23 +736,23 @@ export default function UserDashboard() {
                                   borderBottom: index === availableSemesters.length - 1 ? 'none' : '1px solid rgba(59, 130, 246, 0.08)',
                                   fontSize: '1rem',
                                   position: 'relative',
-                                  background: selectedSemesters.includes(semester) 
-                                    ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(59, 130, 246, 0.05))' 
+                                  background: selectedSemesters.includes(semester)
+                                    ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(59, 130, 246, 0.05))'
                                     : 'transparent',
                                   color: selectedSemesters.includes(semester) ? '#1e40af' : '#374151',
                                   borderRadius: index === 0 ? '0' : index === availableSemesters.length - 1 ? '0 0 10px 10px' : '0'
                                 }}
                                 onMouseEnter={(e) => {
-                                  e.currentTarget.style.background = selectedSemesters.includes(semester) 
-                                    ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(59, 130, 246, 0.1))' 
+                                  e.currentTarget.style.background = selectedSemesters.includes(semester)
+                                    ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(59, 130, 246, 0.1))'
                                     : 'linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(59, 130, 246, 0.05))';
                                   e.currentTarget.style.transform = 'translateX(8px) scale(1.02)';
                                   e.currentTarget.style.color = '#3b82f6';
                                   e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.15)';
                                 }}
                                 onMouseLeave={(e) => {
-                                  e.currentTarget.style.background = selectedSemesters.includes(semester) 
-                                    ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(59, 130, 246, 0.05))' 
+                                  e.currentTarget.style.background = selectedSemesters.includes(semester)
+                                    ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(59, 130, 246, 0.05))'
                                     : 'transparent';
                                   e.currentTarget.style.transform = 'none';
                                   e.currentTarget.style.color = selectedSemesters.includes(semester) ? '#1e40af' : '#374151';
@@ -767,7 +767,7 @@ export default function UserDashboard() {
                                   type="checkbox"
                                   checked={selectedSemesters.includes(semester)}
                                   onChange={() => handleSemesterChange(semester)}
-                                  style={{display: 'none'}}
+                                  style={{ display: 'none' }}
                                 />
                                 <span className="checkmark" style={{
                                   width: '22px',
@@ -778,21 +778,21 @@ export default function UserDashboard() {
                                   position: 'relative',
                                   transition: 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
                                   flexShrink: 0,
-                                  background: selectedSemesters.includes(semester) 
-                                    ? 'linear-gradient(135deg, #3b82f6, #1e40af)' 
+                                  background: selectedSemesters.includes(semester)
+                                    ? 'linear-gradient(135deg, #3b82f6, #1e40af)'
                                     : 'transparent',
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  boxShadow: selectedSemesters.includes(semester) 
-                                    ? '0 4px 12px rgba(59, 130, 246, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)' 
+                                  boxShadow: selectedSemesters.includes(semester)
+                                    ? '0 4px 12px rgba(59, 130, 246, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
                                     : '0 2px 4px rgba(0, 0, 0, 0.05)',
                                   transform: selectedSemesters.includes(semester) ? 'scale(1.1)' : 'scale(1)'
                                 }}>
                                   {selectedSemesters.includes(semester) && (
                                     <span style={{
-                                      color: 'white', 
-                                      fontWeight: 'bold', 
+                                      color: 'white',
+                                      fontWeight: 'bold',
                                       fontSize: '12px',
                                       animation: 'checkmarkPop 0.3s ease-out',
                                       textShadow: '0 1px 2px rgba(0, 0, 0, 0.2)'
@@ -825,9 +825,9 @@ export default function UserDashboard() {
                                     animation: 'checkmarkPop 0.3s ease-out'
                                   }}>
                                     ✓
-                      </span>
-                    )}
-                  </label>
+                                  </span>
+                                )}
+                              </label>
                             ))
                           ) : (
                             <div style={{
@@ -853,11 +853,11 @@ export default function UserDashboard() {
                               }}>
                                 Enter a valid registration number
                               </div>
-                </div>
-              )}
-                </div>
-              )}
-                  </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                     <small style={{
                       color: '#6b7280',
                       fontSize: '0.875rem',
@@ -871,7 +871,7 @@ export default function UserDashboard() {
                       fontWeight: 500
                     }}>
                       <i className="fas fa-info-circle" style={{
-                        marginRight: '0.75rem', 
+                        marginRight: '0.75rem',
                         color: '#3b82f6',
                         fontSize: '1rem'
                       }}></i>
@@ -888,10 +888,10 @@ export default function UserDashboard() {
                         </span>
                       </span>
                     </small>
-                </div>
+                  </div>
 
-              <button
-                type="submit"
+                  <button
+                    type="submit"
                     disabled={!registration || selectedSemesters.length === 0 || isFormSubmitting}
                     style={{
                       background: 'linear-gradient(135deg, #3b82f6, #1e40af)',
@@ -920,29 +920,32 @@ export default function UserDashboard() {
                       e.currentTarget.style.transform = 'none';
                       e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
                     }}
-              >
-                {isFormSubmitting ? (
+                  >
+                    {isFormSubmitting ? (
                       <span>Processing...</span>
                     ) : (
-                      <><i className="fas fa-search" style={{marginRight: '0.5rem'}}></i> Search Results</>
+                      <><i className="fas fa-search" style={{ marginRight: '0.5rem' }}></i> Search Results</>
                     )}
-              </button>
-            </form>
+                  </button>
+                </form>
               </div>
+            </div>
           </div>
         </div>
-        </div>
       </section>
+
+
+
 
       {/* Stats Section */}
       <section
         className="user-stats-section"
         style={{
-        background: 'rgba(255, 255, 255, 0.95)',
-        padding: '4rem 0',
-        position: 'relative',
-        backdropFilter: 'blur(10px)'
-      }}>
+          background: 'rgba(255, 255, 255, 0.95)',
+          padding: '4rem 0',
+          position: 'relative',
+          backdropFilter: 'blur(10px)'
+        }}>
         <div className="container mx-auto px-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8" ref={statsRef}>
             <div className="stat-card" style={{
@@ -967,10 +970,10 @@ export default function UserDashboard() {
                 display: 'block'
               }}>
                 <AnimatedCounter end={50000} suffix="+" />
-            </div>
-              <div style={{fontSize: '1.1rem', color: '#1f2937', fontWeight: 500}}>
+              </div>
+              <div style={{ fontSize: '1.1rem', color: '#1f2937', fontWeight: 500 }}>
                 Students Enrolled
-          </div>
+              </div>
             </div>
             <div className="stat-card" style={{
               background: 'white',
@@ -994,8 +997,8 @@ export default function UserDashboard() {
                 display: 'block'
               }}>
                 <AnimatedCounter end={500} suffix="+" />
-          </div>
-              <div style={{fontSize: '1.1rem', color: '#1f2937', fontWeight: 500}}>
+              </div>
+              <div style={{ fontSize: '1.1rem', color: '#1f2937', fontWeight: 500 }}>
                 Expert Faculty
               </div>
             </div>
@@ -1022,7 +1025,7 @@ export default function UserDashboard() {
               }}>
                 <AnimatedCounter end={100} suffix="+" />
               </div>
-              <div style={{fontSize: '1.1rem', color: '#1f2937', fontWeight: 500}}>
+              <div style={{ fontSize: '1.1rem', color: '#1f2937', fontWeight: 500 }}>
                 Programs Offered
               </div>
             </div>
@@ -1049,7 +1052,7 @@ export default function UserDashboard() {
               }}>
                 <AnimatedCounter end={20} suffix="+" />
               </div>
-              <div style={{fontSize: '1.1rem', color: '#1f2937', fontWeight: 500}}>
+              <div style={{ fontSize: '1.1rem', color: '#1f2937', fontWeight: 500 }}>
                 Years of Excellence
               </div>
             </div>
@@ -1060,10 +1063,10 @@ export default function UserDashboard() {
       {/* Features Section */}
       <section
         className="user-features-section"
-        style={{padding: '5rem 0', background: 'white'}}
+        style={{ padding: '5rem 0', background: 'white' }}
       >
         <div className="container mx-auto px-6">
-          <div style={{textAlign: 'center', marginBottom: '4rem'}}>
+          <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
             <h2 style={{
               fontFamily: "'Poppins', serif",
               fontSize: '2.5rem',
@@ -1081,16 +1084,16 @@ export default function UserDashboard() {
             }}>
               Experience the future of academic result management with cutting-edge technology and seamless user experience
             </p>
-            </div>
-          
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {[
-              {icon: '⚡', title: 'Instant Results', desc: 'Get your academic results instantly with our lightning-fast portal. No more waiting periods or delays.'},
-              {icon: '🛡️', title: 'Secure & Reliable', desc: 'Your data is protected with enterprise-grade security protocols and reliable infrastructure.'},
-              {icon: '📱', title: 'Mobile Friendly', desc: 'Access your results anytime, anywhere with fully responsive design and mobile optimization.'},
-              {icon: '📊', title: 'Advanced Analytics', desc: 'Track your performance with detailed analytics and insights to help you excel academically.'},
-              {icon: '📥', title: 'Easy Download', desc: 'Download your results in multiple formats with print-ready certificates available instantly.'},
-              {icon: '🎧', title: '24/7 Support', desc: 'Round-the-clock dedicated support team available to assist with any queries or technical issues.'}
+              { icon: '⚡', title: 'Instant Results', desc: 'Get your academic results instantly with our lightning-fast portal. No more waiting periods or delays.' },
+              { icon: '🛡️', title: 'Secure & Reliable', desc: 'Your data is protected with enterprise-grade security protocols and reliable infrastructure.' },
+              { icon: '📱', title: 'Mobile Friendly', desc: 'Access your results anytime, anywhere with fully responsive design and mobile optimization.' },
+              { icon: '📊', title: 'Advanced Analytics', desc: 'Track your performance with detailed analytics and insights to help you excel academically.' },
+              { icon: '📥', title: 'Easy Download', desc: 'Download your results in multiple formats with print-ready certificates available instantly.' },
+              { icon: '🎧', title: '24/7 Support', desc: 'Round-the-clock dedicated support team available to assist with any queries or technical issues.' }
             ].map((feature, idx) => (
               <div key={idx} className="feature-card" style={{
                 background: 'rgba(248, 250, 252, 0.8)',
@@ -1103,18 +1106,18 @@ export default function UserDashboard() {
                 position: 'relative',
                 overflow: 'hidden'
               }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-10px)';
-                e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1)';
-                e.currentTarget.style.background = 'white';
-                e.currentTarget.style.borderColor = '#3b82f6';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'none';
-                e.currentTarget.style.boxShadow = 'none';
-                e.currentTarget.style.background = 'rgba(248, 250, 252, 0.8)';
-                e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.08)';
-              }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-10px)';
+                  e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1)';
+                  e.currentTarget.style.background = 'white';
+                  e.currentTarget.style.borderColor = '#3b82f6';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'none';
+                  e.currentTarget.style.boxShadow = 'none';
+                  e.currentTarget.style.background = 'rgba(248, 250, 252, 0.8)';
+                  e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.08)';
+                }}
               >
                 <div style={{
                   fontSize: '2.5rem',
@@ -1125,7 +1128,7 @@ export default function UserDashboard() {
                   zIndex: 1
                 }}>
                   {feature.icon}
-          </div>
+                </div>
                 <h3 style={{
                   fontSize: '1.35rem',
                   fontWeight: 600,
@@ -1145,9 +1148,9 @@ export default function UserDashboard() {
                 }}>
                   {feature.desc}
                 </p>
-        </div>
+              </div>
             ))}
-      </div>
+          </div>
         </div>
       </section>
 
@@ -1182,7 +1185,7 @@ export default function UserDashboard() {
             e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1)';
           }}
         >
-          <i className="fas fa-chevron-up" style={{color: 'white', fontSize: '1.2rem'}}></i>
+          <i className="fas fa-chevron-up" style={{ color: 'white', fontSize: '1.2rem' }}></i>
         </button>
       )}
 
@@ -1195,7 +1198,7 @@ export default function UserDashboard() {
         overflow: 'hidden'
       }}>
         <div className="container mx-auto px-6">
-          <div style={{textAlign: 'center', position: 'relative', zIndex: 1}}>
+          <div style={{ textAlign: 'center', position: 'relative', zIndex: 1 }}>
             <h3 style={{
               fontFamily: "'Poppins', serif",
               fontWeight: 700,
@@ -1205,58 +1208,58 @@ export default function UserDashboard() {
             }}>
               CUTM Result Portal
             </h3>
-            <p style={{marginBottom: '1.5rem', opacity: 0.9}}>
+            <p style={{ marginBottom: '1.5rem', opacity: 0.9 }}>
               Empowering students with transparent, secure, and instant access to their academic achievements through innovative technology.
             </p>
-            
-          
-<div style={{ margin: "2rem 0" }}>
-  {[
-    { href: "https://github.com/AYUSHRAHUL", icon: <FaGithub /> },
-    { href: "https://www.linkedin.com/in/ayush-kumar-singh7/", icon: <FaLinkedinIn /> },
-    { href: "#", icon: <FaTwitter /> },
-    { href: "#", icon: <FaFacebookF /> },
-  ].map((social, idx) => (
-    <a
-      key={idx}
-      href={social.href}
-      target="_blank"
-      rel="noopener noreferrer"
-      style={{
-        display: "inline-block",
-        margin: "0 1rem",
-        padding: "1rem",
-        background: "rgba(255, 255, 255, 0.1)",
-        border: "1px solid rgba(255, 255, 255, 0.2)",
-        borderRadius: "50%",
-        color: "rgba(255, 255, 255, 0.8)",
-        fontSize: "1.25rem",
-        width: "50px",
-        height: "50px",
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
-        backdropFilter: "blur(10px)",
-        textDecoration: "none",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background = "rgba(255, 255, 255, 0.2)";
-        e.currentTarget.style.color = "white";
-        e.currentTarget.style.transform = "translateY(-6px) scale(1.15)";
-        e.currentTarget.style.boxShadow = "0 10px 25px rgba(0, 0, 0, 0.3)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)";
-        e.currentTarget.style.color = "rgba(255, 255, 255, 0.8)";
-        e.currentTarget.style.transform = "none";
-        e.currentTarget.style.boxShadow = "none";
-      }}
-    >
-      {social.icon}
-    </a>
-  ))}
-</div>
+
+
+            <div style={{ margin: "2rem 0" }}>
+              {[
+                { href: "https://github.com/AYUSHRAHUL", icon: <FaGithub /> },
+                { href: "https://www.linkedin.com/in/ayush-kumar-singh7/", icon: <FaLinkedinIn /> },
+                { href: "#", icon: <FaTwitter /> },
+                { href: "#", icon: <FaFacebookF /> },
+              ].map((social, idx) => (
+                <a
+                  key={idx}
+                  href={social.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "inline-block",
+                    margin: "0 1rem",
+                    padding: "1rem",
+                    background: "rgba(255, 255, 255, 0.1)",
+                    border: "1px solid rgba(255, 255, 255, 0.2)",
+                    borderRadius: "50%",
+                    color: "rgba(255, 255, 255, 0.8)",
+                    fontSize: "1.25rem",
+                    width: "50px",
+                    height: "50px",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
+                    backdropFilter: "blur(10px)",
+                    textDecoration: "none",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "rgba(255, 255, 255, 0.2)";
+                    e.currentTarget.style.color = "white";
+                    e.currentTarget.style.transform = "translateY(-6px) scale(1.15)";
+                    e.currentTarget.style.boxShadow = "0 10px 25px rgba(0, 0, 0, 0.3)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "rgba(255, 255, 255, 0.1)";
+                    e.currentTarget.style.color = "rgba(255, 255, 255, 0.8)";
+                    e.currentTarget.style.transform = "none";
+                    e.currentTarget.style.boxShadow = "none";
+                  }}
+                >
+                  {social.icon}
+                </a>
+              ))}
+            </div>
             <div style={{
               borderTop: '1px solid rgba(255,255,255,0.2)',
               paddingTop: '1.5rem',

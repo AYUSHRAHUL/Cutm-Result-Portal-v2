@@ -162,14 +162,14 @@ export async function GET(req) {
     // Check email domain - Only allow CUTM email addresses
     const allowedDomains = ['@cutm.ac.in', '@centurionuniv.edu.in'];
     const emailDomain = email.substring(email.lastIndexOf('@'));
-    
+
     if (!allowedDomains.includes(emailDomain)) {
       console.log("Google OAuth: Email domain not allowed:", emailDomain);
       return NextResponse.redirect(
         `${req.nextUrl.origin}/login?error=${encodeURIComponent("Only @cutm.ac.in or @centurionuniv.edu.in email addresses are allowed for Google sign-in.")}`
       );
     }
-    
+
     console.log("Google OAuth: Email domain verified:", emailDomain);
 
     // Connect to database
@@ -229,18 +229,18 @@ export async function GET(req) {
     // Generate JWT token (same as regular login)
     const normalizedRole = normalizeRole(user.role);
     console.log("Google OAuth: User role:", normalizedRole);
-    
+
     // Detect campus from employee ID for teachers
     let campus = null;
     if (normalizedRole === "teacher" && user.employeeId) {
       const { detectCampus } = await import("@/lib/campus");
       campus = detectCampus(user.employeeId);
     }
-    
+
     const token = jwt.sign(
-      { 
-        id: user._id.toString(), 
-        role: normalizedRole, 
+      {
+        id: user._id.toString(),
+        role: normalizedRole,
         email: user.email,
         campus: campus || null,
         employeeId: user.employeeId || null
@@ -252,12 +252,20 @@ export async function GET(req) {
     // Determine redirect based on role and campus
     const role = normalizedRole;
     const { getTeacherDashboardPath } = await import("@/lib/campus");
-    const target =
-      role === "admin"
-        ? "/dashboard/admin"
-        : role === "teacher"
-        ? getTeacherDashboardPath(campus)
-        : "/dashboard/user";
+
+    let target;
+
+    // Check if user needs to complete profile (Teacher with @cutm.ac.in but no Employee ID)
+    if (email.endsWith('@cutm.ac.in') && !user.employeeId) {
+      target = "/complete-profile";
+    } else {
+      target =
+        role === "admin"
+          ? "/dashboard/admin"
+          : role === "teacher"
+            ? getTeacherDashboardPath(campus)
+            : "/dashboard/user";
+    }
 
     console.log("Google OAuth: Redirecting to:", target);
     console.log("Google OAuth: Full redirect URL:", `${req.nextUrl.origin}${target}`);
@@ -285,7 +293,7 @@ export async function GET(req) {
     console.log("Google OAuth: Success! Redirecting to dashboard...");
     console.log("Google OAuth: Response status:", response.status);
     console.log("Google OAuth: Response headers:", Object.fromEntries(response.headers.entries()));
-    
+
     return response;
   } catch (err) {
     console.error("Google OAuth callback error:", err);

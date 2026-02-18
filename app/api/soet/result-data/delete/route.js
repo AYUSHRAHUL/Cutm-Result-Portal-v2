@@ -70,19 +70,16 @@ export async function POST(req) {
     const db = client.db(dbName);
     const cutm = db.collection("result");
 
-    // Parse registration to get branch code
-    const { parseBTechRegistration } = await import('../../parse-registration/route');
-
-    // Build query using $and pattern for proper MongoDB query construction
+    // Build proper MongoDB query with $and/$or nesting
     const andConditions = [
       {
         $or: [
           { Subject_Code: subject.toUpperCase() },
           { "Subject Code": subject.toUpperCase() }
-        ],
-        Reg_No: { $type: "string" },
-        Grade: { $exists: true }
-      }
+        ]
+      },
+      { Reg_No: { $type: "string" } },
+      { Grade: { $exists: true } }
     ];
 
     // Add batch filter
@@ -111,59 +108,22 @@ export async function POST(req) {
     }
 
     // Build final query
-    const query = andConditions.length > 1 ? { $and: andConditions } : andConditions[0];
+    const query = { $and: andConditions };
 
-    // First, get records to verify branch filtering (with limit to prevent excessive MongoDB connections)
-    const MAX_DELETE_RECORDS = 50000; // Limit to 50k records
-    let records = await cutm.find(query).limit(MAX_DELETE_RECORDS).toArray();
+    // Delete records directly
+    const result = await cutm.deleteMany(query);
 
-    // Filter for B.Tech students and specific branch
-    const branchShortMap = {
-      '111': 'CIVIL',
-      '112': 'CSE',
-      '113': 'ECE',
-      '115': 'EEE',
-      '116': 'ME',
-      '137': 'AIML'
-    };
-    const filterShortMap = {
-      'CSE': 'CSE',
-      'AIML': 'AIML',
-      'ECE': 'ECE',
-      'EEE': 'EEE',
-      'ME': 'ME',
-      'MECHANICAL': 'ME',
-      'CIVIL': 'CIVIL'
-    };
-    const filterShort = filterShortMap[branch.toUpperCase()] || branch.toUpperCase();
-
-    const recordsToDelete = records.filter(record => {
-      if (!record.Reg_No) return false;
-      const parsed = parseBTechRegistration(String(record.Reg_No).trim());
-      if (!parsed || !parsed.isValid || !parsed.isBTech) return false;
-
-      const parsedShort = branchShortMap[parsed.branchCode] || (parsed.branch || '').toUpperCase().trim();
-      return parsedShort === filterShort;
-    });
-
-    if (recordsToDelete.length === 0) {
+    if (result.deletedCount === 0) {
       return NextResponse.json({ error: "No records found to delete" }, { status: 404 });
     }
 
-    // Delete records
-    const deleteQuery = {
-      _id: { $in: recordsToDelete.map(r => r._id) }
-    };
-
-    const deleteResult = await cutm.deleteMany(deleteQuery);
-
     // Remove OTP after successful deletion
-    removeOTP(adminEmail);
+    removeOTP(adminEmail, otp.trim());
 
     return NextResponse.json({
       success: true,
-      message: `Successfully deleted ${deleteResult.deletedCount} record(s)`,
-      deletedCount: deleteResult.deletedCount
+      message: `Successfully deleted ${result.deletedCount} record(s)`,
+      deletedCount: result.deletedCount
     });
 
   } catch (error) {
