@@ -57,6 +57,50 @@ export async function POST(req) {
     const db = client.db(dbName);
     const cutm = db.collection("result");
 
+    // Load Overrides
+    const overridesCol = db.collection("branch_overrides");
+    const overridesArr = await overridesCol.find({}, { projection: { _id: 0, reg: 1, branch: 1, batch: 1 } }).toArray();
+    const overrideMap = new Map(overridesArr.map(o => [String(o.reg || "").toUpperCase(), o]));
+
+    // Helper functions
+    const getEffectiveBranch = (regNo, parsedBranch) => {
+      const ov = overrideMap.get(String(regNo || "").toUpperCase());
+      if (ov?.branch) return ov.branch;
+      return parsedBranch || "";
+    };
+    const getEffectiveBatch = (regNo, parsedYear) => {
+      const ov = overrideMap.get(String(regNo || "").toUpperCase());
+      if (ov?.batch) return ov.batch;
+      // Derived from Reg_No if no override
+      if (parsedYear) return parsedYear;
+      if (regNo && regNo.length >= 2) return `20${regNo.slice(0, 2)}`;
+      return "";
+    };
+
+    // Helper to normalize branch names
+    const normalizeBranch = (br) => {
+      if (!br) return "";
+      const brStr = String(br).trim().toUpperCase();
+      const branchMap = {
+        'CIVIL ENGINEERING': 'Civil',
+        'CIVIL': 'Civil',
+        'COMPUTER SCIENCE AND ENGINEERING': 'CSE',
+        'COMPUTER SCIENCE ENGINEERING': 'CSE',
+        'CSE': 'CSE',
+        'ELECTRONICS AND COMMUNICATION ENGINEERING': 'ECE',
+        'ELECTRONICS & COMMUNICATION ENGINEERING': 'ECE',
+        'ECE': 'ECE',
+        'ELECTRICAL AND ELECTRONICS ENGINEERING': 'EEE',
+        'ELECTRICAL & ELECTRONICS ENGINEERING': 'EEE',
+        'EEE': 'EEE',
+        'MECHANICAL ENGINEERING': 'Mechanical',
+        'MECHANICAL': 'Mechanical',
+        'ME': 'Mechanical',
+        'AIML': 'AIML'
+      };
+      return branchMap[brStr] || brStr; // Return mapped value or original
+    };
+
     // Fetch inactive students list (Global Exclusion)
     const statusCollection = db.collection("student_status");
     const inactiveDocs = await statusCollection.find({ isActive: false }).project({ Reg_No: 1 }).toArray();
@@ -163,7 +207,12 @@ export async function POST(req) {
           const existing = summaryMap.get(regNo);
           existing.TotalBacklogs += 1;
           if (!existing.Name && record.Name) existing.Name = record.Name;
-          if (!existing.Branch && record.Branch) existing.Branch = record.Branch;
+
+          // Use effective branch if available
+          const effectiveBranch = getEffectiveBranch(regNo, record.Branch);
+          const displayBranch = normalizeBranch(effectiveBranch);
+
+          if (!existing.Branch && displayBranch) existing.Branch = displayBranch;
         }
       });
 
@@ -220,15 +269,37 @@ export async function POST(req) {
     // Skip year filter if we already have an exact registration match
     if (year && year !== 'All' && !registration) {
       const yy = year.length === 4 ? year.slice(-2) : year;
-      // Match registrations starting with the 2-digit batch year (index friendly prefix)
-      query.Reg_No = { $regex: `^${yy}` };
+      const targetBatch = year.length === 4 ? year : `20${year}`;
+
+      // Find overrides for this batch
+      const yearOverrideRegs = [];
+      overridesArr.forEach(ov => {
+        if (ov.batch === targetBatch) yearOverrideRegs.push(ov.reg.toUpperCase());
+      });
+
+      // Construct regex for standard matching
+      const yearRegex = new RegExp(`^${yy}`); // Match registrations starting with 2-digit year
+
+      if (yearOverrideRegs.length > 0) {
+        // Add $and clause if it doesn't exist, else append
+        if (!query.$and) query.$and = [];
+
+        query.$and.push({
+          $or: [
+            { Reg_No: { $regex: yearRegex } },
+            { Reg_No: { $in: yearOverrideRegs } }
+          ]
+        });
+      } else {
+        // Standard regex match only
+        query.Reg_No = { $regex: yearRegex };
+      }
     }
 
     // Optimize branch filtering at database level when possible
     if (branch && branch !== 'All' && !registration) {
       // Map branch names to codes for database-level filtering
       // B.Tech branch codes are at positions 5-7 (0-indexed) in registration number
-      // Format: YY IIII BB SSSS (12 digits), branch codes: 111, 112, 113, 115, 116, 137
       const branchCodeMap = {
         'Civil Engineering': '111',
         'Computer Science and Engineering': '112',
@@ -245,44 +316,59 @@ export async function POST(req) {
       };
 
       const branchCode = branchCodeMap[branch];
+
+      // Find overrides for this branch
+      const branchOverrideRegs = [];
+      const targetBranchRaw = branch.toUpperCase();
+      const lookupBranches = [];
+      if (targetBranchRaw.includes('CSE') || targetBranchRaw.includes('COMPUTER')) lookupBranches.push('Computer Science Engineering');
+      else if (targetBranchRaw.includes('CIVIL')) lookupBranches.push('Civil Engineering');
+      else if (targetBranchRaw.includes('ECE') || targetBranchRaw.includes('ELECTRONICS')) lookupBranches.push('Electronics & Communication Engineering');
+      else if (targetBranchRaw.includes('EEE') || targetBranchRaw.includes('ELECTRICAL')) lookupBranches.push('Electrical & Electronics Engineering');
+      else if (targetBranchRaw.includes('ME') || targetBranchRaw.includes('MECHANICAL')) lookupBranches.push('Mechanical Engineering');
+      else if (targetBranchRaw.includes('AIML')) lookupBranches.push('AIML');
+
+      if (lookupBranches.length > 0) {
+        overridesArr.forEach(ov => {
+          if (lookupBranches.includes(ov.branch)) branchOverrideRegs.push(ov.reg.toUpperCase());
+        });
+      }
+
       if (branchCode) {
         // Add regex to match branch code at positions 5-7 for B.Tech
         // Registration format: YY III BB SSSS (positions 0-1=year, 2-4=inst, 5-7=branch, 8-11=serial)
-        const existingRegex = query.Reg_No?.$regex;
-        if (existingRegex) {
-          // Combine with year filter - year is first 2 digits, then 3 inst digits, then branch code
-          // If year regex is ^22, we need ^22\\d{3}${branchCode} (year + 3 digits of inst code + branch code)
-          const yearPattern = existingRegex.slice(1); // Remove ^ from regex
-          query.Reg_No = { $regex: `^${yearPattern}\\d{3}${branchCode}` };
+
+        // If year filter set query.Reg_No as strict regex, appending here will conflict if we overwrite.
+        // If we moved year filter to $and logic (above), query.Reg_No might be undefined here.
+
+        // Standard regex for match: (year regex + digits) OR (\d{5} + branchCode)
+        // Since year filter logic is complex now, let's treat branch filter as independent AND condition
+        const regexPattern = `^\\d{5}${branchCode}`;
+
+        const branchCondition = {};
+        if (branchOverrideRegs.length > 0) {
+          branchCondition.$or = [
+            { Reg_No: { $regex: regexPattern } },
+            { Reg_No: { $in: branchOverrideRegs } }
+          ];
         } else {
-          // Just branch filter - branch code is at positions 5-7, so after first 5 digits (year + inst)
-          query.Reg_No = { $regex: `^\\d{5}${branchCode}` };
+          branchCondition.Reg_No = { $regex: regexPattern };
         }
+
+        if (!query.$and) query.$and = [];
+        query.$and.push(branchCondition);
+      } else if (branchOverrideRegs.length > 0) {
+        // No standard code map match, but maybe overrides exist?
+        if (!query.$and) query.$and = [];
+        query.$and.push({ Reg_No: { $in: branchOverrideRegs } });
       }
     }
 
     // Exclude inactive students from main query
     if (inactiveRegs.length > 0) {
-      if (query.Reg_No) {
-        // If Reg_No exists (string, regex, or object), merge with $nin
-        if (typeof query.Reg_No === 'string') {
-          if (inactiveRegs.includes(query.Reg_No)) {
-            query.Reg_No = { $in: [] }; // Force empty result
-          }
-        } else if (query.Reg_No.$regex) {
-          // If existing is regex, convert to object with $regex AND $nin
-          query.Reg_No = { $regex: query.Reg_No.$regex, $nin: inactiveRegs };
-        } else {
-          // If it's already an object (e.g. { $in: ... }), add $nin
-          query.Reg_No.$nin = inactiveRegs;
-        }
-      } else if (query.$and) {
-        // If query uses $and (e.g. for registration search), add exclusion there
-        query.$and.push({ Reg_No: { $nin: inactiveRegs } });
-      } else {
-        // Simple case: add direct exclusion
-        query.Reg_No = { $nin: inactiveRegs };
-      }
+      // Add globally to $and to be safe
+      if (!query.$and) query.$and = [];
+      query.$and.push({ Reg_No: { $nin: inactiveRegs } });
     }
 
     // Build cursor with lean projection and sort
@@ -308,6 +394,8 @@ export async function POST(req) {
 
     // Quick validation: Filter B.Tech records by checking branch codes at positions 5-7
     // B.Tech format: YY IIII BB SSSS (12 digits), branch codes: 111, 112, 113, 115, 116, 137
+    // Quick validation: Filter B.Tech records by checking branch codes at positions 5-7
+    // B.Tech format: YY IIII BB SSSS (12 digits), branch codes: 111, 112, 113, 115, 116, 137
     const validBacklogs = backlogs.filter(record => {
       // Handle both string and numeric Reg_No formats
       let regNo = record.Reg_No;
@@ -319,6 +407,10 @@ export async function POST(req) {
       }
 
       if (regNo.length !== 12) return false;
+
+      // Override Bypass: If this student has an override, they are valid regardless of reg format
+      if (overrideMap.has(regNo.toUpperCase())) return true;
+
       // Check if program code (positions 4-5) is NOT '07' (Diploma)
       const programCode = regNo.slice(4, 6);
       if (programCode === '07') return false; // Skip Diploma
@@ -330,27 +422,30 @@ export async function POST(req) {
 
     // Parse and enrich only valid records
     const processedBacklogs = validBacklogs.map(record => {
-      const regNo = record.Reg_No || '';
+      const regNo = String(record.Reg_No || '').trim();
 
       // Fast extraction without full parsing
-      let batch = 'N/A';
+      let batch = getEffectiveBatch(regNo, null); // will use default logic if no override
       let branchName = record.Branch || 'N/A';
 
-      if (regNo.length >= 12) {
-        const yy = regNo.slice(0, 2);
-        batch = `20${yy}`;
-
-        // Extract branch code (positions 5-7, 0-indexed)
-        const branchCode = regNo.slice(5, 8);
-        const branchCodeMap = {
-          '111': 'Civil',
-          '112': 'CSE',
-          '113': 'ECE',
-          '115': 'EEE',
-          '116': 'Mechanical',
-          '137': 'AIML'
-        };
-        branchName = branchCodeMap[branchCode] || branchName;
+      const effectiveBranch = getEffectiveBranch(regNo, null);
+      if (effectiveBranch) {
+        branchName = normalizeBranch(effectiveBranch);
+      } else {
+        // If no override, try to parse from Reg_No if available
+        if (regNo.length >= 12) {
+          const branchCode = regNo.slice(5, 8);
+          const branchCodeMap = {
+            '111': 'Civil',
+            '112': 'CSE',
+            '113': 'ECE',
+            '115': 'EEE',
+            '116': 'Mechanical',
+            '137': 'AIML'
+          };
+          // Only update if standard extraction works and we didn't have a good DB value
+          if (branchCodeMap[branchCode]) branchName = branchCodeMap[branchCode];
+        }
       }
 
       return {

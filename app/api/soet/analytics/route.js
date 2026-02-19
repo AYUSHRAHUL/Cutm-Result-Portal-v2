@@ -76,6 +76,38 @@ const MAX_ANALYTICS_RECORDS = 50000; // Limit to 50k records max per analytics r
 async function getAnalyticsData(db, batchFilter = null, branchFilter = null, semesterFilter = null, school = null) {
   const { parseBTechRegistration } = await import('../parse-registration/route');
 
+  // Load Overrides for Accurate Filtering
+  const overridesCol = db.collection("branch_overrides");
+  const overridesArr = await overridesCol.find({}, { projection: { _id: 0, reg: 1, branch: 1, batch: 1 } }).toArray();
+  const overrideMap = new Map(overridesArr.map(o => [String(o.reg || "").toUpperCase(), o]));
+
+  // Helper functions for effective data
+  const getEffectiveBranch = (regNo, parsedBranch) => {
+    const ov = overrideMap.get(String(regNo || "").toUpperCase());
+    if (ov?.branch) return ov.branch;
+    return parsedBranch || "";
+  };
+  const getEffectiveBatch = (regNo, parsedYear) => {
+    const ov = overrideMap.get(String(regNo || "").toUpperCase());
+    if (ov?.batch) return ov.batch;
+    return parsedYear || "";
+  };
+
+  const normalizeBranchForCompare = (br) => {
+    if (!br) return "";
+    const brStr = String(br).trim().toUpperCase();
+    const branchMap = {
+      'CIVIL ENGINEERING': 'CIVIL',
+      'COMPUTER SCIENCE AND ENGINEERING': 'CSE',
+      'COMPUTER SCIENCE ENGINEERING': 'CSE',
+      'ELECTRONICS AND COMMUNICATION ENGINEERING': 'ECE',
+      'ELECTRICAL AND ELECTRONICS ENGINEERING': 'EEE',
+      'MECHANICAL ENGINEERING': 'MECHANICAL',
+      'ME': 'MECHANICAL'
+    };
+    return branchMap[brStr] || brStr;
+  };
+
   const batchFilters = Array.isArray(batchFilter) ? batchFilter : (batchFilter ? [batchFilter] : []);
   const branchFilters = Array.isArray(branchFilter) ? branchFilter : (branchFilter ? [branchFilter] : []);
   const semesterFilters = Array.isArray(semesterFilter) ? semesterFilter : (semesterFilter ? [semesterFilter] : []);
@@ -103,21 +135,46 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     }
   };
 
-  // Apply batch filter at DB level when possible
+  // Apply batch filter at DB level with OV logic
   if (batchFilters.length > 0 && !batchFilters.includes("all")) {
     const yearCodes = batchFilters
       .map((b) => String(b).trim())
       .filter((b) => b)
       .map((b) => (b.length === 4 ? b.slice(2, 4) : b)); // 2023 -> 23
 
+    // Find overrides that match these batches
+    const batchOverrideRegs = [];
+    overridesArr.forEach(ov => {
+      if (!ov.batch) return;
+      const ovShort = String(ov.batch).slice(-2);
+      if (yearCodes.includes(ovShort)) {
+        batchOverrideRegs.push(ov.reg.toUpperCase());
+      }
+    });
+
+    const batchCondition = { $or: [] };
+
     if (yearCodes.length > 0) {
-      match.$expr.$and.push({
+      batchCondition.$or.push({
         $in: [{ $substr: ["$Reg_No", 0, 2] }, yearCodes]
       });
     }
+
+    if (batchOverrideRegs.length > 0) {
+      batchCondition.$or.push({
+        $in: ["$Reg_No", batchOverrideRegs] // Direct field check inside $expr requires different syntax? No, simple field path works if valid. But wait.
+        // Inside $expr, "$Reg_No" refers to the value of the field.
+        // But $in takes [value, array].
+        // So: { $in: ["$Reg_No", batchOverrideRegs] } is correct.
+      });
+    }
+
+    if (batchCondition.$or.length > 0) {
+      match.$expr.$and.push(batchCondition);
+    }
   }
 
-  // Apply branch filter at DB level when possible
+  // Apply branch filter at DB level with OV logic
   if (branchFilters.length > 0 && !branchFilters.includes("all")) {
     const branchCodeMap = {
       CSE: ["112"],
@@ -129,15 +186,48 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     };
 
     const wantedCodes = [];
+    const targetBranches = []; // For override matching
+
     for (const filterBranch of branchFilters) {
       const key = String(filterBranch).toUpperCase().trim();
       if (branchCodeMap[key]) wantedCodes.push(...branchCodeMap[key]);
+
+      // Map filter key to potential override branch names
+      if (key === 'CSE') targetBranches.push('Computer Science Engineering');
+      else if (key === 'ECE') targetBranches.push('Electronics & Communication Engineering');
+      else if (key === 'EEE') targetBranches.push('Electrical & Electronics Engineering');
+      else if (key === 'ME' || key === 'MECHANICAL') targetBranches.push('Mechanical Engineering');
+      else if (key === 'CIVIL') targetBranches.push('Civil Engineering');
+      else if (key === 'AIML') targetBranches.push('AIML');
     }
 
+    // Find overrides matching target branches
+    const branchOverrideRegs = [];
+    if (targetBranches.length > 0) {
+      overridesArr.forEach(ov => {
+        if (!ov.branch) return;
+        if (targetBranches.includes(ov.branch)) {
+          branchOverrideRegs.push(ov.reg.toUpperCase());
+        }
+      });
+    }
+
+    const branchCondition = { $or: [] };
+
     if (wantedCodes.length > 0) {
-      match.$expr.$and.push({
+      branchCondition.$or.push({
         $in: [{ $substr: ["$Reg_No", 5, 3] }, wantedCodes]
       });
+    }
+
+    if (branchOverrideRegs.length > 0) {
+      branchCondition.$or.push({
+        $in: ["$Reg_No", branchOverrideRegs]
+      });
+    }
+
+    if (branchCondition.$or.length > 0) {
+      match.$expr.$and.push(branchCondition);
     }
   }
 
@@ -236,17 +326,18 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     const parsed = parseBTechRegistration(String(record.Reg_No).trim());
     if (!parsed || !parsed.isValid || !parsed.isBTech) return false;
 
-    // Use parsed year from parseBTechRegistration
-    const recordYear = parsed.year || ''; // e.g., "2023", "2024"
-    const recordYearCode = parsed.yearCode || ''; // e.g., "23", "24"
+    // Use effective batch
+    const regNo = String(record.Reg_No).trim();
+    const effectiveBatch = getEffectiveBatch(regNo, parsed.year); // "2023" or "2025"
+    const effectiveYearCode = effectiveBatch.length === 4 ? effectiveBatch.slice(2) : effectiveBatch;
 
     return batchFilters.some(batch => {
       const batchStr = String(batch).trim();
       // Match full year (2023, 2024) or year code (23, 24)
-      return batchStr === recordYear ||
-        batchStr === recordYearCode ||
-        (batchStr.length === 4 && batchStr.substring(2, 4) === recordYearCode) ||
-        (batchStr.length === 2 && batchStr === recordYearCode);
+      return batchStr === effectiveBatch ||
+        batchStr === effectiveYearCode ||
+        (batchStr.length === 4 && batchStr.substring(2, 4) === effectiveYearCode) ||
+        (batchStr.length === 2 && batchStr === effectiveYearCode);
     });
   };
 
@@ -256,32 +347,27 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     const parsed = parseBTechRegistration(String(record.Reg_No).trim());
     if (!parsed || !parsed.isValid || !parsed.isBTech) return false;
 
-    // Normalize parsed branch to short code using branchCode
-    const branchShortMap = {
-      '111': 'CIVIL',
-      '112': 'CSE',
-      '113': 'ECE',
-      '115': 'EEE',
-      '116': 'ME',
-      // AIML registrations use 137
-      '137': 'AIML'
-    };
-    const parsedShort = branchShortMap[parsed.branchCode] || (parsed.branch || '').toUpperCase().trim();
+    const regNo = String(record.Reg_No).trim();
+    const effectiveBranch = getEffectiveBranch(regNo, parsed.branch);
+
+    // Normalize effective branch to short code
+    const normalizedEffective = normalizeBranchForCompare(effectiveBranch);
 
     return branchFilters.some(filterBranch => {
       const filterUpper = String(filterBranch).toUpperCase().trim();
-      // Map filter to short code
-      const filterShortMap = {
-        'CSE': 'CSE',
+      // Use the same normalization helper for filter
+      const normalizedFilter = normalizeBranchForCompare(filterUpper);
+
+      // Also map some common variations if not covered by helper
+      const manualMap = {
         'AIML': 'AIML',
-        'ECE': 'ECE',
-        'EEE': 'EEE',
-        'ME': 'ME',
-        'MECHANICAL': 'ME',
-        'CIVIL': 'CIVIL'
+        'CSE AIML': 'AIML'
       };
-      const filterShort = filterShortMap[filterUpper] || filterUpper;
-      return parsedShort === filterShort;
+
+      const paramShort = manualMap[normalizedFilter] || normalizedFilter;
+      const recordShort = manualMap[normalizedEffective] || normalizedEffective;
+
+      return paramShort === recordShort;
     });
   };
 
@@ -384,9 +470,10 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     const parsed = parsedRegCache.get(record.Reg_No);
     if (!parsed || !parsed.isValid || !parsed.isBTech) return;
 
-    const parsedBranch = parsed.branch || 'Unknown';
-    const deptName = branchDisplayMap[parsedBranch] || parsedBranch.toUpperCase();
     const regNo = String(record.Reg_No).trim();
+    const effectiveBranch = getEffectiveBranch(regNo, parsed.branch);
+    const deptName = normalizeBranchForCompare(effectiveBranch);
+
     const studentHasFail = studentOutcome.get(regNo)?.hasFail || false;
 
     if (!departmentStatsMap[deptName]) {
@@ -465,8 +552,9 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     const parsed = parsedRegCache.get(record.Reg_No);
     if (!parsed || !parsed.isValid || !parsed.isBTech) return;
 
-    const batch = parsed.year || 'Unknown';
     const regNo = String(record.Reg_No).trim();
+    const effectiveBatch = getEffectiveBatch(regNo, parsed.year);
+    const batch = effectiveBatch || 'Unknown';
     const studentHasFail = studentOutcome.get(regNo)?.hasFail || false;
 
     if (!batchStatsMap[batch]) {
@@ -601,21 +689,10 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     const isPass = !['F', 'S', 'M', 'I', 'R'].includes(grade);
 
     if (!studentPerformanceMap[regNo]) {
-      // Parse branch from registration number to a standardized short code used in filters
-      let branch = null;
-      if (regNo.length === 12) {
-        const branchCode = regNo.slice(5, 8); // 3 digits from index 5-7
-        const btechBranchMap = {
-          '111': 'CIVIL',
-          '112': 'CSE',
-          '113': 'ECE',
-          '115': 'EEE',
-          '116': 'ME',
-          // AIML registrations use 137
-          '137': 'AIML'
-        };
-        branch = btechBranchMap[branchCode] || null;
-      }
+      // Use cached parsed data and effective branch
+      const parsed = parsedRegCache.get(regNo);
+      const effectiveBranch = getEffectiveBranch(regNo, parsed?.branch);
+      const branch = normalizeBranchForCompare(effectiveBranch);
 
       studentPerformanceMap[regNo] = {
         regNo: regNo,

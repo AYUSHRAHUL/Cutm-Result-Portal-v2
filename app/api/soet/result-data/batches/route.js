@@ -39,7 +39,7 @@ export async function GET(req) {
     const client = await clientPromise;
     const campusParam = req.nextUrl.searchParams.get('campus');
     const campus = campusParam || payload.campus || null;
-    
+
     const school = 'SOET';
     const dbName = getCampusSchoolDatabase(campus, school);
     const db = client.db(dbName);
@@ -72,15 +72,22 @@ export async function GET(req) {
 
     // Extract batches from Reg_Nos
     const batchSet = new Set();
-    
+
     uniqueRegNos.forEach(item => {
       const regNo = String(item.Reg_No || item._id || '').trim();
       if (!regNo || regNo.length < 12) return;
-      
+
       const parsed = parseBTechRegistration(regNo);
       if (parsed && parsed.isValid && parsed.isBTech && parsed.year) {
         batchSet.add(parsed.year);
       }
+    });
+
+    // Also check overrides for unique batches
+    const overridesCol = db.collection("branch_overrides");
+    const overrideBatches = await overridesCol.distinct("batch");
+    overrideBatches.forEach(b => {
+      if (b) batchSet.add(b);
     });
 
     const batches = Array.from(batchSet).sort();

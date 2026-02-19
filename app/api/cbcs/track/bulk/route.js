@@ -126,7 +126,7 @@ async function isDiplomaStudent(registration, department = null, school = null) 
 
 // Function to get required credits based on student type and batch year
 // Function to get required credits based on student type and batch year
-async function getRequiredCreditsForStudent(registration, department = null, school = null) {
+async function getRequiredCreditsForStudent(registration, department = null, school = null, overrideBatch = null) {
   const isDiploma = await isDiplomaStudent(registration, department, school);
   const isLateral = isLateralEntryStudent(registration);
 
@@ -143,8 +143,16 @@ async function getRequiredCreditsForStudent(registration, department = null, sch
     return LATERAL_ENTRY_CREDITS;
   }
 
-  const batchSuffix = (registration || "").slice(0, 2);
-  const batchNum = parseInt(batchSuffix, 10);
+  let batchNum;
+  if (overrideBatch) {
+    // Handle full year "2024" or short "24"
+    const batchStr = String(overrideBatch);
+    batchNum = parseInt(batchStr.length === 4 ? batchStr.slice(2) : batchStr, 10);
+  } else {
+    const batchSuffix = (registration || "").slice(0, 2);
+    batchNum = parseInt(batchSuffix, 10);
+  }
+
   if (!Number.isNaN(batchNum) && batchNum >= 24) {
     return REQUIRED_CREDITS_2024_ONWARDS;
   }
@@ -243,6 +251,11 @@ export async function POST(req) {
     const db = client.db(dbName);
     console.log(`Bulk API - MongoDB connection established to ${dbName} database`);
 
+    // Load Overrides
+    const overridesCol = db.collection("branch_overrides");
+    const overridesArr = await overridesCol.find({}, { projection: { _id: 0, reg: 1, branch: 1, batch: 1 } }).toArray();
+    const overrideMap = new Map(overridesArr.map(o => [String(o.reg || "").toUpperCase(), o]));
+
     // Fetch inactive students list for global exclusion
     const statusCollection = db.collection("student_status");
     const inactiveDocs = await statusCollection.find({ isActive: false }).project({ Reg_No: 1 }).toArray();
@@ -294,9 +307,8 @@ export async function POST(req) {
       }
       // Include overrides for this department
       try {
-        const ovDocs = await db.collection("branch_overrides").find({ branch: department }).project({ reg: 1 }).toArray();
-        const regs = ovDocs.map(d => d.reg).filter(Boolean);
-        if (regs.length > 0) orConds.push({ Reg_No: { $in: regs } });
+        const branchMatchRegs = overridesArr.filter(o => o.branch === department).map(o => o.reg);
+        if (branchMatchRegs.length > 0) orConds.push({ Reg_No: { $in: branchMatchRegs } });
       } catch { }
 
       if (orConds.length > 0) {
@@ -307,20 +319,34 @@ export async function POST(req) {
       console.log("No department filter applied - getting all students");
     }
 
-    // FIXED: Apply batch filter (Hybrid Approach)
+    // FIXED: Apply batch filter (Hybrid Approach with Overrides)
     if (batch && batch !== "All" && batch !== "") {
       const isSovet = school === 'SOVET';
+      const targetBatch = batch.length === 4 ? batch : `20${batch}`;
+
+      // Find overrides that match this batch
+      const batchOverrideRegs = overridesArr
+        .filter(o => o.batch === targetBatch)
+        .map(o => o.reg);
 
       if (isSovet) {
         // Diploma: Use robust $expr matching for numeric/string IDs
         const batchCondition = {
-          $expr: {
-            $regexMatch: {
-              input: { $toString: "$Reg_No" },
-              regex: `^${batch}`
+          $or: [
+            {
+              $expr: {
+                $regexMatch: {
+                  input: { $toString: "$Reg_No" },
+                  regex: `^${batch}`
+                }
+              }
             }
-          }
+          ]
         };
+
+        if (batchOverrideRegs.length > 0) {
+          batchCondition.$or.push({ Reg_No: { $in: batchOverrideRegs } });
+        }
 
         if (query.$or) {
           query.$and = [{ $or: query.$or }, batchCondition];
@@ -329,24 +355,32 @@ export async function POST(req) {
           Object.assign(query, batchCondition);
         }
       } else {
-        // B.Tech: Use standard regex (restore original behavior)
+        // B.Tech: Use standard regex + Overrides
         const batchRegex = `^${batch}`;
+        const batchCondition = {
+          $or: [
+            { Reg_No: { $regex: batchRegex } }
+          ]
+        };
+
+        if (batchOverrideRegs.length > 0) {
+          batchCondition.$or.push({ Reg_No: { $in: batchOverrideRegs } });
+        }
+
         if (query.$or) {
+          // Flatten logic: (Dept conditions) AND (Batch conditions)
           query.$and = [
             { $or: query.$or },
-            { Reg_No: { $regex: batchRegex } }
+            batchCondition
           ];
           delete query.$or;
         } else {
-          // Merge with existing Reg_No filter (e.g. inactive exclusion) if present
-          if (query.Reg_No && typeof query.Reg_No === 'object') {
-            query.Reg_No = { ...query.Reg_No, $regex: batchRegex };
-          } else {
-            query.Reg_No = { $regex: batchRegex };
-          }
+          // Merge with existing properties? Better to use $and to be safe against collisions
+          if (!query.$and) query.$and = [];
+          query.$and.push(batchCondition);
         }
       }
-      console.log(`Applied batch filter: ^${batch} (Method: ${isSovet ? '$expr' : 'regex'})`);
+      console.log(`Applied batch filter: ^${batch} (Method: ${isSovet ? '$expr' : 'regex'}) + ${batchOverrideRegs.length} overrides`);
     }
 
     console.log(`Final query object:`, JSON.stringify(query));
@@ -759,6 +793,65 @@ export async function POST(req) {
     const studentsData = [];
 
     for (const student of students) {
+      // Determine Effective Branch/Batch
+      const regNo = String(student.Reg_No || "").toUpperCase();
+      const ov = overrideMap.get(regNo);
+
+      // Effective Batch (e.g. "2024")
+      let effectiveBatch = ov?.batch;
+      if (!effectiveBatch) {
+        const regBatch = regNo.slice(0, 2);
+        effectiveBatch = `20${regBatch}`;
+      }
+
+      // Effective Department
+      let actualDepartment = ov?.branch;
+      if (!actualDepartment) {
+        actualDepartment = await getDepartmentFromRegNo(student.Reg_No);
+        // If department is still "Unknown", try to get from student info
+        if (actualDepartment === 'Unknown' && student.Branch) {
+          const branchMap = {
+            'Civil': 'Civil Engineering',
+            'CSE': 'Computer Science Engineering',
+            'ECE': 'Electronics & Communication Engineering',
+            'EEE': 'Electrical & Electronics Engineering',
+            'ME': 'Mechanical Engineering',
+            'Mechanical': 'Mechanical Engineering',
+            'Computer Science': 'Computer Science Engineering',
+            'Electronics': 'Electronics & Communication Engineering',
+            'Electrical': 'Electrical & Electronics Engineering'
+          };
+          actualDepartment = branchMap[student.Branch] || student.Branch || "Unknown";
+        }
+      }
+
+      // STRICT BATCH FILTER: Ensure student belongs to requested batch (after override)
+      if (batch && batch !== "All" && batch !== "") {
+        const targetBatchFull = batch.length === 2 ? `20${batch}` : batch;
+        const effectiveBatchFull = effectiveBatch.length === 2 ? `20${effectiveBatch}` : effectiveBatch;
+
+        if (effectiveBatchFull !== targetBatchFull) {
+          // Skip students who don't match the batch filter effectively
+          // This handles cases where regex matched 24... but override moved them to 2025
+          continue;
+        }
+      }
+
+      // Skip if department doesn't match the filter (only if department filter is applied and not "all")
+      if (department && department !== "All" && department !== "Select Department") {
+        // Normalize for comparison
+        const cleanActual = String(actualDepartment || "").replace(/\s*\(Diploma\)\s*/i, '').trim().toUpperCase();
+        const cleanTarget = String(department || "").replace(/\s*\(Diploma\)\s*/i, '').trim().toUpperCase();
+
+        // Use normalized comparison
+        // Also check if cleaned branch name matches alias map if strict match fails (simplified here)
+        if (cleanActual !== cleanTarget) {
+          // Check if one contains the other (e.g. CSE contains Computer Science)
+          const isPartial = cleanActual.includes(cleanTarget) || cleanTarget.includes(cleanActual);
+          if (!isPartial) continue;
+        }
+      }
+
       // Try both string and number matching for Reg_No
       const studentResults = results.filter(r =>
         r.Reg_No === student.Reg_No ||
@@ -769,59 +862,15 @@ export async function POST(req) {
       );
 
       // Debug: Check if we're finding results for this student
-      console.log(`Student ${student.Reg_No} (${student.Name}): Found ${studentResults.length} results`);
       if (studentResults.length > 0) {
-        console.log(`Sample results for ${student.Reg_No}:`, studentResults.slice(0, 2).map(r => ({
-          Reg_No: r.Reg_No,
-          Type: r.Type,
-          Subject_Code: r.Subject_Code,
-          Credits: r.Credits,
-          Grade: r.Grade
-        })));
+        // console.log(`Sample results for ${student.Reg_No}:`, studentResults.slice(0, 1).map(r => r.Subject_Code));
       }
 
       if (studentResults.length === 0) continue;
 
-      // Get department from registration number
-      let actualDepartment = await getDepartmentFromRegNo(student.Reg_No);
-
-      // Override from admin configuration if exists
-      try {
-        const ov = await db.collection("branch_overrides").findOne({ reg: String(student.Reg_No) });
-        if (ov?.branch) {
-          actualDepartment = ov.branch;
-        }
-      } catch { }
-
-      // If department is still "Unknown", try to get from student info
-      if (actualDepartment === 'Unknown' && student.Branch) {
-        const branchMap = {
-          'Civil': 'Civil Engineering',
-          'CSE': 'Computer Science Engineering',
-          'ECE': 'Electronics & Communication Engineering',
-          'EEE': 'Electrical & Electronics Engineering',
-          'ME': 'Mechanical Engineering',
-          'Mechanical': 'Mechanical Engineering',
-          'Computer Science': 'Computer Science Engineering',
-          'Electronics': 'Electronics & Communication Engineering',
-          'Electrical': 'Electrical & Electronics Engineering'
-        };
-        actualDepartment = branchMap[student.Branch] || student.Branch || "Unknown";
-      }
-
-      // Skip if department doesn't match the filter (only if department filter is applied and not "all")
-      if (department && department !== "All" && department !== "Select Department") {
-        // Normalize departments for comparison (handle " (Diploma)" suffix)
-        const cleanActual = actualDepartment.replace(/\s*\(Diploma\)\s*/i, '').trim();
-        const cleanTarget = department.replace(/\s*\(Diploma\)\s*/i, '').trim();
-
-        if (cleanActual !== cleanTarget) {
-          continue;
-        }
-      }
-
       // Initialize baskets with appropriate credit requirements
-      const requiredCredits = await getRequiredCreditsForStudent(student.Reg_No, actualDepartment, school);
+      // PASS EFFECTIVE BATCH HERE
+      const requiredCredits = await getRequiredCreditsForStudent(student.Reg_No, actualDepartment, school, effectiveBatch);
       const basketNames = Object.keys(requiredCredits);
       const basketProgress = Object.fromEntries(
         basketNames.map((name) => [name, buildBasketState(requiredCredits[name])])
@@ -869,10 +918,10 @@ export async function POST(req) {
         const courseMatchesStudentBranch = subjectMatchesStudentBranch(code, actualDepartment);
         if (targetBasket === "Basket IV" && courseBelongsToDifferentBranch) {
           targetBasket = "Basket V";
-          console.log(`Cross-branch course detected: ${code} moved from Basket IV to Basket V for ${actualDepartment} student ${student.Reg_No}`);
+          // console.log(`Cross-branch course detected: ${code} moved from Basket IV to Basket V`);
         } else if (targetBasket === "Basket V" && courseMatchesStudentBranch) {
           targetBasket = "Basket IV";
-          console.log(`Branch-aligned subject: ${code} moved from Basket V to Basket IV for ${actualDepartment} student ${student.Reg_No}`);
+          // console.log(`Branch-aligned subject: ${code} moved from Basket V to Basket IV`);
         }
 
         if (!basketProgress[targetBasket]) {
@@ -908,9 +957,6 @@ export async function POST(req) {
       let filteredProgress = basketProgress;
       if (basket && basket !== "All" && basket !== "" && basketProgress[basket]) {
         filteredProgress = { [basket]: basketProgress[basket] };
-        console.log(`Applied basket filter: ${basket}`);
-      } else {
-        console.log("No basket filter applied - showing all baskets");
       }
 
       // Build student data (basket values show earned + failed)
@@ -931,6 +977,7 @@ export async function POST(req) {
         name: student.Name || `Student ${student.Reg_No.slice(-4)}`,
         registration: student.Reg_No,
         department: actualDepartment,
+        batch: effectiveBatch, // Return effective batch
         is_lateral_entry: isLateralEntry,
         is_diploma: isDiploma,
         student_type: studentTypeStr,
@@ -989,3 +1036,4 @@ export async function POST(req) {
     }, { status: 500 });
   }
 }
+

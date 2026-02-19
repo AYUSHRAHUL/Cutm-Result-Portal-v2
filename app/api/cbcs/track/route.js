@@ -120,7 +120,7 @@ async function isDiplomaStudent(registration, department = null, school = null) 
 }
 
 // Function to get required credits based on student type and batch year
-async function getRequiredCreditsForStudent(registration, department = null, school = null) {
+async function getRequiredCreditsForStudent(registration, department = null, school = null, overrideBatch = null) {
   const isDiploma = await isDiplomaStudent(registration, department, school);
   const isLateral = isLateralEntryStudent(registration);
 
@@ -137,9 +137,16 @@ async function getRequiredCreditsForStudent(registration, department = null, sch
     return LATERAL_ENTRY_CREDITS;
   }
 
-  // Extract first two digits of registration as batch year suffix: e.g., "24" => 2024
-  const batchSuffix = (registration || "").slice(0, 2);
-  const batchNum = parseInt(batchSuffix, 10);
+  let batchNum;
+  if (overrideBatch) {
+    const batchStr = String(overrideBatch);
+    batchNum = parseInt(batchStr.length === 4 ? batchStr.slice(2) : batchStr, 10);
+  } else {
+    // Extract first two digits of registration as batch year suffix: e.g., "24" => 2024
+    const batchSuffix = (registration || "").slice(0, 2);
+    batchNum = parseInt(batchSuffix, 10);
+  }
+
   if (!Number.isNaN(batchNum) && batchNum >= 24) {
     return REQUIRED_CREDITS_2024_ONWARDS;
   }
@@ -288,7 +295,7 @@ export async function POST(req) {
 
     // Extract batch from registration (first 2 digits)
     const regBatch = reg.slice(0, 2);
-    const actualBatch = `20${regBatch}`;
+    let actualBatch = `20${regBatch}`;
 
     // Extract department from registration number
     // For diploma: branch code is at positions 6-7
@@ -313,10 +320,14 @@ export async function POST(req) {
     }
 
     // Override branch if admin set one
+    // Also check for batch override
     try {
       const ov = await db.collection("branch_overrides").findOne({ reg });
       if (ov?.branch) {
         actualDepartment = ov.branch;
+      }
+      if (ov?.batch) {
+        actualBatch = ov.batch;
       }
     } catch { }
 
@@ -376,7 +387,8 @@ export async function POST(req) {
     }
 
     // Validate batch if provided
-    if (batch && batch !== "All" && batch !== regBatch) {
+    if (batch && batch !== "All" && batch !== regBatch && batch !== actualBatch && `20${batch}` !== actualBatch) {
+      // Only fail if override batch also doesn't match
       return NextResponse.json({
         error: `Registration ${reg} belongs to batch ${actualBatch}, but you selected batch ${batch === "20" ? "2020" : batch === "21" ? "2021" : batch === "22" ? "2022" : batch === "23" ? "2023" : batch === "24" ? "2024" : batch === "25" ? "2025" : batch}. Please select the correct batch.`
       }, { status: 400 });
@@ -561,7 +573,7 @@ export async function POST(req) {
     // Initialize baskets with appropriate credit requirements
     // Force diploma if school detected as SOVET
     const isDiplomaSchool = (String(school || '').toUpperCase() === 'SOVET');
-    const requiredCredits = await getRequiredCreditsForStudent(reg, actualDepartment, isDiplomaSchool ? 'SOVET' : school);
+    const requiredCredits = await getRequiredCreditsForStudent(reg, actualDepartment, isDiplomaSchool ? 'SOVET' : school, actualBatch);
     const basketNames = Object.keys(requiredCredits);
     const basketProgress = Object.fromEntries(
       basketNames.map((name) => [name, buildBasketState(requiredCredits[name])])

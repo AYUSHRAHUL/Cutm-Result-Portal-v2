@@ -101,16 +101,76 @@ export async function POST(req) {
 
     // If department is provided, return list of students in that department
     if (department || batch) {
+      // 0. Load Overrides for Accurate Filtering
+      const overridesCol = db.collection("branch_overrides");
+      const overridesArr = await overridesCol.find({}, { projection: { _id: 0, reg: 1, branch: 1, batch: 1 } }).toArray();
+      const overrideMap = new Map(overridesArr.map(o => [String(o.reg || "").toUpperCase(), o]));
+
+      // Helper functions for effective data
+      const getEffectiveBranch = (regNo, parsedBranch, recordBranch) => {
+        const ov = overrideMap.get(String(regNo || "").toUpperCase());
+        if (ov?.branch) return ov.branch;
+        return parsedBranch || recordBranch || "";
+      };
+      const getEffectiveBatch = (regNo, parsedYear, recordBatch) => {
+        const ov = overrideMap.get(String(regNo || "").toUpperCase());
+        if (ov?.batch) return ov.batch;
+        return parsedYear || recordBatch || "";
+      };
+
+      const normalizeBranchForCompare = (br) => {
+        if (!br) return "";
+        const brStr = String(br).trim().toUpperCase();
+        const branchMap = {
+          'CIVIL ENGINEERING': 'CIVIL',
+          'COMPUTER SCIENCE AND ENGINEERING': 'CSE',
+          'COMPUTER SCIENCE ENGINEERING': 'CSE',
+          'ELECTRONICS AND COMMUNICATION ENGINEERING': 'ECE',
+          'ELECTRICAL AND ELECTRONICS ENGINEERING': 'EEE',
+          'MECHANICAL ENGINEERING': 'MECHANICAL',
+          'ME': 'MECHANICAL'
+        };
+        return branchMap[brStr] || brStr;
+      };
+
+      // Identify extra Reg_Nos that match criteria via overrides
+      let extraRegs = [];
+
+      if (batch && batch !== "All") {
+        const targetBatch = batch.length === 4 ? batch : `20${batch}`;
+        overridesArr.forEach(ov => {
+          if (ov.batch === targetBatch) extraRegs.push(ov.reg);
+        });
+      }
+
+      if (department && department !== "All") {
+        const searchKey = department.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        let targetBranch = null;
+        if (searchKey.includes('civil')) targetBranch = "Civil Engineering";
+        else if (searchKey === 'cse' || searchKey.includes('computer')) targetBranch = "Computer Science Engineering";
+        else if (searchKey === 'ece' || searchKey.includes('electronics')) targetBranch = "Electronics & Communication Engineering";
+        else if (searchKey === 'eee' || searchKey.includes('electrical')) targetBranch = "Electrical & Electronics Engineering";
+        else if (searchKey === 'me' || searchKey.includes('mech')) targetBranch = "Mechanical Engineering";
+        else if (searchKey === 'aiml') targetBranch = "AIML";
+
+        if (targetBranch) {
+          overridesArr.forEach(ov => {
+            if (ov.branch === targetBranch) extraRegs.push(ov.reg);
+          });
+        }
+      }
+      extraRegs = [...new Set(extraRegs)];
+
       const matchConditions = [];
 
-      // 1. Batch Filter
+      // 1. Batch Filter (Standard)
       if (batch && batch !== "All") {
         const b = String(batch).trim();
         const yy = b.length === 4 && b.startsWith("20") ? b.slice(2) : b.slice(-2);
         matchConditions.push({ Reg_No: { $regex: `^${yy}|20${yy}` } });
       }
 
-      // 2. Department Match Logic
+      // 2. Department Match Logic (Standard)
       if (department && department !== "All") {
         const branchQueries = [];
 
@@ -166,7 +226,14 @@ export async function POST(req) {
 
       let query = {};
       if (matchConditions.length > 0) {
-        query = { $and: matchConditions };
+        const originalQuery = { $and: matchConditions };
+        if (extraRegs.length > 0) {
+          query = { $or: [originalQuery, { Reg_No: { $in: extraRegs } }] };
+        } else {
+          query = originalQuery;
+        }
+      } else if (extraRegs.length > 0) {
+        query = { Reg_No: { $in: extraRegs } };
       }
 
       const students = await db.collection("result").find(query).project({
@@ -176,11 +243,47 @@ export async function POST(req) {
         Branch: 1
       }).toArray();
 
-      // Filter for B.Tech students only
+      // Filter for B.Tech students AND apply efficient filtering
       const { parseBTechRegistration } = await import('../parse-registration/route');
-      const btechStudents = students.filter(student => {
+      const btechStudents = [];
+      students.forEach(student => {
         const parsed = parseBTechRegistration(student.Reg_No);
-        return parsed && parsed.isValid && parsed.isBTech;
+        if (!parsed || !parsed.isValid || !parsed.isBTech) return;
+
+        // Apply rigorous filtering using effective branch/batch
+        const effectiveBranch = getEffectiveBranch(student.Reg_No, parsed.branch, student.Branch);
+        const effectiveBatch = getEffectiveBatch(student.Reg_No, parsed.year, null);
+
+        // Check Batch
+        if (batch && batch !== "All") {
+          const batchYear = batch.length === 4 ? batch : `20${batch}`;
+          if (effectiveBatch !== batchYear) {
+            const shortEff = effectiveBatch.slice(-2);
+            const shortBat = batchYear.slice(-2);
+            if (shortEff !== shortBat) return;
+          }
+        }
+
+        // Check Department
+        if (department && department !== "All") {
+          const normalizedFilter = normalizeBranchForCompare(department);
+          const normalizedEffective = normalizeBranchForCompare(effectiveBranch);
+          if (normalizedFilter !== normalizedEffective &&
+            !normalizedEffective.includes(normalizedFilter) &&
+            !normalizedFilter.includes(normalizedEffective)) {
+            return;
+          }
+        }
+
+        // Update student object with effective values for display
+        // We clone to avoid mutating the original if that matters, though here it's fine
+        const displayStudent = {
+          ...student,
+          Branch: effectiveBranch,
+          Batch: effectiveBatch // Add Batch field which might be useful for frontend
+        };
+
+        btechStudents.push(displayStudent);
       });
 
       // Remove duplicates

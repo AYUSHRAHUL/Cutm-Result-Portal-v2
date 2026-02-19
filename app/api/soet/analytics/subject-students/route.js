@@ -49,23 +49,38 @@ export async function GET(req) {
     const client = await clientPromise;
     const campusParam = searchParams.get('campus');
     const campus = campusParam || payload.campus || null;
-    
+
     // Force school to SOET
     const school = 'SOET';
     const dbName = getCampusSchoolDatabase(campus, school);
-    
+
     console.log(`[SOET Subject Students] Database selection: campus=${campus}, school=${school}, dbName=${dbName}`);
-    
+
     const db = client.db(dbName);
     const cutm = db.collection("result");
+
+    // Load Overrides
+    const overridesCol = db.collection("branch_overrides");
+    const overridesArr = await overridesCol.find({}, { projection: { _id: 0, reg: 1, branch: 1, batch: 1 } }).toArray();
+    const overrideMap = new Map(overridesArr.map(o => [String(o.reg || "").toUpperCase(), o]));
+
+    // Helper functions
+    const getEffectiveBranch = (regNo, parsedBranch) => {
+      const ov = overrideMap.get(String(regNo || "").toUpperCase());
+      if (ov?.branch) return ov.branch;
+      return parsedBranch || "";
+    };
+    const getEffectiveBatch = (regNo, parsedYear) => {
+      const ov = overrideMap.get(String(regNo || "").toUpperCase());
+      if (ov?.batch) return ov.batch;
+      return parsedYear || "";
+    };
 
     // Filter for B.Tech students only (parser used after DB query)
     const { parseBTechRegistration } = await import('../../parse-registration/route');
 
     // Build query so that ALL four parameters are applied together:
     // subject (mandatory) AND optional batch AND optional semester.
-    // We avoid mixing subject and semester in the same $or, otherwise
-    // Mongo would return records that match subject OR semester.
     const andConditions = [
       {
         $or: [
@@ -75,12 +90,27 @@ export async function GET(req) {
       }
     ];
 
-    // Add batch filter (Reg_No prefix based on batch year)
+    // Add batch filter (Reg_No prefix based on batch year OR override)
     if (batchFilter && batchFilter !== "all") {
       const batchPrefix = batchFilter.length === 4 ? batchFilter.substring(2, 4) : batchFilter;
-      andConditions.push({
-        Reg_No: { $regex: `^${batchPrefix}` }
+      const targetBatch = batchFilter.length === 4 ? batchFilter : `20${batchFilter}`;
+
+      const batchOverrideRegs = [];
+      overridesArr.forEach(ov => {
+        if (ov.batch === targetBatch) batchOverrideRegs.push(ov.reg.toUpperCase());
       });
+
+      const batchCondition = {
+        $or: [
+          { Reg_No: { $regex: `^${batchPrefix}` } }
+        ]
+      };
+
+      if (batchOverrideRegs.length > 0) {
+        batchCondition.$or.push({ Reg_No: { $in: batchOverrideRegs } });
+      }
+
+      andConditions.push(batchCondition);
     }
 
     // Add semester filter
@@ -102,41 +132,56 @@ export async function GET(req) {
     const MAX_SUBJECT_STUDENTS_RECORDS = 10000; // Limit to 10k records
     let records = await cutm.find(query).limit(MAX_SUBJECT_STUDENTS_RECORDS).toArray();
 
-    // Filter for B.Tech students
+    // Filter for B.Tech students and check effective BATCH (if we retrieved via override)
     records = records.filter(record => {
       if (!record.Reg_No) return false;
       const parsed = parseBTechRegistration(String(record.Reg_No).trim());
-      return parsed && parsed.isValid && parsed.isBTech;
+      if (!parsed || !parsed.isValid || !parsed.isBTech) return false;
+
+      // If batch filter is active, verify effective batch
+      if (batchFilter && batchFilter !== "all") {
+        const effectiveBatch = getEffectiveBatch(record.Reg_No, parsed.year);
+        const targetBatch = batchFilter.length === 4 ? batchFilter : `20${batchFilter}`;
+        const targetShort = targetBatch.slice(-2);
+        const effectiveShort = effectiveBatch.slice(-2);
+
+        if (effectiveBatch !== targetBatch && effectiveShort !== targetShort) return false;
+      }
+
+      return true;
     });
 
     // Filter by branch if specified (normalize to short codes to avoid CSE/AIML merge)
     if (branchFilter && branchFilter !== "all") {
-      const branchShortMap = {
-        '111': 'CIVIL',
-        '112': 'CSE',
-        '113': 'ECE',
-        '115': 'EEE',
-        '116': 'ME',
-        '137': 'AIML'
+      // Helper to normalize branch
+      const normalizeBranchForCompare = (br) => {
+        if (!br) return "";
+        const brStr = String(br).trim().toUpperCase();
+        const branchMap = {
+          'CIVIL ENGINEERING': 'CIVIL',
+          'COMPUTER SCIENCE AND ENGINEERING': 'CSE',
+          'COMPUTER SCIENCE ENGINEERING': 'CSE',
+          'ELECTRONICS AND COMMUNICATION ENGINEERING': 'ECE',
+          'ELECTRICAL AND ELECTRONICS ENGINEERING': 'EEE',
+          'MECHANICAL ENGINEERING': 'ME', // Keep ME for now as per previous analytics usage
+          'ME': 'ME',
+          'AIML': 'AIML',
+          // Map short params
+          'CSE': 'CSE', 'ECE': 'ECE', 'EEE': 'EEE', 'CIVIL': 'CIVIL', 'AIML': 'AIML'
+        };
+        return branchMap[brStr] || brStr;
       };
-      const filterShortMap = {
-        'CSE': 'CSE',
-        'AIML': 'AIML',
-        'ECE': 'ECE',
-        'EEE': 'EEE',
-        'ME': 'ME',
-        'MECHANICAL': 'ME',
-        'CIVIL': 'CIVIL'
-      };
-      const filterShort = filterShortMap[branchFilter.toUpperCase()] || branchFilter.toUpperCase();
+
+      const filterShort = normalizeBranchForCompare(branchFilter);
 
       records = records.filter(record => {
-        if (!record.Reg_No) return false;
         const parsed = parseBTechRegistration(String(record.Reg_No).trim());
-        if (!parsed || !parsed.isValid || !parsed.isBTech) return false;
+        // Parsed check already done above, but safe to keep or assume valid
 
-        const parsedShort = branchShortMap[parsed.branchCode] || (parsed.branch || '').toUpperCase().trim();
-        return parsedShort === filterShort;
+        const effectiveBranch = getEffectiveBranch(record.Reg_No, parsed.branch);
+        const effectiveShort = normalizeBranchForCompare(effectiveBranch);
+
+        return effectiveShort === filterShort;
       });
     }
 
@@ -146,20 +191,36 @@ export async function GET(req) {
       const regNo = String(record.Reg_No).trim();
       if (!studentMap.has(regNo)) {
         const parsed = parseBTechRegistration(regNo);
+        const effectiveBranch = getEffectiveBranch(regNo, parsed?.branch);
+        const effectiveBatch = getEffectiveBatch(regNo, parsed?.year);
+
+        // Map effective branch to short code for display/consistency
         const branchShortMap = {
-          '111': 'CIVIL',
-          '112': 'CSE',
-          '113': 'ECE',
-          '115': 'EEE',
-          '116': 'ME',
-          '137': 'AIML'
+          'Civil Engineering': 'CIVIL',
+          'CIVIL': 'CIVIL',
+          'Computer Science Engineering': 'CSE',
+          'CSE': 'CSE',
+          'Electronics & Communication Engineering': 'ECE',
+          'ECE': 'ECE',
+          'Electrical & Electronics Engineering': 'EEE',
+          'EEE': 'EEE',
+          'Mechanical Engineering': 'ME',
+          'ME': 'ME',
+          'AIML': 'AIML'
         };
-        const branchShort = branchShortMap[parsed?.branchCode] || (parsed?.branch || 'Unknown');
+        // Reuse logic or simplify
+        let branchShort = effectiveBranch.toUpperCase();
+        if (effectiveBranch === 'Computer Science Engineering') branchShort = 'CSE';
+        else if (effectiveBranch === 'Civil Engineering') branchShort = 'CIVIL';
+        else if (effectiveBranch === 'Electronics & Communication Engineering') branchShort = 'ECE';
+        else if (effectiveBranch === 'Electrical & Electronics Engineering') branchShort = 'EEE';
+        else if (effectiveBranch === 'Mechanical Engineering') branchShort = 'ME';
+
         studentMap.set(regNo, {
           regNo: regNo,
           name: record.Name || record.name || 'Unknown',
           branch: branchShort,
-          batch: parsed?.year || 'Unknown',
+          batch: effectiveBatch || 'Unknown',
           grade: record.Grade || '',
           semester: record.Sem || '',
           subjectCode: subjectCode.toUpperCase(),

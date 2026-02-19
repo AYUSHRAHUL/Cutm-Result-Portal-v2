@@ -20,22 +20,54 @@ export async function POST(req) {
 
     const { branch, batch } = await req.json();
     const client = await clientPromise;
-    
+
     // Get campus from query params (priority) or payload
     const { searchParams } = new URL(req.url);
     const campusParam = searchParams.get('campus');
     const mode = searchParams.get('mode'); // e.g., ?mode=list for fast dropdowns
     campus = campusParam || campus || null;
-    
+
     // Force school to SOET for this route
     const school = 'SOET';
     const dbName = getCampusSchoolDatabase(campus, school);
 
     const db = client.db(dbName);
     const cutm = db.collection("result");
+    const overridesCol = db.collection("branch_overrides");
 
-    // Build query based on branch and batch
-    const query = {};
+    // Gather Reg_Nos from overrides that match the criteria
+    let overrideRegs = [];
+
+    // 1. Check Batch Overrides
+    if (batch && batch !== 'All') {
+      const batchYear = batch.length === 4 ? batch : `20${batch}`;
+      const batchOverrides = await overridesCol.find({ batch: batchYear }).project({ reg: 1 }).toArray();
+      batchOverrides.forEach(o => overrideRegs.push(o.reg));
+    }
+
+    // 2. Check Branch Overrides
+    if (branch && branch !== 'All') {
+      // Map search term to stored branch names in overrides collection
+      const searchKey = branch.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      let targetBranch = null;
+
+      if (searchKey.includes('civil')) targetBranch = "Civil Engineering";
+      else if (searchKey === 'cse' || searchKey.includes('computer')) targetBranch = "Computer Science Engineering";
+      else if (searchKey === 'ece' || searchKey.includes('electronics')) targetBranch = "Electronics & Communication Engineering";
+      else if (searchKey === 'eee' || searchKey.includes('electrical')) targetBranch = "Electrical & Electronics Engineering";
+      else if (searchKey === 'me' || searchKey.includes('mech')) targetBranch = "Mechanical Engineering";
+      else if (searchKey === 'aiml') targetBranch = "AIML";
+
+      if (targetBranch) {
+        const branchOverrides = await overridesCol.find({ branch: targetBranch }).project({ reg: 1 }).toArray();
+        branchOverrides.forEach(o => overrideRegs.push(o.reg));
+      }
+    }
+
+    overrideRegs = [...new Set(overrideRegs)]; // dedupe
+
+    // Build base query for standard matches
+    const baseQuery = {};
 
     // Optimize: If batch is provided, filter by Reg_No prefix at database level
     if (batch && batch !== 'All') {
@@ -43,7 +75,7 @@ export async function POST(req) {
       const shortYear = batchYear.slice(-2);
 
       // Filter for both numeric (starts with YY) and alphanumeric (starts with YYYY) formats
-      query.Reg_No = {
+      baseQuery.Reg_No = {
         $regex: `^(?:${shortYear}|${batchYear})`
       };
     }
@@ -84,14 +116,29 @@ export async function POST(req) {
       ].filter(Boolean);
 
       // Match either by Branch field or by branch code embedded in Reg_No (index 5-7)
-      query.$or = [
+      baseQuery.$or = [
         { Branch: { $in: branchNames } },
       ];
 
       if (branchCodes.length > 0) {
-        query.$or.push({
+        baseQuery.$or.push({
           $expr: { $in: [{ $substrBytes: ["$Reg_No", 5, 3] }, branchCodes] }
         });
+      }
+    }
+
+    // Final Query: Matches Branch/Batch logic OR is in Override List
+    let query = baseQuery;
+    if (overrideRegs.length > 0) {
+      // If we have base criteria, we OR them with overrides
+      // If baseQuery is empty (no filters), this is redundant but harmless
+      if (Object.keys(baseQuery).length > 0) {
+        query = {
+          $or: [
+            baseQuery,
+            { Reg_No: { $in: overrideRegs } }
+          ]
+        };
       }
     }
 
@@ -229,7 +276,7 @@ export async function POST(req) {
     const { parseBTechRegistration } = await import('../parse-registration/route');
 
     // Load branch-change overrides to respect branch changes in basket track
-    const overridesCol = db.collection("branch_overrides");
+    // overridesCol is already defined above
     const overridesArr = await overridesCol.find({}, { projection: { _id: 0, reg: 1, branch: 1, batch: 1 } }).toArray();
     const overrideMap = new Map(overridesArr.map(o => [String(o.reg || "").toUpperCase(), o]));
 
@@ -293,10 +340,10 @@ export async function POST(req) {
       if (branch && branch !== 'All') {
         const normalizedFilter = normalizeBranchForCompare(branch);
         const normalizedEffective = normalizeBranchForCompare(effectiveBranch);
-        
-        if (normalizedFilter !== normalizedEffective && 
-            !normalizedEffective.includes(normalizedFilter) && 
-            !normalizedFilter.includes(normalizedEffective)) {
+
+        if (normalizedFilter !== normalizedEffective &&
+          !normalizedEffective.includes(normalizedFilter) &&
+          !normalizedFilter.includes(normalizedEffective)) {
           return false;
         }
       }
