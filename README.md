@@ -1,4 +1,5 @@
-# 🎓 CUTM Result Portal - Comprehensive Documentation
+# 🎓 CUTM Result Portal - Comprehensive Documentation.
+
 
 ## 📋 Table of Contents
 
@@ -646,5 +647,6 @@ This project is developed for educational purposes at Centurion University of Te
 - **v1.3.0**: Added CBCS basket tracking
 
 ---
+
 
 *This documentation is maintained by the CUTM Result Portal development team. For the latest updates and information, please refer to the project repository.*
