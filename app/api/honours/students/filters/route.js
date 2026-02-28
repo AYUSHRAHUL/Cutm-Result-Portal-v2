@@ -49,7 +49,10 @@ async function getBranchFromRegistration(registration, department = null) {
 async function getDepartmentFromRegNo(regNo) {
   if (!regNo) return "Unknown";
   const branch = await getBranchFromRegistration(String(regNo));
-  return branch !== 'Unknown' ? branch : "Unknown";
+  if (branch === 'Unknown') return "Unknown";
+  // Normalize the branch name to long form
+  const normalized = normalizeBranchName(branch);
+  return normalized !== 'Unknown' ? normalized : branch;
 }
 
 // Normalize branch names to full names
@@ -174,10 +177,11 @@ export async function GET(req) {
       }
     });
     
-    // Add branches from registration numbers
+    // Add branches from registration numbers (also normalize these)
     branchesFromRegNo.forEach(branch => {
-      if (branch && branch !== "Unknown") {
-        branchSet.add(branch);
+      const normalized = normalizeBranchName(branch);
+      if (normalized && normalized !== "Unknown") {
+        branchSet.add(normalized);
       }
     });
     
