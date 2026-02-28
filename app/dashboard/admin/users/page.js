@@ -435,6 +435,13 @@ export default function AdminUsersPage() {
                         <div className="text-[#5A6C7D] text-xs">
                           Registered: {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : "N/A"}
                         </div>
+                        <div className="text-[#5A6C7D] text-xs mt-1 flex items-center gap-2">
+                          <span className={`w-2.5 h-2.5 rounded-full ${user.isOnline ? 'bg-green-500' : 'bg-gray-300'}`}></span>
+                          <span>{user.isOnline ? 'Online' : 'Offline'}</span>
+                        </div>
+                        <div className="text-[#5A6C7D] text-xs mt-1">
+                          Last Login: {user.lastLogin ? new Date(user.lastLogin).toLocaleString() : "-"}
+                        </div>
                       </div>
                     </div>
                     <div className="flex gap-2 mt-3">
@@ -471,6 +478,8 @@ export default function AdminUsersPage() {
                       <th className="px-3 sm:px-4 py-3 text-left font-black text-xs uppercase tracking-wider text-[#1A1F29]">Role</th>
                       <th className="px-3 sm:px-4 py-3 text-left font-black text-xs uppercase tracking-wider text-[#1A1F29]">Status</th>
                       <th className="px-3 sm:px-4 py-3 text-left font-black text-xs uppercase tracking-wider text-[#1A1F29]">Registered</th>
+                      <th className="px-3 sm:px-4 py-3 text-left font-black text-xs uppercase tracking-wider text-[#1A1F29]">Last Login</th>
+                      <th className="px-3 sm:px-4 py-3 text-left font-black text-xs uppercase tracking-wider text-[#1A1F29]">Online</th>
                       <th className="px-3 sm:px-4 py-3 text-center font-black text-xs uppercase tracking-wider text-[#1A1F29]">Actions</th>
                     </tr>
                   </thead>
@@ -501,6 +510,17 @@ export default function AdminUsersPage() {
                             month: 'short', 
                             day: 'numeric' 
                           }) : "N/A"}
+                        </td>
+                        <td className="px-3 sm:px-4 py-3 text-[#5A6C7D] text-xs whitespace-nowrap">
+                          {user.lastLogin ? new Date(user.lastLogin).toLocaleString('en-US', { 
+                            year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                          }) : "-"}
+                        </td>
+                        <td className="px-3 sm:px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <span className={`w-2.5 h-2.5 rounded-full ${user.isOnline ? 'bg-green-500' : 'bg-gray-300'}`}></span>
+                            <span className="text-xs text-[#5A6C7D]">{user.isOnline ? 'Online' : 'Offline'}</span>
+                          </div>
                         </td>
                         <td className="px-3 sm:px-4 py-3">
                           <div className="flex items-center justify-center gap-2">

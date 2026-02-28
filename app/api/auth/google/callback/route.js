@@ -197,6 +197,8 @@ export async function GET(req) {
         picture: picture || null,
         createdAt: new Date(),
         updatedAt: new Date(),
+        lastLogin: new Date(),
+        isOnline: true,
       };
 
       const insertResult = await db.collection("users").insertOne(newUser);
@@ -248,6 +250,16 @@ export async function GET(req) {
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
+
+    // Mark last login and online status
+    try {
+      await db.collection("users").updateOne(
+        { email },
+        { $set: { lastLogin: new Date(), isOnline: true, updatedAt: new Date() } }
+      );
+    } catch (err) {
+      console.error('[GOOGLE CALLBACK] Failed to update lastLogin/isOnline', err);
+    }
 
     // Determine redirect based on role and campus
     const role = normalizedRole;

@@ -72,28 +72,64 @@ export async function POST(req) {
 
     console.log(`[LOGIN] Response being sent: role=${normalizedRole}, campus=${campus}, employeeId=${user.employeeId}`);
     
-    const res = NextResponse.json({
-      success: true,
-      message: "Login successful",
-      user: { 
-        name: user.name, 
-        role: normalizedRole, 
-        email: user.email,
-        campus: campus,
-        employeeId: user.employeeId || null,
-        school: school || null
-      },
-    });
+    // Update last login time and mark user online
+    try {
+      await db.collection("users").updateOne(
+        { email: user.email },
+        { $set: { lastLogin: new Date(), isOnline: true, updatedAt: new Date() } }
+      );
+      // refresh user object with latest fields
+      const refreshedUser = await db.collection("users").findOne({ email: user.email }, { projection: { password: 0 } });
 
-    res.cookies.set("token", token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      path: "/",
-      maxAge: 7 * 24 * 60 * 60,
-    });
+      const res = NextResponse.json({
+        success: true,
+        message: "Login successful",
+        user: {
+          name: refreshedUser.name,
+          role: normalizedRole,
+          email: refreshedUser.email,
+          campus: campus,
+          employeeId: refreshedUser.employeeId || null,
+          school: school || null,
+          lastLogin: refreshedUser.lastLogin || null,
+          isOnline: refreshedUser.isOnline || false
+        },
+      });
 
-    return res;
+      res.cookies.set("token", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60,
+      });
+
+      return res;
+    } catch (e) {
+      console.error('[LOGIN] Failed to update lastLogin/isOnline', e);
+      const res = NextResponse.json({
+        success: true,
+        message: "Login successful",
+        user: { 
+          name: user.name, 
+          role: normalizedRole, 
+          email: user.email,
+          campus: campus,
+          employeeId: user.employeeId || null,
+          school: school || null
+        },
+      });
+
+      res.cookies.set("token", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        path: "/",
+        maxAge: 7 * 24 * 60 * 60,
+      });
+
+      return res;
+    }
   } catch (err) {
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
