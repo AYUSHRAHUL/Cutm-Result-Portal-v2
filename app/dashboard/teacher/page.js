@@ -41,27 +41,25 @@ export default function TeacherDashboard() {
 
         if (res.ok) {
           const data = await res.json();
-          const apiCampus = data.user?.campus ? data.user.campus.toLowerCase() : null;
+          const apiCampus = data.user?.campus ? data.user.campus.toLowerCase() : 'pkd';
           console.log('[TEACHER DASHBOARD] Campus from API:', apiCampus);
 
-          if (apiCampus) {
-            if (isMounted) {
-              localStorage.setItem('campus', apiCampus); // Update local storage with fresh data
-              const schools = getDefaultSchools(apiCampus);
-              setUserCampus(apiCampus);
-              setUserSchools(schools);
-              setLoadingSchools(false);
-              setInitialized(true);
-            }
-            return;
+          if (isMounted) {
+            localStorage.setItem('campus', apiCampus); // Update local storage with fresh data
+            const schools = getDefaultSchools(apiCampus);
+            setUserCampus(apiCampus);
+            setUserSchools(schools);
+            setLoadingSchools(false);
+            setInitialized(true);
           }
+          return;
         }
 
-        // Fallback: Check localStorage if API failed or returned no campus
+        // Fallback: Check localStorage if API failed
         const savedCampus = localStorage.getItem('campus');
         if (savedCampus) {
           const campus = savedCampus.toLowerCase();
-          console.log('[TEACHER DASHBOARD] API failed/empty, using fallback campus from localStorage:', campus);
+          console.log('[TEACHER DASHBOARD] API failed, using fallback campus from localStorage:', campus);
           const schools = getDefaultSchools(campus);
           if (isMounted) {
             setUserCampus(campus);
@@ -71,13 +69,26 @@ export default function TeacherDashboard() {
           }
           return;
         }
+        
+        // Final fallback: Default to PKD campus
+        console.warn('[TEACHER DASHBOARD] API failed and no localStorage, defaulting to PKD campus');
         if (isMounted) {
-          throw new Error('Failed to fetch user info and no local fallback found');
+          localStorage.setItem('campus', 'pkd');
+          const schools = getDefaultSchools('pkd');
+          setUserCampus('pkd');
+          setUserSchools(schools);
+          setLoadingSchools(false);
+          setInitialized(true);
         }
       } catch (err) {
         console.error('[TEACHER DASHBOARD] Initialization error:', err);
         if (isMounted) {
-          setSchoolError('Unable to detect campus. Please log in again.');
+          // Default to PKD campus on error
+          console.warn('[TEACHER DASHBOARD] Error occurred, defaulting to PKD campus');
+          localStorage.setItem('campus', 'pkd');
+          const schools = getDefaultSchools('pkd');
+          setUserCampus('pkd');
+          setUserSchools(schools);
           setLoadingSchools(false);
           setInitialized(true);
         }

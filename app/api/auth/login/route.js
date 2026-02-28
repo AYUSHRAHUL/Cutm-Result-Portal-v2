@@ -49,6 +49,11 @@ export async function POST(req) {
       } else {
         console.warn(`[LOGIN] Teacher found but NO employeeId - Email: ${email}`);
       }
+      // Default to PKD if campus detection failed
+      if (!campus) {
+        console.log(`[LOGIN] Campus detection failed, defaulting to PKD for teacher`);
+        campus = 'pkd';
+      }
     }
     
     // Detect school from user data (for all roles)

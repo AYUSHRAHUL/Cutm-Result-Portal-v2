@@ -73,11 +73,18 @@ export async function GET(req) {
       employeeId: user.employeeId
     });
     
-    // For teachers, detect campus if not already set
-    if (!campus && userRole === 'teacher' && user.employeeId) {
-      console.log('[AUTH/ME] Detecting campus for teacher...');
-      campus = detectCampus(user.employeeId);
-      console.log('[AUTH/ME] Detected campus:', campus);
+    // For teachers, always try to detect campus from employeeId if not already set
+    if (userRole === 'teacher') {
+      if (!campus && user.employeeId) {
+        console.log('[AUTH/ME] Detecting campus for teacher from employeeId...');
+        campus = detectCampus(user.employeeId);
+        console.log('[AUTH/ME] Detected campus:', campus);
+      }
+      // Default to PKD if still no campus detected
+      if (!campus) {
+        console.log('[AUTH/ME] No campus detected, defaulting to PKD for teacher');
+        campus = 'pkd';
+      }
     }
     
     console.log('[AUTH/ME] Final response campus:', campus);
