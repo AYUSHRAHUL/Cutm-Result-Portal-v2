@@ -107,17 +107,15 @@ export async function GET(req) {
 
             const basketItems = await db.collection("cbcs").find({ Basket: basketName }).toArray();
             basketItems.forEach(b => {
-                const code = (d["Subject Code"] || d.SubjectCode || "").trim();
-                const domain = d.Domain;
-                const credits = d.Credits || d.Credit || d.credits || "";
-                if (code && domain) {
+                const code = (b["Subject Code"] || b.Subject_Code || "").trim();
+                const name = b["Subject Name"] || b.Subject_Name || code;
+                const credits = b.Credits || b.Credit || b.credits || "";
+                if (code) {
                     targetSubjects.push(code);
-                    subjectToKey[code] = domain; // Group by Domain Name
-                    if (!keyToDetails[domain]) {
-                        keyToDetails[domain] = { Name: domain, Type: "Domain", Credits: credits };
-                    }
+                    subjectToKey[code] = code; // Group by Code for baskets/subjects
+                    keyToDetails[code] = { Name: name, Type: "Subject", Code: code, Credits: credits };
                 }
-            return NextResponse.json({ error: "Invalid Category" }, { status: 400 });
+            });
         }
 
         if (targetSubjects.length === 0) {
