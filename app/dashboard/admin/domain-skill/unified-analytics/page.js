@@ -76,6 +76,8 @@ export default function UnifiedAnalytics() {
                 if (category !== "Domain" || item.Code) {
                     row[codeColumn] = item.Code || "-";
                 }
+                // Add Credits if available
+                row["Credits"] = item.Credits || item.Credits === 0 ? item.Credits : "-";
                 dump.push(row);
             });
         });
@@ -104,6 +106,8 @@ export default function UnifiedAnalytics() {
             if (category !== "Domain" || item.Code) {
                 row[codeColumn] = item.Code || "-";
             }
+            // Add Credits column
+            row["Credits"] = item.Credits || item.Credits === 0 ? item.Credits : "-";
             return row;
         });
 
@@ -230,8 +234,9 @@ export default function UnifiedAnalytics() {
                             <tr className="bg-slate-50/50 border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
                                 <th className="p-4 font-bold">{category === "Domain" ? "Domain Name" : "Subject Name"}</th>
                                 {category !== "Domain" && (
-                                    <th className="p-4 font-bold w-32">Subject Code</th>
+                                    <th className="p-4 font-bold w-24">Subject Code</th>
                                 )}
+                                <th className="p-4 font-bold w-20">Credits</th>
                                 <th className="p-4 font-bold w-32">Type</th>
                                 <th className="p-4 font-bold text-center w-32">Total Students</th>
                                 <th className="p-4 font-bold text-center w-24">Actions</th>
@@ -240,11 +245,11 @@ export default function UnifiedAnalytics() {
                         <tbody className="divide-y divide-slate-100 text-sm">
                             {loading ? (
                                 <tr>
-                                    <td colSpan={category === "Domain" ? "4" : "5"} className="p-8 text-center text-slate-400">Loading data...</td>
+                                    <td colSpan={category === "Domain" ? "5" : "6"} className="p-8 text-center text-slate-400">Loading data...</td>
                                 </tr>
                             ) : items.length === 0 ? (
                                 <tr>
-                                    <td colSpan={category === "Domain" ? "4" : "5"} className="p-8 text-center text-slate-400 font-medium">No records found matching filters.</td>
+                                    <td colSpan={category === "Domain" ? "5" : "6"} className="p-8 text-center text-slate-400 font-medium">No records found matching filters.</td>
                                 </tr>
                             ) : (
                                 items.map((item) => (
@@ -258,6 +263,9 @@ export default function UnifiedAnalytics() {
                                                     {item.Code || "-"}
                                                 </td>
                                             )}
+                                            <td className="p-4 text-slate-600 text-center font-medium">
+                                                {item.Credits || item.Credits === 0 ? String(item.Credits) : "-"}
+                                            </td>
                                             <td className="p-4 text-slate-500">
                                                 {item.Type}
                                             </td>
@@ -278,7 +286,7 @@ export default function UnifiedAnalytics() {
                                         {/* Expanded Student List */}
                                         {expandedItem === item.Name && (
                                             <tr>
-                                                <td colSpan={category === "Domain" ? "4" : "5"} className="bg-slate-50 p-4 border-b border-slate-200 inset-shadow">
+                                                <td colSpan={category === "Domain" ? "5" : "6"} className="bg-slate-50 p-4 border-b border-slate-200 inset-shadow">
                                                     <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                                                         <div className="px-4 py-2 bg-slate-100 border-b border-slate-200 font-bold text-xs text-slate-600 uppercase">
                                                             Students {category === "Domain" ? "Registered in" : "Enrolled in"} {item.Name}

@@ -36,14 +36,15 @@ export async function GET(req) {
             // Load all Baskets
             const allBaskets = await db.collection("cbcs").find({}).toArray();
             allBaskets.forEach(b => {
-                const code = (b["Subject Code"] || b.Subject_Code || "").trim();
-                const name = b["Subject Name"] || b.Subject_Name || code;
-                const basket = b.Basket || "Unknown";
-                if (code) {
-                    targetSubjects.push(code);
-                    subjectToKey[code] = code;
-                    keyToDetails[code] = { Name: name, Type: basket, Code: code };
-                }
+                    const code = (b["Subject Code"] || b.Subject_Code || "").trim();
+                    const name = b["Subject Name"] || b.Subject_Name || code;
+                    const basket = b.Basket || "Unknown";
+                    const credits = b.Credits || b.Credit || b.credits || "";
+                    if (code) {
+                        targetSubjects.push(code);
+                        subjectToKey[code] = code;
+                        keyToDetails[code] = { Name: name, Type: basket, Code: code, Credits: credits };
+                    }
             });
             
             // Load Skills
@@ -75,12 +76,13 @@ export async function GET(req) {
             const courses = await db.collection("skill_courses").find({}).toArray();
             courses.forEach(c => {
                 const code = (c.SubjectCode || "").trim();
-                const name = c.SubjectName || code;
-                if (code) {
-                    targetSubjects.push(code);
-                    subjectToKey[code] = code; // Group by Code
-                    keyToDetails[code] = { Name: name, Type: "Skill", Code: code };
-                }
+                    const name = c.SubjectName || code;
+                    const credits = c.Credits || c.Credit || c.credits || "";
+                    if (code) {
+                        targetSubjects.push(code);
+                        subjectToKey[code] = code; // Group by Code
+                        keyToDetails[code] = { Name: name, Type: "Skill", Code: code, Credits: credits };
+                    }
             });
         } else if (category === "Domain") {
             isDomain = true;
@@ -105,15 +107,16 @@ export async function GET(req) {
 
             const basketItems = await db.collection("cbcs").find({ Basket: basketName }).toArray();
             basketItems.forEach(b => {
-                const code = (b["Subject Code"] || b.Subject_Code || "").trim();
-                const name = b["Subject Name"] || b.Subject_Name || code;
-                if (code) {
+                const code = (d["Subject Code"] || d.SubjectCode || "").trim();
+                const domain = d.Domain;
+                const credits = d.Credits || d.Credit || d.credits || "";
+                if (code && domain) {
                     targetSubjects.push(code);
-                    subjectToKey[code] = code; // Group by Code
-                    keyToDetails[code] = { Name: name, Type: "Subject", Code: code };
+                    subjectToKey[code] = domain; // Group by Domain Name
+                    if (!keyToDetails[domain]) {
+                        keyToDetails[domain] = { Name: domain, Type: "Domain", Credits: credits };
+                    }
                 }
-            });
-        } else {
             return NextResponse.json({ error: "Invalid Category" }, { status: 400 });
         }
 

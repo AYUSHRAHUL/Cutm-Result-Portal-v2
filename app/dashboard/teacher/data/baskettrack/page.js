@@ -444,7 +444,8 @@ Please check if the department name matches exactly with the available departmen
         const hasBatch = batch && batch !== "All";
         const body = { ...(branch ? { branch } : {}), ...(hasBatch ? { batch } : {}) };
         const batchUrl = getSchoolApiUrl("batch");
-        const res = await fetch(batchUrl, {
+        const batchUrlWithMode = batchUrl.includes('?') ? `${batchUrl}&mode=list` : `${batchUrl}?mode=list`;
+        const res = await fetch(batchUrlWithMode, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
