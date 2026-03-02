@@ -28,6 +28,8 @@ export async function GET(req) {
         let targetSubjects = []; // List of Subject Codes
         let subjectToKey = {}; // Map Subject Code -> Grouping Key (Code for Subjects, Domain Name for Domains)
         let keyToDetails = {}; // Map Grouping Key -> { Name, Type, Code? }
+        let subjectCodeToCredits = {}; // Map Subject Code -> Credits (for accurate credit lookup)
+        let domainToSubjects = {}; // Map Domain Name -> [subject codes in that domain]
         let isDomain = false;
 
         if (category === "All") {
@@ -52,10 +54,11 @@ export async function GET(req) {
             skillCourses.forEach(c => {
                 const code = (c.SubjectCode || "").trim();
                 const name = c.SubjectName || code;
+                const credits = c.Credits || c.Credit || c.credits || "";
                 if (code) {
                     targetSubjects.push(code);
                     subjectToKey[code] = code;
-                    keyToDetails[code] = { Name: name, Type: "Skill", Code: code };
+                    keyToDetails[code] = { Name: name, Type: "Skill", Code: code, Credits: credits };
                 }
             });
             
@@ -64,11 +67,20 @@ export async function GET(req) {
             allDomains.forEach(d => {
                 const code = (d["Subject Code"] || d.SubjectCode || "").trim();
                 const domain = d.Domain;
+                const credits = d.Credits || d.Credit || d.credits || "";
                 if (code && domain) {
                     targetSubjects.push(code);
                     subjectToKey[code] = domain;
+                    subjectCodeToCredits[code] = credits; // Track credits per subject
+                    
+                    // Track domain subjects
+                    if (!domainToSubjects[domain]) {
+                        domainToSubjects[domain] = [];
+                    }
+                    domainToSubjects[domain].push({ code, credits });
+                    
                     if (!keyToDetails[domain]) {
-                        keyToDetails[domain] = { Name: domain, Type: "Domain" };
+                        keyToDetails[domain] = { Name: domain, Type: "Domain", Credits: "" };
                     }
                 }
             });
@@ -90,10 +102,19 @@ export async function GET(req) {
             domains.forEach(d => {
                 const code = (d["Subject Code"] || d.SubjectCode || "").trim();
                 const domain = d.Domain;
+                const credits = d.Credits || d.Credit || d.credits || "";
                 if (code && domain) {
                     targetSubjects.push(code);
                     subjectToKey[code] = domain; // Group by Domain Name
-                    keyToDetails[domain] = { Name: domain, Type: "Domain" };
+                    subjectCodeToCredits[code] = credits; // Track credits per subject
+                    
+                    // Track domain subjects
+                    if (!domainToSubjects[domain]) {
+                        domainToSubjects[domain] = [];
+                    }
+                    domainToSubjects[domain].push({ code, credits });
+                    
+                    keyToDetails[domain] = { Name: domain, Type: "Domain", Credits: "" };
                 }
             });
         } else if (category.startsWith("Basket")) {
@@ -178,11 +199,14 @@ export async function GET(req) {
                 // If the metadata collection (cbcs/skill) didn't have a name (so it fell back to Code),
                 // but this student record HAS a Subject Name, use it to improve our display.
                 // IMPORTANT: Don't override domain names - they should remain as domain names, not subject names
-                if (keyToDetails[groupKey] && !isDomain) {
+                // (even when category is "All"; domain entries are marked with Type="Domain").
+                if (
+                    keyToDetails[groupKey] &&
+                    keyToDetails[groupKey].Type !== "Domain"
+                ) {
                     const currentName = keyToDetails[groupKey].Name;
                     const recordName = (row.Subject_Name || "").trim();
                     // If current name is just the code, and we have a better name that isn't the code
-                    // For domains, we never want to override the domain name with subject names
                     if (currentName === groupKey && recordName && recordName !== subjectCode) {
                         keyToDetails[groupKey].Name = recordName;
                     }
@@ -239,7 +263,8 @@ export async function GET(req) {
                         Name: row.Name || "",
                         Branch: studentBranch,
                         Groups: new Set(), // Set of Domains, Skills, or Subjects this student has
-                        Subjects: []
+                        Subjects: [],
+                        SubjectsByGroup: {} // Map GroupKey -> Set of subject codes
                     });
                 }
 
@@ -248,6 +273,24 @@ export async function GET(req) {
                 // Track unique subjects just in case
                 if (!student.Subjects.includes(subjectCode)) {
                     student.Subjects.push(subjectCode);
+                }
+                
+                // Track subjects per group (for credit calculation)
+                if (!student.SubjectsByGroup[groupKey]) {
+                    student.SubjectsByGroup[groupKey] = new Set();
+                }
+                student.SubjectsByGroup[groupKey].add(subjectCode);
+                
+                // If this group is a domain, make sure domainToSubjects also knows about this code
+                if (subjectToKey[subjectCode] && keyToDetails[subjectToKey[subjectCode]]?.Type === "Domain") {
+                    const domainName = subjectToKey[subjectCode];
+                    if (!domainToSubjects[domainName]) {
+                        domainToSubjects[domainName] = [];
+                    }
+                    // add if not already present
+                    if (!domainToSubjects[domainName].some(s => s.code === subjectCode)) {
+                        domainToSubjects[domainName].push({ code: subjectCode, credits: subjectCodeToCredits[subjectCode] || "" });
+                    }
                 }
             });
         };
@@ -271,6 +314,8 @@ export async function GET(req) {
             });
         }
 
+
+
         // Ensure items are created based on student data or pre-fill
         // For Baskets/Skills, we only care about active ones mostly, but we can iterate keyToDetails if desired.
         // Let's use the student data primarily, but use keyToDetails for metadata.
@@ -287,7 +332,7 @@ export async function GET(req) {
         studentMap.forEach(student => {
             student.Groups.forEach(groupKey => {
                 if (!aggregatedItems[groupKey]) {
-                    // Lazy initialization for non-prefilled items (Basket/Skill)
+                    // Lazy initialization for non-prefilled items (Basket/Skill or Domain in All)
                     if (keyToDetails[groupKey]) {
                         aggregatedItems[groupKey] = {
                             ...keyToDetails[groupKey],
@@ -295,6 +340,13 @@ export async function GET(req) {
                             ByBranch: {},
                             Students: []
                         };
+                        // add domain code if applicable
+                        if (aggregatedItems[groupKey].Type === "Domain") {
+                            const subjects = domainToSubjects[groupKey] || [];
+                            if (subjects.length > 0) {
+                                aggregatedItems[groupKey].Code = subjects[0].code;
+                            }
+                        }
                     }
                 }
 
@@ -320,9 +372,54 @@ export async function GET(req) {
             .sort((a, b) => b.TotalStudents - a.TotalStudents)
             .filter(i => i.TotalStudents > 0);
 
-        // Sort students by Reg_No within each item
+        // After aggregation ensure every domain item has a code (might have been added lazily earlier)
+        items.forEach(it => {
+            if (it.Type === "Domain" && !it.Code) {
+                const subjects = domainToSubjects[it.Name] || [];
+                if (subjects.length > 0) {
+                    it.Code = subjects[0].code;
+                }
+            }
+        });
+        const sumCreditString = (str) => {
+            if (!str || typeof str !== 'string') return 0;
+            const parts = str.split('+').map(p => parseFloat(p) || 0);
+            return parts.reduce((a,b) => a + b, 0);
+        };
+
+        // Sort students by Reg_No within each item and calculate domain credits
         items.forEach(item => {
             item.Students.sort((a, b) => a.Reg_No.localeCompare(b.Reg_No));
+            
+            // For domains, calculate credits as sum of subjects this specific student has in the domain
+            if (item.Type === "Domain") {
+                let totalCredits = 0;
+                
+                // For each student in this domain, get their subjects and sum credits
+                item.Students.forEach(studentEntry => {
+                    const student = studentMap.get(studentEntry.Reg_No);
+                    if (student && student.SubjectsByGroup[item.Name]) {
+                        // Sum credits for all subjects this student has in this domain
+                        student.SubjectsByGroup[item.Name].forEach(subCode => {
+                            const cred = subjectCodeToCredits[subCode];
+                            if (cred) {
+                                totalCredits += sumCreditString(cred);
+                            }
+                        });
+                    }
+                });
+                
+                // Average the credits across all students in the domain for this filter
+                if (item.Students.length > 0 && totalCredits > 0) {
+                    item.Credits = Math.round(totalCredits / item.Students.length);
+                }
+            }
+
+            // For any item that still has a credit expression string, convert to total
+            if (typeof item.Credits === 'string' && item.Credits.includes('+')) {
+                const total = sumCreditString(item.Credits);
+                item.Credits = total;
+            }
         });
 
         return NextResponse.json({

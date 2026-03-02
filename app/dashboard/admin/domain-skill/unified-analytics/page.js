@@ -2,15 +2,19 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import * as XLSX from "xlsx";
 
 export default function UnifiedAnalytics() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    
+    // Initialize from URL params or default to "All"
     const [category, setCategory] = useState("All");
     const [branch, setBranch] = useState("All");
     const [batch, setBatch] = useState("All");
     const [sem, setSem] = useState("All");
+    const [isInitialized, setIsInitialized] = useState(false);
 
     const categories = ["All", "Basket I", "Basket II", "Basket III", "Basket IV", "Basket V", "Skill", "Domain"];
     const branches = ["All", "CSE", "ECE", "EEE", "Mechanical", "Civil", "AIML"];
@@ -48,9 +52,39 @@ export default function UnifiedAnalytics() {
         }
     };
 
+    // Initialize filters from URL params on mount
     useEffect(() => {
+        const urlCategory = searchParams.get("category") || "All";
+        const urlBranch = searchParams.get("branch") || "All";
+        const urlBatch = searchParams.get("batch") || "All";
+        const urlSem = searchParams.get("sem") || "All";
+        
+        setCategory(urlCategory);
+        setBranch(urlBranch);
+        setBatch(urlBatch);
+        setSem(urlSem);
+        setIsInitialized(true);
+    }, []); // Only run on mount
+
+    // Sync filter changes to URL
+    useEffect(() => {
+        if (!isInitialized) return;
+        
+        const params = new URLSearchParams();
+        if (category !== "All") params.append("category", category);
+        if (branch !== "All") params.append("branch", branch);
+        if (batch !== "All") params.append("batch", batch);
+        if (sem !== "All") params.append("sem", sem);
+        
+        const queryString = params.toString();
+        router.push(`?${queryString}`, { shallow: true });
+    }, [category, branch, batch, sem, isInitialized, router]);
+
+    // Fetch data when filters change
+    useEffect(() => {
+        if (!isInitialized) return;
         fetchData();
-    }, [category, branch, batch, sem]);
+    }, [category, branch, batch, sem, isInitialized]);
 
     const downloadDetailedExcel = () => {
         if (!items.length) return;
@@ -233,9 +267,7 @@ export default function UnifiedAnalytics() {
                         <thead>
                             <tr className="bg-slate-50/50 border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
                                 <th className="p-4 font-bold">{category === "Domain" ? "Domain Name" : "Subject Name"}</th>
-                                {category !== "Domain" && (
-                                    <th className="p-4 font-bold w-24">Subject Code</th>
-                                )}
+                                <th className="p-4 font-bold w-24">Subject Code</th>
                                 <th className="p-4 font-bold w-20">Credits</th>
                                 <th className="p-4 font-bold w-32">Type</th>
                                 <th className="p-4 font-bold text-center w-32">Total Students</th>
@@ -256,13 +288,11 @@ export default function UnifiedAnalytics() {
                                     <React.Fragment key={item.Code || item.Name}>
                                         <tr className="hover:bg-slate-50 transition-colors group">
                                             <td className="p-4 font-bold text-slate-800 border-l-4 border-transparent group-hover:border-indigo-500 transition-all">
-                                                {item.Name}
+                                                {item.Name}{(sem === "6" || sem === "8") && item.Type === "Domain" ? " (Project)" : ""}
                                             </td>
-                                            {category !== "Domain" && (
-                                                <td className="p-4 font-mono text-sm text-slate-600">
-                                                    {item.Code || "-"}
-                                                </td>
-                                            )}
+                                            <td className="p-4 font-mono text-sm text-slate-600">
+                                                {item.Code || "-"}
+                                            </td>
                                             <td className="p-4 text-slate-600 text-center font-medium">
                                                 {item.Credits || item.Credits === 0 ? String(item.Credits) : "-"}
                                             </td>
