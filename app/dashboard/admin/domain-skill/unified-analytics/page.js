@@ -2,12 +2,11 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 
 export default function UnifiedAnalytics() {
     const router = useRouter();
-    const searchParams = useSearchParams();
     
     // Initialize from URL params or default to "All"
     const [category, setCategory] = useState("All");
@@ -52,12 +51,14 @@ export default function UnifiedAnalytics() {
         }
     };
 
-    // Initialize filters from URL params on mount
+    // Initialize filters from URL params on mount (client-side only)
     useEffect(() => {
-        const urlCategory = searchParams.get("category") || "All";
-        const urlBranch = searchParams.get("branch") || "All";
-        const urlBatch = searchParams.get("batch") || "All";
-        const urlSem = searchParams.get("sem") || "All";
+        if (typeof window === "undefined") return;
+        const params = new URLSearchParams(window.location.search);
+        const urlCategory = params.get("category") || "All";
+        const urlBranch = params.get("branch") || "All";
+        const urlBatch = params.get("batch") || "All";
+        const urlSem = params.get("sem") || "All";
         
         setCategory(urlCategory);
         setBranch(urlBranch);
