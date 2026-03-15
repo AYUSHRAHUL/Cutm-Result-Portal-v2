@@ -87,8 +87,17 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
 
   // Fetch inactive students list
   const statusCollection = db.collection("student_status");
-  const inactiveDocs = await statusCollection.find({ isActive: false }).project({ Reg_No: 1 }).toArray();
-  const inactiveRegs = inactiveDocs.map(d => d.Reg_No);
+  const inactiveDocs = await statusCollection.find({ isActive: { $in: [false, "false"] } }).project({ Reg_No: 1 }).toArray();
+  const inactiveRegs = [];
+  inactiveDocs.forEach(d => {
+    if (d.Reg_No) {
+      inactiveRegs.push(String(d.Reg_No));
+      const num = parseInt(d.Reg_No, 10);
+      if (!isNaN(num)) {
+        inactiveRegs.push(num);
+      }
+    }
+  });
 
   // Minimal Mongo match: only ensure Reg_No exists and program code is Diploma (07).
   // Use $toString so numeric Reg_No values also work. All other filters handled in JS to avoid zero results.

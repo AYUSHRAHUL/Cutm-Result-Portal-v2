@@ -64,8 +64,16 @@ export async function POST(req) {
     let inactiveRegs = [];
     if (!includeInactive) {
       const statusCollection = db.collection("student_status");
-      const inactiveDocs = await statusCollection.find({ isActive: false }).project({ Reg_No: 1 }).toArray();
-      inactiveRegs = inactiveDocs.map(d => d.Reg_No);
+      const inactiveDocs = await statusCollection.find({ isActive: { $in: [false, "false"] } }).project({ Reg_No: 1 }).toArray();
+      inactiveDocs.forEach(d => {
+        if (d.Reg_No) {
+          inactiveRegs.push(String(d.Reg_No));
+          const num = parseInt(d.Reg_No, 10);
+          if (!isNaN(num)) {
+            inactiveRegs.push(num);
+          }
+        }
+      });
     }
 
     // If registration is provided, return individual student records

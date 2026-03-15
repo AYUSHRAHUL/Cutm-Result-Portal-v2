@@ -35,6 +35,20 @@ export async function POST(req) {
     const db = client.db(dbName);
     const cutm = db.collection("result");
 
+    // Fetch inactive students list
+    const statusCollection = db.collection("student_status");
+    const inactiveDocs = await statusCollection.find({ isActive: { $in: [false, "false"] } }).project({ Reg_No: 1 }).toArray();
+    const inactiveRegs = [];
+    inactiveDocs.forEach(d => {
+      if (d.Reg_No) {
+        inactiveRegs.push(String(d.Reg_No));
+        const num = parseInt(d.Reg_No, 10);
+        if (!isNaN(num)) {
+          inactiveRegs.push(num);
+        }
+      }
+    });
+
     // Build query based on branch and batch
     const query = {};
 
@@ -47,6 +61,21 @@ export async function POST(req) {
       query.Reg_No = {
         $regex: `^${shortYear}|^${batchYear}`
       };
+    }
+
+    // APPLY INACTIVE FILTER AT DB LEVEL
+    if (inactiveRegs.length > 0) {
+      if (query.Reg_No && query.Reg_No.$regex) {
+        // If Reg_No already has regex, wrap in $and
+        const regFilter = query.Reg_No;
+        delete query.Reg_No;
+        query.$and = [
+          { Reg_No: regFilter },
+          { Reg_No: { $nin: inactiveRegs } }
+        ];
+      } else {
+        query.Reg_No = { $nin: inactiveRegs };
+      }
     }
 
     // Use projection to fetch only necessary fields with safety limit
@@ -159,6 +188,9 @@ export async function POST(req) {
           .trim();
         return parsedBranchName.toLowerCase().includes(branchLower);
       }
+
+      // Filter out inactive students
+      if (inactiveRegs.includes(regNo)) return false;
 
       return true;
     });

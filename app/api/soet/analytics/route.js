@@ -85,8 +85,17 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
 
   // Fetch inactive students list for exclusion
   const statusCollection = db.collection("student_status");
-  const inactiveDocs = await statusCollection.find({ isActive: false }).project({ Reg_No: 1 }).toArray();
-  const inactiveRegs = inactiveDocs.map(d => d.Reg_No);
+  const inactiveDocs = await statusCollection.find({ isActive: { $in: [false, "false"] } }).project({ Reg_No: 1 }).toArray();
+  const inactiveRegs = [];
+  inactiveDocs.forEach(d => {
+    if (d.Reg_No) {
+      inactiveRegs.push(String(d.Reg_No));
+      const num = parseInt(d.Reg_No, 10);
+      if (!isNaN(num)) {
+        inactiveRegs.push(num);
+      }
+    }
+  });
 
   // Removed console.log to reduce overhead
 

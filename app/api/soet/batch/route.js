@@ -35,6 +35,20 @@ export async function POST(req) {
     const cutm = db.collection("result");
     const overridesCol = db.collection("branch_overrides");
 
+    // Fetch inactive students list
+    const statusCollection = db.collection("student_status");
+    const inactiveDocs = await statusCollection.find({ isActive: { $in: [false, "false"] } }).project({ Reg_No: 1 }).toArray();
+    const inactiveRegs = [];
+    inactiveDocs.forEach(d => {
+      if (d.Reg_No) {
+        inactiveRegs.push(String(d.Reg_No));
+        const num = parseInt(d.Reg_No, 10);
+        if (!isNaN(num)) {
+          inactiveRegs.push(num);
+        }
+      }
+    });
+
     // Gather Reg_Nos from overrides that match the criteria
     let overrideRegs = [];
 
@@ -130,8 +144,6 @@ export async function POST(req) {
     // Final Query: Matches Branch/Batch logic OR is in Override List
     let query = baseQuery;
     if (overrideRegs.length > 0) {
-      // If we have base criteria, we OR them with overrides
-      // If baseQuery is empty (no filters), this is redundant but harmless
       if (Object.keys(baseQuery).length > 0) {
         query = {
           $or: [
@@ -139,6 +151,17 @@ export async function POST(req) {
             { Reg_No: { $in: overrideRegs } }
           ]
         };
+      } else {
+        query = { Reg_No: { $in: overrideRegs } };
+      }
+    }
+
+    // APPLY INACTIVE FILTER AT DB LEVEL
+    if (inactiveRegs.length > 0) {
+      if (Object.keys(query).length === 0) {
+        query = { Reg_No: { $nin: inactiveRegs } };
+      } else {
+        query = { $and: [query, { Reg_No: { $nin: inactiveRegs } }] };
       }
     }
 
@@ -176,7 +199,9 @@ export async function POST(req) {
         { $sort: { Reg_No: 1 } } // Sort by registration number ascending
       ];
 
-      const students = await cutm.aggregate(pipeline).toArray();
+      const rawStudents = await cutm.aggregate(pipeline).toArray();
+      // Filter out inactive students
+      const students = rawStudents.filter(s => !inactiveRegs.includes(s.Reg_No));
       // Sort by last 4 digits of registration number (ascending)
       students.sort((a, b) => {
         const regA = String(a.Reg_No || "").trim();
@@ -230,7 +255,9 @@ export async function POST(req) {
         { $sort: { Reg_No: 1 } } // Sort by Reg_No ascending
       ];
 
-      const students = await cutm.aggregate(pipeline).toArray();
+      const rawStudents = await cutm.aggregate(pipeline).toArray();
+      // Filter out inactive students
+      const students = rawStudents.filter(s => !inactiveRegs.includes(s._id));
 
       const parseCredits = (creditStr) => {
         if (!creditStr) return 0;
@@ -347,6 +374,9 @@ export async function POST(req) {
           return false;
         }
       }
+
+      // Filter out inactive students
+      if (inactiveRegs.includes(regNo)) return false;
 
       return true;
     });

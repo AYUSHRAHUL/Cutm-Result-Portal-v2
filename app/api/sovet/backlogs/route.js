@@ -62,8 +62,17 @@ export async function POST(req) {
 
     // Fetch inactive students list
     const statusCollection = db.collection("student_status");
-    const inactiveDocs = await statusCollection.find({ isActive: false }).project({ Reg_No: 1 }).toArray();
-    const inactiveRegs = inactiveDocs.map(d => d.Reg_No);
+    const inactiveDocs = await statusCollection.find({ isActive: { $in: [false, "false"] } }).project({ Reg_No: 1 }).toArray();
+    const inactiveRegs = [];
+    inactiveDocs.forEach(d => {
+      if (d.Reg_No) {
+        inactiveRegs.push(String(d.Reg_No));
+        const num = parseInt(d.Reg_No, 10);
+        if (!isNaN(num)) {
+          inactiveRegs.push(num);
+        }
+      }
+    });
 
     // Ensure indexes exist for optimal performance (creates only if not exist)
     try {
@@ -148,11 +157,14 @@ export async function POST(req) {
         { $limit: regNosToQuery.length * 50 } // Safety limit: max 50 backlogs per student
       ]).toArray();
 
+      // Filter out inactive registrations before initializing the map
+      const activeRegNos = regNosToQuery.filter(regNo => !inactiveRegs.includes(regNo));
+
       // Group by registration number and count
       const summaryMap = new Map();
 
-      // Initialize all students with 0 backlogs
-      regNosToQuery.forEach(regNo => {
+      // Initialize only active students with 0 backlogs
+      activeRegNos.forEach(regNo => {
         summaryMap.set(regNo, { Reg_No: regNo, Name: "", Branch: "", TotalBacklogs: 0 });
       });
 
@@ -243,26 +255,7 @@ export async function POST(req) {
       query.Reg_No = { $regex: `^${yy}` };
     }
 
-    // Apply inactive filter to main query
-    if (inactiveRegs.length > 0) {
-      if (query.$and) {
-        // If using $and (specific registration search), add exclusion there
-        query.$and.push({ Reg_No: { $nin: inactiveRegs } });
-      } else if (query.Reg_No) {
-        // If Reg_No filter exists (e.g. from year regex), combine with $nin
-        if (typeof query.Reg_No === 'object') {
-          query.Reg_No.$nin = inactiveRegs;
-        } else {
-          // Direct value match
-          if (inactiveRegs.includes(query.Reg_No)) {
-            query.Reg_No = { $in: [] }; // force empty
-          }
-        }
-      } else {
-        // No existing Reg_No filter, just add the exclusion
-        query.Reg_No = { $nin: inactiveRegs };
-      }
-    }
+
 
     // Optimize branch filtering at database level for Diploma
     if (branch && branch !== 'All' && !registration) {
@@ -303,6 +296,13 @@ export async function POST(req) {
           query.Reg_No = { $regex: `^\\d{4}071${branchCode}` };
         }
       }
+    }
+
+    // Exclude inactive students from main query
+    if (inactiveRegs.length > 0) {
+      // Add globally to $and to be safe
+      if (!query.$and) query.$and = [];
+      query.$and.push({ Reg_No: { $nin: inactiveRegs } });
     }
 
     // Build cursor with lean projection and sort
