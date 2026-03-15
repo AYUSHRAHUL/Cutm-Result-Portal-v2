@@ -335,7 +335,13 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     const parsed = parsedRegCache.get(record.Reg_No);
     if (!parsed || !parsed.isValid || !parsed.isDiploma) return;
 
-    const deptName = branchNameMap[parsed.branch] || parsed.branch || 'Unknown';
+    let deptName = branchNameMap[parsed.branch] || parsed.branch || 'Unknown';
+
+    // If only one branch is filtered and no specific batch is selected, 
+    // show breakdown by Year in the department chart for better insights
+    if (branchFilters.length === 1 && !branchFilters.includes("all") && (batchFilters.length === 0 || batchFilters.includes("all"))) {
+      deptName = parsed.year || 'Unknown';
+    }
     const regNo = String(record.Reg_No).trim();
     const grade = record.Grade || '';
     const isPass = !['F', 'S', 'M', 'I', 'R'].includes(grade);
@@ -389,7 +395,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
       failed: failedStudents,
       passRate: totalStudents > 0 ? ((passedStudents / totalStudents) * 100).toFixed(2) : '0.00'
     };
-  });
+  }).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 
   // OPTIMIZED: Calculate semester stats
   const semesterStatsMap = {};

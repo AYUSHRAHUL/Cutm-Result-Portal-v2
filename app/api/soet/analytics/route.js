@@ -394,7 +394,14 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     if (!parsed || !parsed.isValid || !parsed.isBTech) return;
 
     const parsedBranch = parsed.branch || 'Unknown';
-    const deptName = branchDisplayMap[parsedBranch] || parsedBranch.toUpperCase();
+    let deptName = branchDisplayMap[parsedBranch] || parsedBranch.toUpperCase();
+
+    // If only one branch is filtered and no specific batch is selected, 
+    // show breakdown by Year in the department chart for better insights
+    if (branchFilters.length === 1 && !branchFilters.includes("all") && (batchFilters.length === 0 || batchFilters.includes("all"))) {
+      deptName = parsed.year || 'Unknown';
+    }
+
     const regNo = String(record.Reg_No).trim();
     const studentHasFail = studentOutcome.get(regNo)?.hasFail || false;
 
@@ -426,7 +433,7 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
       failed: failedStudents,
       passRate: totalStudentsDept > 0 ? ((passedStudents / totalStudentsDept) * 100).toFixed(2) : '0.00'
     };
-  });
+  }).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
 
   // OPTIMIZED: Calculate semester stats
   const semesterStatsMap = {};
