@@ -67,6 +67,7 @@ export async function GET(req) {
     const client = await clientPromise;
     const campusParam = req.nextUrl.searchParams.get('campus');
     const batchParam = req.nextUrl.searchParams.get('batch');
+    const branchParam = req.nextUrl.searchParams.get('branch');
     const campus = campusParam || payload.campus || null;
 
     const school = 'SOET';
@@ -80,8 +81,13 @@ export async function GET(req) {
       query.batch = batchParam;
     }
 
-    // Get all placements
-    const placements = await placementsCollection.find(query).toArray();
+    // Get all placements (we'll filter by branch in JS to ensure consistency with normalization)
+    let placements = await placementsCollection.find(query).toArray();
+
+    // Apply branch filter if provided
+    if (branchParam && branchParam !== 'all') {
+      placements = placements.filter(p => normalizeBranchName(p.branch) === branchParam);
+    }
 
     // Calculate statistics - count unique students (not total offer records)
     const uniquePlacedStudents = new Set(placements.map(p => p.regNo?.trim()).filter(Boolean));

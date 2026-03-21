@@ -69,6 +69,7 @@ export async function GET(req) {
     const { searchParams } = new URL(req.url);
     const campusParam = searchParams.get("campus");
     const batchParam = searchParams.get("batch");
+    const branchParam = searchParams.get("branch");
     const campus = campusParam || payload.campus || null;
 
     const client = await clientPromise;
@@ -84,6 +85,9 @@ export async function GET(req) {
     const placementMatch = {};
     if (batchParam && batchParam !== 'all') {
       placementMatch.batch = batchParam;
+    }
+    if (branchParam && branchParam !== 'all') {
+      placementMatch.branch = branchParam;
     }
 
     // Fetch only 7th semester rows from both RegistrationData and result
@@ -151,6 +155,7 @@ export async function GET(req) {
       if (!branchShort || !batchYear) continue;
 
       if (batchParam && batchParam !== 'all' && batchYear !== batchParam) continue;
+      if (branchParam && branchParam !== 'all' && branchShort !== branchParam) continue;
 
       if (!unique.has(reg)) {
         unique.set(reg, {
@@ -182,6 +187,7 @@ export async function GET(req) {
       if (!branchShort || !batchYear) continue;
 
       if (batchParam && batchParam !== 'all' && batchYear !== batchParam) continue;
+      if (branchParam && branchParam !== 'all' && branchShort !== branchParam) continue;
 
       unique.set(reg, {
         branch: branchShort,

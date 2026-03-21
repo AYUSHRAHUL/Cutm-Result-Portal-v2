@@ -167,6 +167,7 @@ export default function SOETBatchPage() {
         body: JSON.stringify({
           Reg_No: editForm.Reg_No,
           Subject_Code: editForm.Subject_Code,
+          Sem: editForm.Sem,
           Grade: editForm.Grade
         })
       });
@@ -488,6 +489,94 @@ export default function SOETBatchPage() {
           </div>
         </div>
       </div>
+
+      {editingRecord && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all">
+            <div 
+              className="p-5 sm:p-6 text-white"
+              style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+            >
+              <div className="flex justify-between items-center">
+                <h3 className="text-xl font-black">Edit Grade</h3>
+                <button onClick={closeEditModal} className="text-white hover:text-red-200 transition-colors">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+              </div>
+              <p className="opacity-90 text-sm mt-1">{editForm.Reg_No} - {editForm.Subject_Name}</p>
+            </div>
+            
+            <form onSubmit={handleUpdateRecord} className="p-5 sm:p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Subject Code</label>
+                <input 
+                  type="text" 
+                  className="w-full border-2 border-gray-200 rounded-xl bg-gray-50 px-4 py-2.5 text-gray-600 font-mono text-sm cursor-not-allowed" 
+                  value={editForm.Subject_Code} 
+                  disabled 
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">Semester</label>
+                  <input 
+                    type="text" 
+                    className="w-full border-2 border-gray-200 rounded-xl bg-gray-50 px-4 py-2.5 text-gray-600 font-bold text-sm cursor-not-allowed" 
+                    value={editForm.Sem} 
+                    disabled 
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">Credits</label>
+                  <input 
+                    type="text" 
+                    className="w-full border-2 border-gray-200 rounded-xl bg-gray-50 px-4 py-2.5 text-gray-600 font-bold text-sm cursor-not-allowed" 
+                    value={editForm.Credits} 
+                    disabled 
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Grade</label>
+                <input 
+                  type="text" 
+                  className="w-full border-2 border-[#05A3C7]/30 focus:border-[#05A3C7] rounded-xl bg-white px-4 py-2.5 text-gray-900 font-bold outline-none focus:ring-4 focus:ring-[#05A3C7]/10 transition-all uppercase" 
+                  value={editForm.Grade}
+                  onChange={(e) => setEditForm({...editForm, Grade: e.target.value.toUpperCase()})}
+                  placeholder="e.g. O, E, A, B, C, D, F, S, M, I, R"
+                  pattern="^[OEABCDFSMIRoeabcdfsmir]$"
+                  title="Valid grades: O, E, A, B, C, D, F, S, M, I, R"
+                  required
+                />
+              </div>
+              
+              <div className="pt-4 flex flex-col-reverse sm:flex-row justify-end gap-3">
+                <button 
+                  type="button" 
+                  onClick={closeEditModal}
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl text-gray-600 font-bold hover:bg-gray-100 transition-colors disabled:opacity-50"
+                  disabled={loading}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={loading}
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl text-white font-bold disabled:opacity-50 hover:shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2"
+                  style={{ background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)" }}
+                >
+                  {loading ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                      Saving...
+                    </>
+                  ) : "Save Grade"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

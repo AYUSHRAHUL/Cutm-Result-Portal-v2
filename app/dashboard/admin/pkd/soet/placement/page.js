@@ -2297,29 +2297,44 @@ function PlacementAnalytics() {
     }
     return 'all';
   });
+  const [selectedBranch, setSelectedBranch] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('analyticsSelectedBranch');
+        return saved || 'all';
+      } catch {
+        return 'all';
+      }
+    }
+    return 'all';
+  });
   const [batchOptions, setBatchOptions] = useState([]);
+  const [branchOptions, setBranchOptions] = useState([]);
   const [isInitialized, setIsInitialized] = useState(false);
   const hasInitialFetch = useRef(false);
 
   useEffect(() => {
     const initialize = async () => {
-      // First, load batch options
-      const batches = await fetchMeta();
+      // Load batch and branch options
+      const { batches, branches } = await fetchMeta();
       
       // Determine the batch to use
       let batchToUse = selectedBatch;
       if (selectedBatch === 'all' && batches.length > 0) {
-        const latestBatch = batches[0]; // Assuming batches are sorted, latest first
+        const latestBatch = batches[0];
         batchToUse = latestBatch;
         setSelectedBatch(latestBatch);
         try {
           localStorage.setItem('analyticsSelectedBatch', latestBatch);
         } catch {}
       }
+
+      // Determine the branch to use
+      let branchToUse = selectedBranch;
       
-      // Fetch data with the determined batch
-      fetchAnalytics(batchToUse);
-      fetchStudentStrength(batchToUse);
+      // Fetch data with the determined parameters
+      fetchAnalytics(batchToUse, branchToUse);
+      fetchStudentStrength(batchToUse, branchToUse);
       fetchAllBatchesAnalytics(); // Always fetch all batches for Batch Analysis and Batch Trend
       
       hasInitialFetch.current = true;
@@ -2333,36 +2348,42 @@ function PlacementAnalytics() {
     // Only fetch data when batch changes after initial fetch
     if (!hasInitialFetch.current) return;
     
-    if (selectedBatch) {
-      fetchAnalytics(selectedBatch);
+    if (selectedBatch || selectedBranch) {
+      fetchAnalytics(selectedBatch, selectedBranch);
       fetchAllBatchesAnalytics(); // Always fetch all batches for Batch Analysis and Batch Trend
-      fetchStudentStrength(selectedBatch);
+      fetchStudentStrength(selectedBatch, selectedBranch);
     }
-  }, [selectedBatch]); // Only depend on selectedBatch
+  }, [selectedBatch, selectedBranch]);
 
   const fetchMeta = async () => {
     try {
       const url = getSchoolApiUrl("placement/meta");
       const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) return [];
+      if (!res.ok) return { batches: [], branches: [] };
       const data = await res.json();
       if (data?.success) {
         const batches = Array.isArray(data.batches) ? data.batches : [];
+        const branches = Array.isArray(data.branches) ? data.branches : [];
         setBatchOptions(batches);
-        return batches;
+        setBranchOptions(branches);
+        return { batches, branches };
       }
-      return [];
+      return { batches: [], branches: [] };
     } catch {
-      return [];
+      return { batches: [], branches: [] };
     }
   };
 
-  const fetchAnalytics = async (batch) => {
+  const fetchAnalytics = async (batch, branch) => {
     try {
       setLoading(true);
       const baseUrl = getSchoolApiUrl('placement/analytics');
       const separator = baseUrl.includes('?') ? '&' : '?';
-      const url = batch && batch !== 'all' ? `${baseUrl}${separator}batch=${batch}` : baseUrl;
+      const params = new URLSearchParams();
+      if (batch && batch !== 'all') params.append('batch', batch);
+      if (branch && branch !== 'all') params.append('branch', branch);
+      
+      const url = params.toString() ? `${baseUrl}${separator}${params}` : baseUrl;
       const response = await fetch(url, {
         credentials: 'include'
       });
@@ -2399,11 +2420,15 @@ function PlacementAnalytics() {
     }
   };
 
-  const fetchStudentStrength = async (batch) => {
+  const fetchStudentStrength = async (batch, branch) => {
     try {
       const baseUrl = getSchoolApiUrl('placement/student-strength');
       const separator = baseUrl.includes('?') ? '&' : '?';
-      const url = batch && batch !== 'all' ? `${baseUrl}${separator}batch=${batch}` : baseUrl;
+      const params = new URLSearchParams();
+      if (batch && batch !== 'all') params.append('batch', batch);
+      if (branch && branch !== 'all') params.append('branch', branch);
+      
+      const url = params.toString() ? `${baseUrl}${separator}${params}` : baseUrl;
       const response = await fetch(url, {
         credentials: 'include'
       });
@@ -2632,7 +2657,7 @@ function PlacementAnalytics() {
       };
 
       // Explicit fields per branch for stacked charts
-      const knownBranches = ['CSE', 'Civil', 'ECE', 'EEE', 'MECH'];
+      const knownBranches = ['CSE', 'Civil', 'ECE', 'EEE', 'MECH', 'CSE AIML'];
       let other = 0;
       Object.entries(branchCounts).forEach(([br, c]) => {
         if (knownBranches.includes(br)) {
@@ -2741,7 +2766,23 @@ function PlacementAnalytics() {
               {view} Analysis
             </button>
           ))}
-          <div className="ml-auto">
+          <div className="ml-auto flex gap-2">
+            <select
+              value={selectedBranch}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSelectedBranch(val);
+                try {
+                  localStorage.setItem('analyticsSelectedBranch', val);
+                } catch {}
+              }}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white"
+            >
+              <option value="all">All Branches</option>
+              {branchOptions.map((br) => (
+                <option key={br} value={br}>{br}</option>
+              ))}
+            </select>
             <select
               value={selectedBatch}
               onChange={(e) => {
