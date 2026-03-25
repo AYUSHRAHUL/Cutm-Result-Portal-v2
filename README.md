@@ -1,4 +1,4 @@
-# 🎓 CUTM Result Portal - Comprehensive Documentation.
+# 🎓 CUTM Result Portal - Comprehensive Documentation
 
 
 ## 📋 Table of Contents
