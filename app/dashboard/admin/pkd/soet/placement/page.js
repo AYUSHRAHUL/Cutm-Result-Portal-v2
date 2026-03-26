@@ -18,7 +18,7 @@ import {
   Line,
   CartesianGrid
 } from "recharts";
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx-js-style";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
 
@@ -622,7 +622,8 @@ function PlacementManagementContent() {
         offerBuckets
       } = await fetchTotalStudentsByBranchAndBatch(filters.batch);
 
-      // Fetch joined companies data
+      // Fetch joined companies data — store in local var (React setState is async, can't be read immediately)
+      let fetchedJoinedCompanies = {};
       try {
         const joinedCompanyUrl = getSchoolApiUrl('placement/joined-companies');
         const separator = joinedCompanyUrl.includes('?') ? '&' : '?';
@@ -635,7 +636,8 @@ function PlacementManagementContent() {
         if (joinedCompanyResponse.ok) {
           const joinedData = await joinedCompanyResponse.json();
           if (joinedData.success && joinedData.joinedCompanies) {
-            setJoinedCompanies(joinedData.joinedCompanies);
+            fetchedJoinedCompanies = joinedData.joinedCompanies; // local var — immediately available
+            setJoinedCompanies(fetchedJoinedCompanies);           // also update UI state
           }
         }
       } catch (err) {
@@ -777,7 +779,7 @@ function PlacementManagementContent() {
               : '0.00',
             companies: uniqueCompanies, // Keep as array
             companiesString: uniqueCompanies.join(', '), // For display
-            joinedCompany: joinedCompanies[student.regNo] || 'Not yet joined' // Default joined company
+            joinedCompany: fetchedJoinedCompanies[student.regNo] || 'Not yet joined' // use local var, not stale state
           };
         })
         .sort((a, b) => b.count - a.count);
@@ -802,7 +804,9 @@ function PlacementManagementContent() {
         topCompanies,
         companyCount: Object.keys(companyStats).length,
         offerBuckets,
-        studentPlacementList
+        studentPlacementList,
+        allPlacements, // raw placement records for expanded Excel export
+        joinedCompaniesMap: { ...fetchedJoinedCompanies } // use local var — joinedCompanies state is stale here
       });
 
       // Set branches for statistics filter
@@ -1050,62 +1054,175 @@ function PlacementManagementContent() {
     XLSX.writeFile(wb, `Placement_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
-  // Download Statistics Excel (only selected category)
+  // Download Statistics Excel (only selected category) — expanded row-per-offer format
   const downloadStatisticsExcel = () => {
     if (!reportData) return;
 
     const wb = XLSX.utils.book_new();
-    let selectedData = [];
     let sheetName = 'Statistics';
 
-    if (selectedStatCategory === 'all_students') {
-      selectedData = reportData.studentPlacementList.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch);
-      sheetName = 'All Students';
-    } else if (selectedStatCategory === 'zero') {
-      selectedData = unplacedStudents.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch);
+    if (selectedStatCategory === 'zero') {
+      // Unplaced students — simple flat format
       sheetName = 'Unplaced Students';
+      const selectedData = unplacedStudents.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch);
+      const headers = ['Reg No', 'Name', 'Branch', 'Batch'];
+      const data = [headers, ...selectedData.map(student => [
+        student.regNo,
+        student.name,
+        student.branch,
+        student.batch
+      ])];
+      const sheet = XLSX.utils.aoa_to_sheet(data);
+      sheet['!cols'] = [
+        { wch: 16 }, { wch: 24 }, { wch: 12 }, { wch: 8 }
+      ];
+      XLSX.utils.book_append_sheet(wb, sheet, sheetName);
+      XLSX.writeFile(wb, `Student_Statistics_${selectedStatCategory}_${new Date().toISOString().split('T')[0]}.xlsx`);
+      return;
+    }
+
+    // For placed-student categories — expanded row-per-offer format
+    let filteredStudents = [];
+    if (selectedStatCategory === 'all_students') {
+      filteredStudents = reportData.studentPlacementList.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch);
+      sheetName = 'All Students';
     } else if (selectedStatCategory === 'one') {
-      selectedData = reportData.studentPlacementList.filter(s => s.count === 1 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch));
+      filteredStudents = reportData.studentPlacementList.filter(s => s.count === 1 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch));
       sheetName = '1 Placement';
     } else if (selectedStatCategory === 'two') {
-      selectedData = reportData.studentPlacementList.filter(s => s.count === 2 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch));
+      filteredStudents = reportData.studentPlacementList.filter(s => s.count === 2 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch));
       sheetName = '2 Placements';
     } else if (selectedStatCategory === 'more_than_two') {
-      selectedData = reportData.studentPlacementList.filter(s => s.count > 2 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch));
+      filteredStudents = reportData.studentPlacementList.filter(s => s.count > 2 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch));
       sheetName = 'More than 2';
     }
 
-    if (selectedData.length > 0) {
-      let headers, data;
+    const filteredRegNos = new Set(filteredStudents.map(s => s.regNo));
+    const rawPlacements = (reportData.allPlacements || []).filter(p => filteredRegNos.has(p.regNo));
+    // Use live joinedCompanies state — always reflects current UI values (not stale reportData snapshot)
+    const joinedCompaniesMap = joinedCompanies;
 
-      if (selectedStatCategory === 'zero') {
-        // For unplaced students: Reg No, Name, Branch, Batch
-        headers = ['Reg No', 'Name', 'Branch', 'Batch'];
-        data = [headers, ...selectedData.map(student => [
-          student.regNo,
-          student.name,
-          student.branch,
-          student.batch
-        ])];
-      } else {
-        // For placed students: Reg No, Name, Branch, Batch, Placements, Avg Package, Max Package, Companies
-        headers = ['Reg No', 'Name', 'Branch', 'Batch', 'Placements', 'Avg Package (LPA)', 'Max Package (LPA)', 'Companies'];
-        data = [headers, ...selectedData.map(student => [
-          student.regNo,
-          student.name,
-          student.branch,
-          student.batch,
-          student.count,
-          parseFloat(student.avgPackage),
-          parseFloat(student.maxPackage),
-          student.companies
-        ])];
+    // Group raw placements by regNo preserving insertion order
+    const groupedByRegNo = {};
+    rawPlacements.forEach(p => {
+      const reg = p.regNo?.trim() || '';
+      if (!groupedByRegNo[reg]) groupedByRegNo[reg] = [];
+      groupedByRegNo[reg].push(p);
+    });
+
+    // Headers matching the screenshot
+    const headers = ['Reg No', 'Name', 'Branch', 'Batch', 'Placements', 'Package (LPA)', 'Companies', 'Joined Company'];
+    const rows = [headers];
+    const merges = []; // track cell merge ranges
+
+    // Sort students by regNo (ascending)
+    const sortedStudents = filteredStudents
+      .slice()
+      .sort((a, b) => (a.regNo || '').localeCompare(b.regNo || ''));
+
+    sortedStudents.forEach(student => {
+      const offers = groupedByRegNo[student.regNo] || [];
+      const totalOffers = offers.length;
+      const joined = joinedCompaniesMap[student.regNo] || 'Not yet joined';
+      const startRow = rows.length; // 0-indexed row of first offer for this student
+
+      if (totalOffers === 0) {
+        // Fallback single row
+        rows.push([student.regNo, student.name, student.branch, student.batch, student.count, '', '', joined]);
+        return;
       }
 
-      const sheet = XLSX.utils.aoa_to_sheet(data);
-      XLSX.utils.book_append_sheet(wb, sheet, sheetName);
+      offers.forEach((offer, idx) => {
+        rows.push([
+          idx === 0 ? student.regNo : '',
+          idx === 0 ? student.name : '',
+          idx === 0 ? student.branch : '',
+          idx === 0 ? student.batch : '',
+          idx === 0 ? totalOffers : '',
+          parseFloat(offer.package || 0) || '',
+          offer.companyName || '',
+          idx === 0 ? joined : ''
+        ]);
+      });
+
+      const endRow = rows.length - 1; // 0-indexed row of last offer
+
+      // Only add merges if student has more than 1 offer
+      if (totalOffers > 1) {
+        // Merge cols 0-4 (Reg No, Name, Branch, Batch, Placements) vertically
+        [0, 1, 2, 3, 4].forEach(col => {
+          merges.push({ s: { r: startRow, c: col }, e: { r: endRow, c: col } });
+        });
+        // Merge col 7 (Joined Company) vertically
+        merges.push({ s: { r: startRow, c: 7 }, e: { r: endRow, c: 7 } });
+      }
+    });
+
+    const sheet = XLSX.utils.aoa_to_sheet(rows);
+
+    // Apply merges
+    if (merges.length > 0) {
+      sheet['!merges'] = merges;
     }
 
+    // Apply vertical-center alignment + header styles using xlsx-js-style
+    const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1');
+
+    // Track which rows are "first rows" of a student group (for thick border)
+    const groupFirstRows = new Set();
+    let trackRow = 1; // row 0 = header
+    sortedStudents.forEach(student => {
+      const offers = groupedByRegNo[student.regNo] || [];
+      groupFirstRows.add(trackRow);
+      trackRow += Math.max(offers.length, 1);
+    });
+
+    const borderMedium = { style: 'medium', color: { rgb: '888888' } };
+    const borderThin   = { style: 'thin',   color: { rgb: 'CCCCCC' } };
+
+    for (let R = range.s.r; R <= range.e.r; R++) {
+      for (let C = range.s.c; C <= range.e.c; C++) {
+        const cellAddr = XLSX.utils.encode_cell({ r: R, c: C });
+        if (!sheet[cellAddr]) sheet[cellAddr] = { t: 's', v: '' };
+
+        const isHeader = R === 0;
+        const isGroupFirst = groupFirstRows.has(R);
+
+        sheet[cellAddr].s = {
+          alignment: {
+            vertical: 'center',
+            horizontal: C === 1 ? 'left' : 'center',
+            wrapText: false
+          },
+          font: isHeader ? { bold: true, color: { rgb: 'CC0000' } } : {},
+          fill: isHeader
+            ? { fgColor: { rgb: 'FFFF00' } }
+            : (R % 2 === 0 ? { fgColor: { rgb: 'F5F8FF' } } : { fgColor: { rgb: 'FFFFFF' } }),
+          border: {
+            top:    isGroupFirst && !isHeader ? borderMedium : borderThin,
+            bottom: borderThin,
+            left:   borderThin,
+            right:  borderThin
+          }
+        };
+      }
+    }
+
+    // Row heights
+    sheet['!rows'] = rows.map((_, i) => ({ hpt: i === 0 ? 20 : 18 }));
+
+    sheet['!cols'] = [
+      { wch: 16 }, // Reg No
+      { wch: 22 }, // Name
+      { wch: 12 }, // Branch
+      { wch: 8  }, // Batch
+      { wch: 12 }, // Placements
+      { wch: 14 }, // Package (LPA)
+      { wch: 30 }, // Companies
+      { wch: 25 }, // Joined Company
+    ];
+
+    XLSX.utils.book_append_sheet(wb, sheet, sheetName);
     XLSX.writeFile(wb, `Student_Statistics_${selectedStatCategory}_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
@@ -1113,97 +1230,191 @@ function PlacementManagementContent() {
   const downloadStatisticsPDF = () => {
     if (!reportData) return;
 
-    const doc = new jsPDF();
+    const doc = new jsPDF({ orientation: 'landscape' });
     const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    let y = 20;
+    let y = 14;
 
-    // Header
-    doc.setFontSize(20);
+    // ── Header ──────────────────────────────────────────────────────────────
+    doc.setFontSize(16);
     doc.setTextColor(0, 88, 254);
-    doc.text('STUDENT STATISTICS REPORT', pageWidth / 2, y, { align: 'center' });
-    y += 15;
+    doc.text('STUDENT PLACEMENT STATISTICS REPORT', pageWidth / 2, y, { align: 'center' });
+    y += 8;
 
-    doc.setFontSize(10);
-    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(9);
+    doc.setTextColor(80, 80, 80);
     doc.text(`Generated on: ${new Date().toLocaleDateString()}`, pageWidth / 2, y, { align: 'center' });
-    y += 12;
+    y += 8;
 
-    // Title and Summary
-    doc.setFontSize(12);
-    doc.setTextColor(25, 118, 210);
-
+    // ── Determine category & data ────────────────────────────────────────────
     let categoryTitle = '';
-    let selectedData = [];
+    let selectedStudents = [];
 
     if (selectedStatCategory === 'all_students') {
-      categoryTitle = 'ALL STUDENTS';
-      selectedData = reportData.studentPlacementList.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch);
+      categoryTitle = 'ALL PLACED STUDENTS';
+      selectedStudents = reportData.studentPlacementList.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch);
     } else if (selectedStatCategory === 'zero') {
       categoryTitle = 'UNPLACED STUDENTS';
-      selectedData = unplacedStudents.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch);
+      selectedStudents = unplacedStudents.filter(s => selectedStatBranch === 'all' || s.branch === selectedStatBranch);
     } else if (selectedStatCategory === 'one') {
       categoryTitle = 'STUDENTS WITH 1 PLACEMENT';
-      selectedData = reportData.studentPlacementList.filter(s => s.count === 1 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch));
+      selectedStudents = reportData.studentPlacementList.filter(s => s.count === 1 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch));
     } else if (selectedStatCategory === 'two') {
       categoryTitle = 'STUDENTS WITH 2 PLACEMENTS';
-      selectedData = reportData.studentPlacementList.filter(s => s.count === 2 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch));
+      selectedStudents = reportData.studentPlacementList.filter(s => s.count === 2 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch));
     } else if (selectedStatCategory === 'more_than_two') {
       categoryTitle = 'STUDENTS WITH MORE THAN 2 PLACEMENTS';
-      selectedData = reportData.studentPlacementList.filter(s => s.count > 2 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch));
+      selectedStudents = reportData.studentPlacementList.filter(s => s.count > 2 && (selectedStatBranch === 'all' || s.branch === selectedStatBranch));
     }
 
-    doc.text(categoryTitle, 20, y);
-    y += 8;
-    doc.text(`Total: ${selectedData.length}`, 20, y);
-    y += 8;
+    doc.setFontSize(11);
+    doc.setTextColor(25, 118, 210);
+    doc.text(categoryTitle, 14, y);
+    y += 6;
+    doc.setFontSize(9);
+    doc.setTextColor(60, 60, 60);
+    doc.text(`Total students: ${selectedStudents.length}`, 14, y);
+    y += 6;
 
-    if (selectedData.length > 0) {
-      let studentData;
-      let headers;
+    if (selectedStudents.length === 0) {
+      doc.setFontSize(10);
+      doc.setTextColor(150, 150, 150);
+      doc.text('No data available for the selected category.', 14, y + 10);
+      doc.save(`Student_Statistics_${selectedStatCategory}_${new Date().toISOString().split('T')[0]}.pdf`);
+      return;
+    }
 
-      if (selectedStatCategory === 'zero') {
-        // For unplaced students
-        headers = ['Reg No', 'Name', 'Branch', 'Batch'];
-        studentData = selectedData.slice(0, 100).map(student => [
-          student.regNo,
-          student.name,
-          student.branch,
-          student.batch
-        ]);
-      } else {
-        // For placed students
-        headers = ['Reg No', 'Name', 'Branch', 'Batch', 'Placements', 'Avg (LPA)', 'Max (LPA)', 'Companies'];
-        studentData = selectedData.slice(0, 100).map(student => [
-          student.regNo,
-          student.name,
-          student.branch,
-          student.batch,
-          student.count.toString(),
-          `${student.avgPackage} LPA`,
-          `${student.maxPackage} LPA`,
-          student.companies.substring(0, 40)
-        ]);
-      }
-
+    // ── UNPLACED: simple flat table ──────────────────────────────────────────
+    if (selectedStatCategory === 'zero') {
+      const sortedUnplaced = [...selectedStudents].sort((a, b) => (a.regNo || '').localeCompare(b.regNo || ''));
       doc.autoTable({
         startY: y,
-        head: [headers],
-        body: studentData,
+        head: [['#', 'Reg No', 'Name', 'Branch', 'Batch']],
+        body: sortedUnplaced.map((s, i) => [i + 1, s.regNo, s.name, s.branch, s.batch]),
         theme: 'grid',
-        headerStyles: { fillColor: [25, 118, 210], textColor: 255 },
-        bodyStyles: { textColor: 50, fontSize: 7 },
-        alternateRowStyles: { fillColor: [238, 242, 255] },
-        styles: { overflow: 'linebreak', cellWidth: 'wrap' }
+        styles: { fontSize: 8, cellPadding: 2, valign: 'middle' },
+        headStyles: { fillColor: [220, 53, 69], textColor: 255, fontStyle: 'bold', halign: 'center' },
+        alternateRowStyles: { fillColor: [255, 240, 240] },
+        columnStyles: {
+          0: { halign: 'center', cellWidth: 10 },
+          1: { halign: 'center', cellWidth: 35 },
+          2: { halign: 'left',   cellWidth: 50 },
+          3: { halign: 'center', cellWidth: 25 },
+          4: { halign: 'center', cellWidth: 20 }
+        }
       });
-
-      if (selectedData.length > 100) {
-        y = doc.lastAutoTable.finalY + 10;
-        doc.setFontSize(8);
-        doc.setTextColor(100, 100, 100);
-        doc.text(`Note: Showing first 100 students. Total: ${selectedData.length}`, 20, y);
-      }
+      doc.save(`Student_Statistics_${selectedStatCategory}_${new Date().toISOString().split('T')[0]}.pdf`);
+      return;
     }
+
+    // ── PLACED STUDENTS: row-per-offer with rowSpan ──────────────────────────
+    // Sort by regNo
+    const sortedStudents = [...selectedStudents].sort((a, b) => (a.regNo || '').localeCompare(b.regNo || ''));
+
+    // Group raw placements by regNo
+    const filteredRegNos = new Set(sortedStudents.map(s => s.regNo));
+    const rawPlacements = (reportData.allPlacements || []).filter(p => filteredRegNos.has(p.regNo));
+    const groupedByRegNo = {};
+    rawPlacements.forEach(p => {
+      const reg = p.regNo?.trim() || '';
+      if (!groupedByRegNo[reg]) groupedByRegNo[reg] = [];
+      groupedByRegNo[reg].push(p);
+    });
+    // Use live joinedCompanies state — always reflects what the UI shows, not a stale snapshot
+    const joinedCompaniesMap = joinedCompanies;
+
+    // Build body rows with rowSpan for jspdf-autotable
+    const body = [];
+    let sno = 1;
+
+    sortedStudents.forEach(student => {
+      const offers = groupedByRegNo[student.regNo] || [];
+      const totalOffers = offers.length;
+      const joined = joinedCompaniesMap[student.regNo] || '-';
+
+      if (totalOffers === 0) {
+        body.push([
+          { content: sno++, rowSpan: 1, styles: { halign: 'center', valign: 'middle' } },
+          { content: student.regNo, rowSpan: 1, styles: { halign: 'center', valign: 'middle', fontStyle: 'bold' } },
+          { content: student.name, rowSpan: 1, styles: { halign: 'left', valign: 'middle' } },
+          { content: student.branch, rowSpan: 1, styles: { halign: 'center', valign: 'middle' } },
+          { content: student.batch, rowSpan: 1, styles: { halign: 'center', valign: 'middle' } },
+          { content: student.count, rowSpan: 1, styles: { halign: 'center', valign: 'middle' } },
+          { content: '', styles: { halign: 'center', valign: 'middle' } },
+          { content: '', styles: { halign: 'left', valign: 'middle' } },
+          { content: joined, rowSpan: 1, styles: { halign: 'left', valign: 'middle', fontStyle: 'bold', textColor: [0, 128, 0] } }
+        ]);
+        return;
+      }
+
+      offers.forEach((offer, idx) => {
+        const isFirst = idx === 0;
+        const pkg = parseFloat(offer.package || 0) || '-';
+        const company = offer.companyName || '-';
+
+        if (isFirst) {
+          body.push([
+            { content: sno++, rowSpan: totalOffers, styles: { halign: 'center', valign: 'middle' } },
+            { content: student.regNo, rowSpan: totalOffers, styles: { halign: 'center', valign: 'middle', fontStyle: 'bold' } },
+            { content: student.name, rowSpan: totalOffers, styles: { halign: 'left', valign: 'middle' } },
+            { content: student.branch, rowSpan: totalOffers, styles: { halign: 'center', valign: 'middle' } },
+            { content: student.batch, rowSpan: totalOffers, styles: { halign: 'center', valign: 'middle' } },
+            { content: totalOffers, rowSpan: totalOffers, styles: { halign: 'center', valign: 'middle', fontStyle: 'bold', textColor: [0, 80, 200] } },
+            { content: pkg, styles: { halign: 'center', valign: 'middle' } },
+            { content: company, styles: { halign: 'left', valign: 'middle' } },
+            { content: joined, rowSpan: totalOffers, styles: { halign: 'left', valign: 'middle', fontStyle: 'bold', textColor: [0, 128, 0] } }
+          ]);
+        } else {
+          body.push([
+            { content: pkg, styles: { halign: 'center', valign: 'middle' } },
+            { content: company, styles: { halign: 'left', valign: 'middle' } }
+          ]);
+        }
+      });
+    });
+
+    doc.autoTable({
+      startY: y,
+      head: [[
+        { content: '#',             styles: { halign: 'center' } },
+        { content: 'Reg No',        styles: { halign: 'center' } },
+        { content: 'Name',          styles: { halign: 'center' } },
+        { content: 'Branch',        styles: { halign: 'center' } },
+        { content: 'Batch',         styles: { halign: 'center' } },
+        { content: 'Placements',    styles: { halign: 'center' } },
+        { content: 'Package (LPA)', styles: { halign: 'center' } },
+        { content: 'Companies',     styles: { halign: 'center' } },
+        { content: 'Joined Company',styles: { halign: 'center' } }
+      ]],
+      body,
+      theme: 'grid',
+      styles: { fontSize: 7.5, cellPadding: 2, overflow: 'linebreak' },
+      headStyles: { fillColor: [25, 118, 210], textColor: 255, fontStyle: 'bold', fontSize: 8 },
+      alternateRowStyles: { fillColor: [240, 246, 255] },
+      columnStyles: {
+        0: { cellWidth: 8  },  // #
+        1: { cellWidth: 33 },  // Reg No
+        2: { cellWidth: 38 },  // Name
+        3: { cellWidth: 22 },  // Branch
+        4: { cellWidth: 16 },  // Batch
+        5: { cellWidth: 20 },  // Placements
+        6: { cellWidth: 22 },  // Package
+        7: { cellWidth: 55 },  // Companies
+        8: { cellWidth: 45 },  // Joined Company
+      },
+      didParseCell: (data) => {
+        // Highlight header
+        if (data.section === 'head') {
+          data.cell.styles.fillColor = [30, 30, 30];
+          data.cell.styles.textColor = [255, 215, 0];
+        }
+        // Alternate light blue on even student groups
+        if (data.section === 'body' && data.row.index % 2 === 0) {
+          if (!data.cell.styles.fillColor || data.cell.styles.fillColor[0] === 255) {
+            data.cell.styles.fillColor = [245, 250, 255];
+          }
+        }
+      }
+    });
 
     doc.save(`Student_Statistics_${selectedStatCategory}_${new Date().toISOString().split('T')[0]}.pdf`);
   };
