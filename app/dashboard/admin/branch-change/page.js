@@ -29,7 +29,9 @@ function BranchChangeContent() {
   const searchParams = useSearchParams();
   const school = searchParams.get("school");
   const isDiploma = school === "SOVET";
-  const branchOptions = isDiploma ? DIPLOMA_BRANCHES : BTECH_BRANCHES;
+  const isSom = school === "SOM";
+  const somBranches = ["BBA", "MBA"];
+  const branchOptions = isSom ? somBranches : (isDiploma ? DIPLOMA_BRANCHES : BTECH_BRANCHES);
 
   const [reg, setReg] = useState("");
   const [loading, setLoading] = useState(false);

@@ -24,6 +24,9 @@ function BatchContent() {
     } else if (schoolLower === 'sovet' || schoolLower === 'sov') {
       const campus = searchParams.get('campus') || 'pkd';
       router.replace(`/dashboard/admin/batch/sovet?school=SOVET&campus=${campus}`);
+    } else if (schoolLower === 'som' || schoolLower === 'soms') {
+      const campus = searchParams.get('campus') || 'pkd';
+      router.replace(`/dashboard/admin/batch/som?school=SOM&campus=${campus}`);
     } else {
       // Default to SOET if no school specified
       const campus = searchParams.get('campus') || 'pkd';

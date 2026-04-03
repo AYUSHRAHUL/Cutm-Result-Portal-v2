@@ -22,23 +22,15 @@ export default function BasketProgressTracker() {
 
 export function BasketTrackerContent({ schoolType }) {
   const searchParams = useSearchParams();
-  const isDiploma = schoolType === 'diploma' || searchParams.get("school") === "SOVET";
+  const school = searchParams.get("school");
+  const isDiploma = schoolType === 'diploma' || school === "SOVET";
+  const isSom = school === "SOM";
   const [department, setDepartment] = useState("");
   const [batch, setBatch] = useState("");
   const [registration, setRegistration] = useState("");
   const [registrationOptions, setRegistrationOptions] = useState([]);
   const [loadingRegistrations, setLoadingRegistrations] = useState(false);
-  // Dynamic semester list based on program type
-  const allSemesters = useMemo(() => isDiploma
-    ? ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6"] // Diploma: 6 Semesters
-    : ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"], [isDiploma]); // B.Tech: 8 Semesters
-  const [semesters, setSemesters] = useState(allSemesters);
-  const [semesterValues, setSemesterValues] = useState([]);
-  const [basket, setBasket] = useState("");
-  const [availableDepartments, setAvailableDepartments] = useState([]); // Dynamic departments
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [loadingSemesters, setLoadingSemesters] = useState(false);
+  const [bbaDegreeType, setBbaDegreeType] = useState("3year"); // "3year" or "4year"
 
   // Results state
   const [searchPerformed, setSearchPerformed] = useState(false);
@@ -46,6 +38,58 @@ export function BasketTrackerContent({ schoolType }) {
   const [basketProgress, setBasketProgress] = useState({});
   const [allStudentsData, setAllStudentsData] = useState([]);
   const [dataSources, setDataSources] = useState(null);
+  // SOM Detection (MBA/BBA) - Robustly handle both dropdown state and loaded student data
+  const isMba = useMemo(() => {
+    const fromDropdown = isSom && (
+      String(department).toUpperCase() === "MBA" || 
+      String(department).includes("Master of Business Administration")
+    );
+    const fromStudent = studentData && (
+      String(studentData.Branch || '').toUpperCase() === "MBA" || 
+      String(studentData.department || '').toUpperCase() === "MBA"
+    );
+    return fromDropdown || fromStudent;
+  }, [isSom, department, studentData]);
+  
+  const isBba = useMemo(() => {
+    const fromDropdown = isSom && (
+      String(department).toUpperCase() === "BBA" || 
+      String(department).includes("Bachelor of Business Administration")
+    );
+    const fromStudent = studentData && (
+      String(studentData.Branch || '').toUpperCase() === "BBA" || 
+      String(studentData.department || '').toUpperCase() === "BBA"
+    );
+    return fromDropdown || fromStudent;
+  }, [isSom, department, studentData]);
+
+  // Dynamic semester list based on program type
+  const allSemesters = useMemo(() => {
+    if (isMba) return ["Sem 1", "Sem 2", "Sem 3", "Sem 4"];
+    if (isDiploma) return ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6"];
+    if (isBba) {
+      return bbaDegreeType === "4year" 
+        ? ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"]
+        : ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6"];
+    }
+    return ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"];
+  }, [isDiploma, isMba, isBba, bbaDegreeType]); // Diploma: 6, MBA: 4, BBA: 6/8, B.Tech: 8 Semesters
+
+  const [semesters, setSemesters] = useState(allSemesters);
+
+  // Keep semesters state in sync with allSemesters memo
+  useEffect(() => {
+    setSemesters(allSemesters);
+  }, [allSemesters]);
+  const [basket, setBasket] = useState("");
+  const [availableDepartments, setAvailableDepartments] = useState([]); // Dynamic departments
+  const [availableBatches, setAvailableBatches] = useState([]); // Dynamic batches
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [loadingSemesters, setLoadingSemesters] = useState(false);
+  const [loadingMetadata, setLoadingMetadata] = useState(false);
+  const [semesterValues, setSemesterValues] = useState([]);
+
 
   // Basket detail state
   const [selectedBasket, setSelectedBasket] = useState(null);
@@ -72,6 +116,11 @@ export function BasketTrackerContent({ schoolType }) {
     return !Number.isNaN(n) && n >= 24;
   }, [batch]);
 
+  const is2023Onwards = useMemo(() => {
+    const n = Number(batch);
+    return !Number.isNaN(n) && n >= 23;
+  }, [batch]);
+
   // Enhanced utility functions
   const getSchoolUrl = useCallback((path) => {
     let url = appendSchoolParams(path);
@@ -80,36 +129,65 @@ export function BasketTrackerContent({ schoolType }) {
       try {
         const urlObj = new URL(url, window.location.origin);
         urlObj.searchParams.set('school', 'SOVET');
-        // Preserve campus if present, or it might be set by appendSchoolParams
+        return urlObj.pathname + urlObj.search;
+      } catch (e) { return url; }
+    } else if (isSom) {
+      try {
+        const urlObj = new URL(url, window.location.origin);
+        urlObj.searchParams.set('school', 'SOM');
         return urlObj.pathname + urlObj.search;
       } catch (e) { return url; }
     }
     return url;
-  }, [isDiploma]);
+  }, [isDiploma, isSom]);
 
-  // Fetch available departments dynamically
+  // Fetch metadata dynamics (departments and batches)
   useEffect(() => {
-    async function fetchDepartments() {
+    async function fetchMetadata() {
       try {
-        const url = getSchoolUrl("/api/metadata/departments");
-        const res = await fetch(url);
-        if (res.ok) {
-          const data = await res.json();
+        setLoadingMetadata(true);
+        const [deptRes, batchRes] = await Promise.all([
+          fetch(getSchoolUrl("/api/metadata/departments")),
+          fetch(getSchoolUrl("/api/metadata/batches"))
+        ]);
+
+        if (deptRes.ok) {
+          const data = await deptRes.json();
           if (data.departments && data.departments.length > 0) {
             let depts = data.departments;
             // Remove ECE for Diploma as requested by user
             if (isDiploma) {
               depts = depts.filter(d => d !== "Electronics & Communication Engineering");
             }
+            // Ensure only BBA and MBA for SOM, and ALWAYS include both
+            if (isSom) {
+              depts = ["BBA", "MBA"];
+            }
             setAvailableDepartments(depts);
           }
         }
+
+        if (batchRes.ok) {
+          const data = await batchRes.json();
+          if (data.batches && data.batches.length > 0) {
+            setAvailableBatches(data.batches);
+          }
+        }
       } catch (e) {
-        console.error("Failed to fetch departments", e);
+        console.error("Failed to fetch metadata", e);
+      } finally {
+        setLoadingMetadata(false);
       }
     }
-    fetchDepartments();
-  }, [getSchoolUrl, isDiploma]);
+    fetchMetadata();
+  }, [getSchoolUrl, isDiploma, isSom]);
+
+  // Set default department for SOM
+  useEffect(() => {
+    if (isSom && !department && !searchPerformed) {
+      setDepartment("BBA");
+    }
+  }, [isSom, department, searchPerformed]);
 
   const addNotification = useCallback((type, message) => {
     const notification = {
@@ -259,7 +337,8 @@ export function BasketTrackerContent({ schoolType }) {
           department: department === "All" || department === "Select Department" ? "" : department, // Send empty string for "All" departments
           batch: batch && batch !== "All" && batch !== "Select Batch" ? batch : "", // Send empty string for "All" batches
           semesters: semesterValues.length > 0 && !semesterValues.includes("All") ? semesterValues : [], // Send empty array for "All" semesters
-          basket: basket && basket !== "All" && basket !== "Select Basket" ? basket : "" // Send empty string for "All" baskets
+          basket: basket && basket !== "All" && basket !== "Select Basket" ? basket : "", // Send empty string for "All" baskets
+          bbaDegreeType: isBba ? bbaDegreeType : undefined
         };
 
         console.log("Frontend sending request:", requestBody);
@@ -356,7 +435,8 @@ Please check if the department name matches exactly with the available departmen
           batch: batch && batch !== "All" && batch !== "Select Batch" ? batch : "",
           registration: registration.trim().toUpperCase(),
           semesters: semesterValues.length > 0 && !semesterValues.includes("All") ? semesterValues : [],
-          basket: basket && basket !== "All" && basket !== "Select Basket" ? basket : ""
+          basket: basket && basket !== "All" && basket !== "Select Basket" ? basket : "",
+          bbaDegreeType: isBba ? bbaDegreeType : undefined
         };
 
         console.log("Individual search request:", requestBody);
@@ -431,6 +511,11 @@ Please check if the department name matches exactly with the available departmen
           "Mechanical Engineering": "Mechanical",
           "Automobile Engineering": "Automobile",
           "Mining Engineering": "Mining"
+        } : isSom ? {
+          "BBA": "BBA",
+          "MBA": "MBA",
+          "Bachelor of Business Administration (BBA)": "BBA",
+          "Master of Business Administration (MBA)": "MBA"
         } : {
           "Civil Engineering": "Civil",
           "Computer Science Engineering": "CSE",
@@ -531,11 +616,43 @@ Please check if the department name matches exactly with the available departmen
       }
     });
 
+    // Calculate semester-wise progress (1, 2, 3, 4)
+    const semStats = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0 };
+    entries.forEach(b => {
+      if (b.subjects && Array.isArray(b.subjects)) {
+        b.subjects.forEach(sub => {
+          // Success grades: O, E, A, B, C, D, S, M - Handle both 'Grade' (API) and 'grade' props
+          const currentGrade = String(sub.Grade || sub.grade || "").toUpperCase();
+          const isSuccess = ["O", "E", "A", "B", "C", "D", "S", "M"].includes(currentGrade);
+          
+          if (isSuccess) {
+            // Robust parsing for "Sem 1", "Sem1", "1", etc. - supports .Sem, .semester, .sem
+            const semStr = String(sub.Sem || sub.semester || sub.sem || "").toUpperCase().replace(/^(SEM|SEMESTER)\.?\s*/, '').trim();
+            const sem = parseInt(semStr);
+            if (!isNaN(sem) && sem >= 1 && sem <= 8) {
+              // Support both 'Credits' and 'credits'
+              const currentCredits = Number(sub.Credits || sub.credits || 0);
+              semStats[sem] += currentCredits;
+            }
+          }
+        });
+      }
+    });
+
     // Calculate totals from all baskets in basketProgress
     const totalEarned = entries.reduce((sum, b) => sum + (Number(b?.earned_credits) || 0), 0);
     const totalFailed = entries.reduce((sum, b) => sum + (Number(b?.failed_credits) || 0), 0);
     const totalCredits = totalEarned + totalFailed; // earned + failed for totals
-    const totalRequired = studentData?.is_lateral_entry ? 120 : 160;
+    // FIXED: Total required credits for MBA is 73, Diploma is 120, BBA Honors is 160, others 160 (Lateral 120)
+    let totalRequired = 160;
+    if (isMba) {
+      totalRequired = 73;
+    } else if (isDiploma || studentData?.is_lateral_entry) {
+      totalRequired = 120;
+    } else if (isBba) {
+      totalRequired = (bbaDegreeType === "4year" && is2023Onwards) ? 160 : 120;
+    }
+    
     const percentage = Math.min(100, Math.round((totalEarned / totalRequired) * 100));
 
     // Debug logging - ALWAYS log to help diagnose issues
@@ -545,11 +662,50 @@ Please check if the department name matches exactly with the available departmen
       allBasketsCompleted: basketsCompleted === totalBaskets,
       basketProgressKeys: Object.keys(basketProgress || {}),
       basketStatuses,
+      totalRequired,
+      semStats,
       willShowTotalAs: basketsCompleted === totalBaskets && totalBaskets > 0 ? 'Completed' : 'Not Completed'
     });
 
-    return { totalBaskets, basketsCompleted, totalEarned, totalFailed, totalCredits, totalRequired, percentage };
-  }, [basketProgress, studentData]);
+    return { totalBaskets, basketsCompleted, totalEarned, totalFailed, totalCredits, totalRequired, percentage, semStats };
+  }, [basketProgress, studentData, isMba, isBba, bbaDegreeType, is2023Onwards]);
+
+  // Handle clicking on a semester row to show details (MBA)
+  const handleSemesterClick = (semNum) => {
+    // Collect all subjects across all baskets that match this semester
+    const allSubjects = [];
+    Object.values(basketProgress || {}).forEach(b => {
+      if (b.subjects && Array.isArray(b.subjects)) {
+        b.subjects.forEach(sub => {
+          const subSemStr = String(sub.Sem || sub.semester || sub.sem || "").toUpperCase().replace(/^(SEM|SEMESTER)\.?\s*/, '').trim();
+          if (parseInt(subSemStr) === parseInt(semNum)) {
+            allSubjects.push(sub);
+          }
+        });
+      }
+    });
+
+    if (allSubjects.length === 0) {
+      alert(`No subjects found for Semester ${semNum}`);
+      return;
+    }
+
+    // Sort subjects by code for consistent display
+    allSubjects.sort((a, b) => String(a.code || a.Code || "").localeCompare(String(b.code || b.Code || "")));
+
+    // Set structure to match BasketDetailsModal's expectations
+    setSelectedBasket({
+      name: `Semester ${semNum}`,
+      info: {
+        required_credits: [20, 21, 17, 15][semNum - 1] || 0, // Get target for this semester
+        earned_credits: overallStats.semStats[semNum] || 0,
+        failed_credits: allSubjects.filter(s => s.failed).reduce((sum, s) => sum + (Number(s.credits || s.Credits || 0)), 0),
+        status: (overallStats.semStats[semNum] || 0) >= ([20, 21, 17, 15][semNum - 1] || 999) ? "Completed" : "Not Completed"
+      },
+      subjects: allSubjects
+    });
+    setShowBasketDetails(true);
+  };
 
   // Enhanced filtering and sorting for bulk results
   const filteredAndSortedStudents = useMemo(() => {
@@ -884,21 +1040,31 @@ Please check if the department name matches exactly with the available departmen
   const downloadReport = useCallback(() => {
     if (registration !== "all" && studentData) {
       // For individual student: Export in CBCS.xlsx template format matching the exact format provided
-      // Group subjects by semester and organize by basket columns
-
-      // Collect all subjects with their basket and semester info
+      // Get semesters based on program (4 for MBA, 6 for Diploma/BBA 3yr, 8 for others)
+      const allSemesterKeys = isMba 
+        ? ["Sem 1", "Sem 2", "Sem 3", "Sem 4"]
+        : (isDiploma || (isBba && bbaDegreeType !== "4year"))
+          ? ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6"]
+          : ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"];
+      
       const allSubjects = [];
       Object.entries(basketProgress).forEach(([basketName, basketInfo]) => {
         const subjects = basketInfo?.subjects || [];
+        const bName = String(basketName).toUpperCase();
         subjects.forEach(subject => {
+          // Robust basket number mapping (handles "Basket 1", "Basket I", "1", "I", etc.)
+          let basketNum = 0;
+          if (bName.includes("1") || bName.endsWith(" I") || bName === "I" || bName === "B1") basketNum = 1;
+          else if (bName.includes("2") || bName.endsWith(" II") || bName === "II" || bName === "B2") basketNum = 2;
+          else if (bName.includes("3") || bName.endsWith(" III") || bName === "III" || bName === "B3") basketNum = 3;
+          else if (bName.includes("4") || bName.endsWith(" IV") || bName === "IV" || bName === "B4") basketNum = 4;
+          else if (bName.includes("5") || bName.endsWith(" V") || bName === "V" || bName === "B5") basketNum = 5;
+          else if (bName.includes("6") || bName.endsWith(" VI") || bName === "VI" || bName === "B6") basketNum = 6;
+
           allSubjects.push({
             ...subject,
             basket: basketName,
-            basketNumber: basketName === "Basket I" ? 1 :
-              basketName === "Basket II" ? 2 :
-                basketName === "Basket III" ? 3 :
-                  basketName === "Basket IV" ? 4 :
-                    basketName === "Basket V" ? 5 : 0
+            basketNumber: basketNum
           });
         });
       });
@@ -907,8 +1073,11 @@ Please check if the department name matches exactly with the available departmen
       const subjectsBySemester = {};
       allSubjects.forEach(subject => {
         let sem = subject.semester || "Unknown";
-        // Normalize semester format: "Semester 1" -> "Sem 1", "Sem1" -> "Sem 1", etc.
-        sem = sem.replace(/semester\s*/i, "Sem ").replace(/sem\s*/i, "Sem ").trim();
+        // Normalize semester format: "Semester 1" -> "Sem 1", "Sem1" -> "Sem 1", "1" -> "Sem 1", etc.
+        sem = String(sem).replace(/semester\s*/i, "Sem ").replace(/sem\s*/i, "Sem ").trim();
+        if (!sem.match(/^Sem\s*\d+$/i) && sem.match(/^\d+$/)) {
+          sem = `Sem ${sem}`;
+        }
         if (!sem.match(/^Sem\s*\d+$/i)) {
           // Try to extract number if format is different
           const numMatch = sem.match(/\d+/);
@@ -922,12 +1091,6 @@ Please check if the department name matches exactly with the available departmen
         subjectsBySemester[sem].push(subject);
       });
 
-      // Get all 8 semesters (even if empty) - always show all
-      // Use normalized keys: "Sem 1", "Sem 2", etc.
-      // Get semesters based on program (6 for Diploma, 8 for B.Tech)
-      const allSemesterKeys = isDiploma
-        ? ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6"]
-        : ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"];
       const sortedSemesters = allSemesterKeys;
 
       // Get session year from registration (first 2 digits)
@@ -1037,7 +1200,7 @@ Please check if the department name matches exactly with the available departmen
               </tr>
               <tr>
                 <td colspan="9" style="text-align: center; font-weight: bold; font-size: 12px; background-color: #E6F3FF; padding: 8px;">
-                  SCHOOL OF ENGINEERING & TECHNOLOGY
+                  ${isSom ? 'SCHOOL OF MANAGEMENT' : (isDiploma ? 'SCHOOL OF VOCATIONAL EDUCATION & TRAINING' : 'SCHOOL OF ENGINEERING & TECHNOLOGY')}
                 </td>
               </tr>
               <tr>
@@ -1047,7 +1210,7 @@ Please check if the department name matches exactly with the available departmen
               </tr>
               <tr>
                 <td colspan="9" style="text-align: center; font-weight: bold; font-size: 12px; background-color: #E6F3FF; padding: 8px;">
-                  SUBJECT REGISTRATION AS PER CBCS CURRICULUM
+                  ${isSom ? (isBba ? (bbaDegreeType === "4year" ? 'BBA HONOURS/RESEARCH (4-YEAR)' : 'BBA REGULAR (3-YEAR)') : 'MBA') : (isDiploma ? 'DIPLOMA' : 'B.TECH')} SUBJECT REGISTRATION AS PER CBCS CURRICULUM
                 </td>
               </tr>
               
@@ -1245,25 +1408,26 @@ Please check if the department name matches exactly with the available departmen
                   </tr>
                 `;
 
-          // Add remaining semesters (5,6,7,8 for B.Tech; 5,6 for Diploma)
-          const limit = isDiploma ? 6 : 8;
-          for (let i = 4; i < limit; i += 2) {
+          // Add remaining semesters (5,6,7,8) if needed, based on the actual semester count
+          for (let i = 4; i < allSemesterKeys.length; i += 2) {
             const sem1Key = allSemesterKeys[i];
             const sem2Key = allSemesterKeys[i + 1];
+            if (!sem1Key) break;
+
             const sem1Num = i + 1;
             const sem2Num = i + 2;
 
             const sem1Table = buildSemesterTable(sem1Key, sem1Num);
-            const sem2Table = buildSemesterTable(sem2Key, sem2Num);
+            const sem2Table = sem2Key ? buildSemesterTable(sem2Key, sem2Num) : { html: '', totals: {} };
 
             const sem1Colspan = 4;
             const sem2Colspan = 5;
 
             // Add year totals inside even semester tables (Sem 6, Sem 8)
-            let sem2TableWithYearTotal = sem2Table.html;
-            if (sem2Num === 6) {
+            let sem2TableContent = sem2Table.html;
+            if (sem2Key && sem2Num === 6) {
               // Add "1st, 2nd & 3rd year Total Credits" inside Sem 6 table (in Subject column)
-              sem2TableWithYearTotal = sem2Table.html + `
+              sem2TableContent = sem2Table.html + `
                           <!-- 1st, 2nd & 3rd year Total Credits Row (inside Sem 6 table, Subject column) -->
                           <tr style="font-weight: bold; background-color: #E6F3FF;">
                             <td style="text-align: center; padding: 5px;"></td>
@@ -1277,9 +1441,9 @@ Please check if the department name matches exactly with the available departmen
                             <td style="text-align: center; padding: 5px;">${thirdYearTotals.grandTotal || 0}</td>
                           </tr>
                         `;
-            } else if (sem2Num === 8) {
+            } else if (sem2Key && sem2Num === 8) {
               // Add "1st, 2nd, 3rd & 4th year Total" inside Sem 8 table (in Subject column)
-              sem2TableWithYearTotal = sem2Table.html + `
+              sem2TableContent = sem2Table.html + `
                           <!-- 1st, 2nd, 3rd & 4th year Total Row (inside Sem 8 table, Subject column) -->
                           <tr style="font-weight: bold; background-color: #E6F3FF;">
                             <td style="text-align: center; padding: 5px;"></td>
@@ -1295,22 +1459,22 @@ Please check if the department name matches exactly with the available departmen
                         `;
             }
 
-            result += `<tr><td colspan="9" style="height: 10px; border: 1px solid #000;"></td></tr>`;
-
             result += `
-                    <tr>
-                      <td colspan="${sem1Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
-                        <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
-                          ${sem1Table.html}
-                        </table>
-                      </td>
-                      <td colspan="${sem2Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
-                        <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
-                          ${sem2TableWithYearTotal}
-                        </table>
-                      </td>
-                    </tr>
-                  `;
+                  <tr>
+                    <td colspan="${sem1Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
+                      <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+                        ${sem1Table.html}
+                      </table>
+                    </td>
+                    <td colspan="${sem2Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
+                      ${sem2Key ? `
+                      <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
+                        ${sem2TableContent}
+                      </table>
+                      ` : ''}
+                    </td>
+                  </tr>
+                `;
           }
 
           return result;
@@ -1359,7 +1523,8 @@ Please check if the department name matches exactly with the available departmen
               basketName === "Basket II" ? 2 :
                 basketName === "Basket III" ? 3 :
                   basketName === "Basket IV" ? 4 :
-                    basketName === "Basket V" ? 5 : 0
+                    basketName === "Basket V" ? 5 :
+                      basketName === "Basket VI" ? 6 : 0
           });
         });
       });
@@ -1381,6 +1546,9 @@ Please check if the department name matches exactly with the available departmen
         return semNumA - semNumB;
       });
 
+      const showBasketVI = isBba && is2023Onwards && bbaDegreeType === "4year";
+      const totalColspan = showBasketVI ? 10 : 9;
+
       // Build HTML table matching CBCS.xlsx template
       let htmlContent = `
         <html>
@@ -1389,30 +1557,30 @@ Please check if the department name matches exactly with the available departmen
             <table border="1" cellpadding="5" cellspacing="0" style="width: 100%; border-collapse: collapse;">
               <!-- Header Section -->
               <tr>
-                <td colspan="9" style="text-align: center; font-weight: bold; font-size: 14px; background-color: #E6F3FF;">
+                <td colspan="${totalColspan}" style="text-align: center; font-weight: bold; font-size: 14px; background-color: #E6F3FF;">
                   CENTURION UNIVERSITY OF TECHNOLOGY & MANAGEMENT
                 </td>
               </tr>
               <tr>
-                <td colspan="9" style="text-align: center; font-weight: bold; font-size: 12px; background-color: #E6F3FF;">
-                  SCHOOL OF ENGINEERING & TECHNOLOGY
+                <td colspan="${totalColspan}" style="text-align: center; font-weight: bold; font-size: 12px; background-color: #E6F3FF;">
+                  ${isSom ? 'SCHOOL OF MANAGEMENT' : (isDiploma ? 'SCHOOL OF VOCATIONAL EDUCATION & TRAINING' : 'SCHOOL OF ENGINEERING & TECHNOLOGY')}
                 </td>
               </tr>
               <tr>
-                <td colspan="9" style="text-align: center; font-weight: bold; font-size: 12px; background-color: #E6F3FF;">
-                  SUBJECT REGISTRATION AS PER CBCS CURRICULUM
+                <td colspan="${totalColspan}" style="text-align: center; font-weight: bold; font-size: 12px; background-color: #E6F3FF;">
+                  ${isSom ? (isBba ? (bbaDegreeType === "4year" ? 'BBA HONOURS/RESEARCH (4-YEAR)' : 'BBA REGULAR (3-YEAR)') : 'MBA') : (isDiploma ? 'DIPLOMA' : 'B.TECH')} SUBJECT REGISTRATION AS PER CBCS CURRICULUM
                 </td>
               </tr>
               <tr>
-                <td colspan="9" style="text-align: center; font-weight: bold; font-size: 12px; background-color: #E6F3FF;">
-                  REGISTRATION
+                <td colspan="${totalColspan}" style="text-align: center; font-weight: bold; font-size: 12px; background-color: #E6F3FF;">
+                  REGISTRATION REPORT
                 </td>
               </tr>
               
               <!-- Student Info Section -->
               <tr>
                 <td style="font-weight: bold; background-color: #F0F0F0;">NAME:</td>
-                <td colspan="2">${studentData.name || ''}</td>
+                <td colspan="${showBasketVI ? '3' : '2'}">${studentData.name || ''}</td>
                 <td style="font-weight: bold; background-color: #F0F0F0;">REGISTRATION NO:</td>
                 <td colspan="2">${studentData.registration || ''}</td>
                 <td style="font-weight: bold; background-color: #F0F0F0;">BRANCH:</td>
@@ -1425,7 +1593,7 @@ Please check if the department name matches exactly with the available departmen
         const semesterDisplay = semester.replace(/Sem\s*/i, 'Semester-');
 
         // Calculate totals for this semester
-        let semesterTotals = { basket1: 0, basket2: 0, basket3: 0, basket4: 0, basket5: 0, grandTotal: 0 };
+        let semesterTotals = { basket1: 0, basket2: 0, basket3: 0, basket4: 0, basket5: 0, basket6: 0, grandTotal: 0 };
 
         // Build subject rows and calculate totals
         const subjectRows = subjects.map((subject, idx) => {
@@ -1435,12 +1603,14 @@ Please check if the department name matches exactly with the available departmen
           const basket3 = subject.basketNumber === 3 ? credits : 0;
           const basket4 = subject.basketNumber === 4 ? credits : 0;
           const basket5 = subject.basketNumber === 5 ? credits : 0;
+          const basket6 = subject.basketNumber === 6 ? credits : 0;
 
           semesterTotals.basket1 += basket1;
           semesterTotals.basket2 += basket2;
           semesterTotals.basket3 += basket3;
           semesterTotals.basket4 += basket4;
           semesterTotals.basket5 += basket5;
+          semesterTotals.basket6 += basket6;
           semesterTotals.grandTotal += credits;
 
           return `
@@ -1453,6 +1623,7 @@ Please check if the department name matches exactly with the available departmen
                       <td style="text-align: center;">${basket3 || ''}</td>
                       <td style="text-align: center;">${basket4 || ''}</td>
                       <td style="text-align: center;">${basket5 || ''}</td>
+                      ${showBasketVI ? `<td style="text-align: center;">${basket6 || ''}</td>` : ''}
                       <td style="text-align: center;">${credits}</td>
                     </tr>
                   `;
@@ -1461,7 +1632,7 @@ Please check if the department name matches exactly with the available departmen
         return `
                   <!-- ${semesterDisplay} Header -->
                   <tr>
-                    <td colspan="9" style="font-weight: bold; background-color: #D9E1F2; text-align: center;">
+                    <td colspan="${totalColspan}" style="font-weight: bold; background-color: #D9E1F2; text-align: center;">
                       ${semesterDisplay}
                     </td>
                   </tr>
@@ -1476,6 +1647,7 @@ Please check if the department name matches exactly with the available departmen
                     <td>Basket 3 (Credit)</td>
                     <td>Basket 4 (Credit)</td>
                     <td>Basket 5 (Credit)</td>
+                    ${showBasketVI ? '<td>Basket 6 (Credit)</td>' : ''}
                     <td>Grand Total (Credit)</td>
                   </tr>
                   
@@ -1490,21 +1662,23 @@ Please check if the department name matches exactly with the available departmen
                     <td style="text-align: center;">${semesterTotals.basket3}</td>
                     <td style="text-align: center;">${semesterTotals.basket4}</td>
                     <td style="text-align: center;">${semesterTotals.basket5}</td>
+                    ${showBasketVI ? `<td style="text-align: center;">${semesterTotals.basket6}</td>` : ''}
                     <td style="text-align: center;">${semesterTotals.grandTotal}</td>
                   </tr>
                   
-                  <tr><td colspan="9" style="height: 10px;"></td></tr>
+                  <tr><td colspan="${totalColspan}" style="height: 10px;"></td></tr>
                 `;
       }).join('')}
               
               <!-- Overall Totals -->
               <tr style="font-weight: bold; background-color: #D9E1F2;">
-                <td colspan="3" style="text-align: right;">Total</td>
+                <td colspan="3" style="text-align: right;">GRAND TOTAL</td>
                 <td style="text-align: center;">${allSubjects.filter(s => s.basketNumber === 1).reduce((sum, s) => sum + (Number(s.credits) || 0), 0)}</td>
                 <td style="text-align: center;">${allSubjects.filter(s => s.basketNumber === 2).reduce((sum, s) => sum + (Number(s.credits) || 0), 0)}</td>
                 <td style="text-align: center;">${allSubjects.filter(s => s.basketNumber === 3).reduce((sum, s) => sum + (Number(s.credits) || 0), 0)}</td>
                 <td style="text-align: center;">${allSubjects.filter(s => s.basketNumber === 4).reduce((sum, s) => sum + (Number(s.credits) || 0), 0)}</td>
                 <td style="text-align: center;">${allSubjects.filter(s => s.basketNumber === 5).reduce((sum, s) => sum + (Number(s.credits) || 0), 0)}</td>
+                ${showBasketVI ? `<td style="text-align: center;">${allSubjects.filter(s => s.basketNumber === 6).reduce((sum, s) => sum + (Number(s.credits) || 0), 0)}</td>` : ''}
                 <td style="text-align: center;">${allSubjects.reduce((sum, s) => sum + (Number(s.credits) || 0), 0)}</td>
               </tr>
             </table>
@@ -1515,15 +1689,64 @@ Please check if the department name matches exactly with the available departmen
       downloadFile(htmlContent, `student_${studentData.registration}_basket_progress.xls`, "application/vnd.ms-excel");
       addNotification('success', 'Excel file exported in CBCS template format');
     } else if (registration === "all" && filteredAndSortedStudents.length > 0) {
+      const showBasketVI = isSom && isBba && bbaDegreeType === "4year";
+      const totalColWidth = showBasketVI ? 15 : 14;
       const html = `
         <html>
           <head><meta charset="UTF-8"></head>
           <body>
-            <h2>Bulk Basket Analysis Report</h2>
-            <table border="1">
-              <tr><th>Sl.No</th><th>Name</th><th>Registration No</th><th>Department</th><th>Student Type</th><th>Basket I</th><th>Basket II</th><th>Basket III</th><th>Basket IV</th><th>Basket V</th><th>Total Credits</th><th>Required Credits</th><th>Percentage</th><th>Status</th></tr>
+            <h2>Bulk ${isMba ? 'Semester' : 'Basket'} Analysis Report - ${department || 'All Departments'} (${school || 'General'})</h2>
+            <p>Export Date: ${new Date().toLocaleDateString()}</p>
+            <table border="1" cellpadding="4" cellspacing="0">
+              <tr style="background-color: #f2f2f2; font-weight: bold;">
+                <th>Sl.No</th>
+                <th>Name</th>
+                <th>Registration No</th>
+                <th>Department</th>
+                <th>Student Type</th>
+                ${isMba ? `
+                  <th>Sem I (20)</th>
+                  <th>Sem II (21)</th>
+                  <th>Sem III (17)</th>
+                  <th>Sem IV (15)</th>
+                ` : `
+                  <th>Basket I</th>
+                  <th>Basket II</th>
+                  <th>Basket III</th>
+                  <th>Basket IV</th>
+                  <th>Basket V</th>
+                  ${showBasketVI ? '<th>Basket VI</th>' : ''}
+                `}
+                <th>Total Credits</th>
+                <th>Required Credits</th>
+                <th>Percentage</th>
+                <th>Status</th>
+              </tr>
               ${filteredAndSortedStudents.map((student, index) =>
-        `<tr><td>${index + 1}</td><td>${student.name}</td><td>${student.registration}</td><td>${student.department}</td><td>${student.is_lateral_entry ? 'Lateral Entry' : 'Regular'}</td><td>${student.basketI || 0}</td><td>${student.basketII || 0}</td><td>${student.basketIII || 0}</td><td>${student.basketIV || 0}</td><td>${student.basketV || 0}</td><td>${student.totalCredits || 0}</td><td>${student.totalRequiredCredits || (student.is_lateral_entry ? 120 : 160)}</td><td>${student.percentage || 0}%</td><td>${student.status || "Not Started"}</td></tr>`
+        `<tr>
+                   <td>${index + 1}</td>
+                   <td>${student.name}</td>
+                   <td>${student.registration}</td>
+                   <td>${student.department}</td>
+                   <td>${student.is_lateral_entry ? 'Lateral Entry' : 'Regular'}</td>
+                   ${isMba ? `
+                     <td>${student.semCredits?.sem1 || 0}</td>
+                     <td>${student.semCredits?.sem2 || 0}</td>
+                     <td>${student.semCredits?.sem3 || 0}</td>
+                     <td>${student.semCredits?.sem4 || 0}</td>
+                   ` : `
+                     <td>${student.basketI || student.basket1 || 0}</td>
+                     <td>${student.basketII || student.basket2 || 0}</td>
+                     <td>${student.basketIII || student.basket3 || 0}</td>
+                     <td>${student.basketIV || student.basket4 || 0}</td>
+                     <td>${student.basketV || student.basket5 || 0}</td>
+                     ${showBasketVI ? `<td>${student.basketVI || student.basket6 || 0}</td>` : ''}
+                   `}
+                   <td>${student.totalCredits || 0}</td>
+                   <td>${(isMba ? 73 : (isBba ? (is2023Onwards ? (bbaDegreeType === "4year" ? 160 : 120) : 120) : (isDiploma ? (student.is_lateral_entry ? 80 : 120) : (student.is_lateral_entry ? 120 : 160))))}</td>
+                   <td>${student.percentage || 0}%</td>
+                   <td>${student.status || "Not Started"}</td>
+                 </tr>`
       ).join("")}
             </table>
           </body>
@@ -1532,7 +1755,7 @@ Please check if the department name matches exactly with the available departmen
       downloadFile(html, `bulk_basket_analysis_${department}_${new Date().toISOString().split('T')[0]}.xls`, "application/vnd.ms-excel");
       addNotification('success', `Excel file exported with ${filteredAndSortedStudents.length} students`);
     }
-  }, [registration, studentData, basketProgress, filteredAndSortedStudents, department, addNotification, downloadFile]);
+  }, [registration, studentData, basketProgress, filteredAndSortedStudents, department, addNotification, downloadFile, isMba, isBba, isDiploma, is2023Onwards, bbaDegreeType, school]);
 
   const exportToPDF = useCallback(async () => {
     setIsExporting(true);
@@ -1572,21 +1795,107 @@ Please check if the department name matches exactly with the available departmen
         {/* Enhanced Page Title */}
         <div className="text-center mb-8">
           <h1 className={`text-4xl font-extrabold mb-2 ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-            {isDiploma ? "SOVET Basket Progress Tracker (Diploma)" : "Advanced Basket Progress Tracker (B.Tech)"}
+            {isDiploma ? "SOVET Basket Progress Tracker (Diploma)" : isSom ? (isMba ? "SOM MBA Academic Progress Tracker" : "SOM BBA Basket Progress Tracker") : "Advanced Basket Progress Tracker (B.Tech)"}
           </h1>
           <p className={`text-lg ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
             {isDiploma
               ? "🎯 Track and analyze 6-semester Diploma curriculum progress"
-              : "🎯 Comprehensive CBCS basket analysis with real-time insights"}
+              : isMba
+                ? "🎯 Comprehensive 4-semester MBA academic analysis"
+                : "🎯 Comprehensive CBCS basket analysis with real-time insights"}
           </p>
 
           {/* Enhanced Credit Requirements Card */}
-          <div className={`mt-6 p-6 rounded-2xl shadow-lg max-w-5xl mx-auto ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200'
+          <div className={`mt-6 p-6 rounded-2xl shadow-lg max-w-6xl mx-auto ${darkMode ? 'bg-gray-800 border-gray-700' : 'bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200'
             }`}>
             <div className={`text-sm ${darkMode ? 'text-blue-300' : 'text-blue-800'}`}>
-              <span className="font-bold text-lg">📋 Credit Requirements Overview</span>
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
-                {isDiploma ? (
+              <div className="flex items-center justify-between mb-4">
+                <span className="font-bold text-lg">📋 Program Requirements Overview</span>
+                {isMba && (
+                  <span className="px-3 py-1 bg-blue-600 text-white rounded-lg text-xs font-bold animate-pulse">
+                    73 TOTAL CREDITS
+                  </span>
+                )}
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-left">
+                {isMba ? (
+                  <>
+                    <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'} border ${darkMode ? 'border-gray-600' : 'border-blue-100 hover:border-blue-300 transition-colors'}`}>
+                      <span className="font-bold text-blue-600 block mb-2 border-b border-blue-100 pb-1">Semester I (20 Credits)</span>
+                      <ul className="text-[10px] space-y-1">
+                        <li>• Principles of Management & OB (3)</li>
+                        <li>• Accounting for Managers (4)</li>
+                        <li>• Micro Economics (4)</li>
+                        <li>• Prod. & Operations Mgmt (3)</li>
+                        <li>• Agri & Food Mkt Mgmt- I (2)</li>
+                        <li>• Supply Chain Management (2)</li>
+                        <li>• Tech Writing & Comm Skills (1)</li>
+                        <li>• Library & Info Services (1)</li>
+                      </ul>
+                    </div>
+                    <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'} border ${darkMode ? 'border-gray-600' : 'border-green-100 hover:border-green-300 transition-colors'}`}>
+                      <span className="font-bold text-green-600 block mb-2 border-b border-green-100 pb-1">Semester II (21 Credits)</span>
+                      <ul className="text-[10px] space-y-1">
+                        <li>• Cont. Dev. Communication (4)</li>
+                        <li>• Research Methodology (3)</li>
+                        <li>• Corporate Finance (4)</li>
+                        <li>• Agri & Food Mkt Mgmt- II (2)</li>
+                        <li>• Int. Trade in Agri Products (2)</li>
+                        <li>• Computer Apps in Business (6)</li>
+                      </ul>
+                    </div>
+                    <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'} border ${darkMode ? 'border-gray-600' : 'border-orange-100 hover:border-orange-300 transition-colors'}`}>
+                      <span className="font-bold text-orange-600 block mb-2 border-b border-orange-100 pb-1">Semester III (17 Credits)</span>
+                      <ul className="text-[10px] space-y-1">
+                        <li>• Operations Research (2)</li>
+                        <li>• Agri Research & Ethics (1)</li>
+                        <li>• Agribusiness Env & Policy (2)</li>
+                        <li>• IP Management in Agri (1)</li>
+                        <li>• Master's Seminar (1)</li>
+                        <li>• Summer Internship (4)</li>
+                        <li>• Minor Course-1 (2)</li>
+                        <li>• Minor Course-2 (2)</li>
+                        <li>• Agri Business Laws & Ethics (2)</li>
+                      </ul>
+                    </div>
+                    <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'} border ${darkMode ? 'border-gray-600' : 'border-purple-100 hover:border-purple-300 transition-colors'}`}>
+                      <span className="font-bold text-purple-600 block mb-2 border-b border-purple-100 pb-1">Semester IV (15 Credits)</span>
+                      <ul className="text-[10px] space-y-1">
+                        <li>• Disaster Management (1)</li>
+                        <li>• Minor Course-3 (2)</li>
+                        <li>• Minor Course-4 (2)</li>
+                        <li>• Dissertation/ Project Work (10)</li>
+                      </ul>
+                    </div>
+                  </>
+                ) : isBba ? (
+                  <>
+                    <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'} border ${darkMode ? 'border-gray-600' : 'border-blue-100 hover:border-blue-300 transition-colors'}`}>
+                      <span className="font-semibold block mb-2 text-blue-600">BBA (3-Year Degree):</span>
+                      <span className={`font-bold ${darkMode ? 'text-blue-300' : 'text-blue-600'}`}>120 TOTAL CREDITS</span>
+                      <div className="text-[10px] mt-2 space-y-1 text-gray-600">
+                        <div className="flex justify-between"><span>Basket I (Core):</span> <span>60 Credits</span></div>
+                        <div className="flex justify-between"><span>Basket II (Skill/Minor):</span> <span>32 Credits</span></div>
+                        <div className="flex justify-between"><span>Basket III (Ability):</span> <span>12 Credits</span></div>
+                        <div className="flex justify-between"><span>Basket IV (Elective):</span> <span>12 Credits</span></div>
+                        <div className="flex justify-between"><span>Basket V (Project):</span> <span>4 Credits</span></div>
+                      </div>
+                    </div>
+                    <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'} border ${darkMode ? 'border-gray-600' : 'border-indigo-100 hover:border-indigo-300 transition-colors'}`}>
+                      <span className="font-semibold block mb-2 text-indigo-600">BBA (4-Year Honors/Research):</span>
+                      <span className={`font-bold ${darkMode ? 'text-indigo-300' : 'text-indigo-600'}`}>160 TOTAL CREDITS</span>
+                      <div className="text-[10px] mt-2 space-y-1 text-gray-600">
+                        <div className="flex justify-between"><span>Basket I (Core):</span> <span>80 Credits</span></div>
+                        <div className="flex justify-between"><span>Basket II (Skill/Minor):</span> <span>40 Credits</span></div>
+                        <div className="flex justify-between"><span>Basket III (Ability):</span> <span>12 Credits</span></div>
+                        <div className="flex justify-between"><span>Basket IV (Elective):</span> <span>12 Credits</span></div>
+                        <div className="flex justify-between"><span>Basket V (Internship):</span> <span>4 Credits</span></div>
+                        <div className="flex justify-between"><span>Basket VI (Research):</span> <span>12 Credits</span></div>
+                      </div>
+                    </div>
+                  </>
+                ) : isDiploma ? (
                   <>
                     <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'}`}>
                       <span className="font-semibold">Diploma Regular:</span>
@@ -1624,7 +1933,6 @@ Please check if the department name matches exactly with the available departmen
                         <div>Basket V: 48 credits</div>
                       </div>
                     </div>
-                    {/* ... other B.Tech cards ... */}
                     <div className={`p-4 rounded-xl ${darkMode ? 'bg-gray-700' : 'bg-white/60'}`}>
                       <span className="font-semibold">Regular Students (2024+):</span>
                       <span className={`ml-2 font-bold ${darkMode ? 'text-blue-300' : 'text-blue-600'}`}>160 total credits</span>
@@ -1671,9 +1979,15 @@ Please check if the department name matches exactly with the available departmen
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
                 >
                   <option value="">Select Department</option>
-                  <option value="All">All Departments</option>
-                  {/* Always use hardcoded options for reliability */}
-                  {isDiploma ? (
+                  {!isSom && <option value="All">All Departments</option>}
+                  {loadingMetadata && availableDepartments.length === 0 && (
+                    <option disabled>Loading departments...</option>
+                  )}
+                  {availableDepartments.length > 0 ? (
+                    availableDepartments.map(dept => (
+                      <option key={dept} value={dept}>{dept}</option>
+                    ))
+                  ) : isDiploma ? (
                     <>
                       <option value="Civil Engineering">Civil Engineering</option>
                       <option value="Computer Science Engineering">Computer Science Engineering</option>
@@ -1681,6 +1995,11 @@ Please check if the department name matches exactly with the available departmen
                       <option value="Mechanical Engineering">Mechanical Engineering</option>
                       <option value="Automobile Engineering">Automobile Engineering</option>
                       <option value="Mining Engineering">Mining Engineering</option>
+                    </>
+                  ) : isSom ? (
+                    <>
+                      <option value="BBA">Bachelor of Business Administration (BBA)</option>
+                      <option value="MBA">Master of Business Administration (MBA)</option>
                     </>
                   ) : (
                     <>
@@ -1708,9 +2027,37 @@ Please check if the department name matches exactly with the available departmen
                 >
                   <option value="">Select Batch</option>
                   <option value="All">All Batches</option>
-                  {["22", "23", "24", "25"].map(y => <option key={y} value={y}>{`20${y} (${y})`}</option>)}
+                  {availableBatches.length > 0 ? (
+                    availableBatches.map(b => {
+                      const bStr = String(b);
+                      const display = bStr.length === 4 ? `${bStr} (${bStr.slice(-2)})` : `20${bStr} (${bStr})`;
+                      return <option key={b} value={b}>{display}</option>;
+                    })
+                  ) : (
+                    ["22", "23", "24", "25"].map(y => <option key={y} value={y}>{`20${y} (${y})`}</option>)
+                  )}
                 </select>
               </div>
+
+              {/* BBA Degree Type Filter (Appears only for BBA) */}
+              {isBba && (is2023Onwards || batch === "All" || !batch) && (
+                <div className="space-y-2 animate-in slide-in-from-left duration-300">
+                  <label className="block text-sm font-medium text-blue-700">
+                    BBA Program Track:
+                  </label>
+                  <select
+                    value={bbaDegreeType}
+                    onChange={e => setBbaDegreeType(e.target.value)}
+                    className="w-full px-3 py-2 border-2 border-blue-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black font-semibold bg-blue-50"
+                  >
+                    <option value="3year">BBA Regular (3-Year - 120 Credits)</option>
+                    <option value="4year">BBA Honours/Research (4-Year - 160 Credits)</option>
+                  </select>
+                  <div className="text-[10px] text-blue-600">
+                    ℹ️ Affects requirement calculations for 2023+ batches
+                  </div>
+                </div>
+              )}
 
               {/* Registration No */}
               <div className="space-y-2">
@@ -1764,38 +2111,61 @@ Please check if the department name matches exactly with the available departmen
                 {loadingSemesters && <div className="text-xs text-gray-500">Loading semesters...</div>}
               </div>
 
-              {/* FIXED: Basket */}
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Basket:</label>
-                <select
-                  value={basket}
-                  onChange={e => setBasket(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
-                >
-                  <option value="">Select Basket</option>
-                  <option value="All">All Baskets</option>
-                  {isDiploma ? (
-                    <>
-                      <option value="Basket I">Basket I (12/0 credits)</option>
-                      <option value="Basket II">Basket II (13/5 credits)</option>
-                      <option value="Basket III">Basket III (20/12 credits)</option>
-                      <option value="Basket IV">Basket IV (26/26 credits)</option>
-                      <option value="Basket V">Basket V (49/37 credits)</option>
-                    </>
-                  ) : (
-                    <>
-                      <option value="Basket I">Basket I (17/6 credits)</option>
-                      <option value="Basket II">Basket II (12/9 credits)</option>
-                      <option value="Basket III">Basket III (25 credits)</option>
-                      <option value="Basket IV">Basket IV ({is2024Onwards ? '60/48' : '58/48'} credits)</option>
-                      <option value="Basket V">Basket V ({is2024Onwards ? '46/32' : '48/32'} credits)</option>
-                    </>
-                  )}
-                </select>
-                <div className="text-xs text-gray-500">
-                  💡 Filter results by specific basket or view all baskets
+              {!isMba && (
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">Basket:</label>
+                  <select
+                    value={basket}
+                    onChange={e => setBasket(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
+                  >
+                    <option value="">Select Basket</option>
+                    <option value="All">All Baskets</option>
+                    {isDiploma ? (
+                      <>
+                        <option value="Basket I">Basket I (12/0 credits)</option>
+                        <option value="Basket II">Basket II (13/5 credits)</option>
+                        <option value="Basket III">Basket III (20/12 credits)</option>
+                        <option value="Basket IV">Basket IV (26/26 credits)</option>
+                        <option value="Basket V">Basket V (49/37 credits)</option>
+                      </>
+                    ) : isBba ? (
+                      (() => {
+                        const isHonours = bbaDegreeType === "4year";
+                        return is2023Onwards ? (
+                          <>
+                            <option value="Basket I">Basket I ({isHonours ? '80' : '60'} credits)</option>
+                            <option value="Basket II">Basket II ({isHonours ? '40' : '32'} credits)</option>
+                            <option value="Basket III">Basket III (12 credits)</option>
+                            <option value="Basket IV">Basket IV (12 credits)</option>
+                            <option value="Basket V">Basket V (4 credits)</option>
+                            {isHonours && <option value="Basket VI">Basket VI (12 credits)</option>}
+                          </>
+                        ) : (
+                          <>
+                            <option value="Basket I">Basket I (60 credits)</option>
+                            <option value="Basket II">Basket II (32 credits)</option>
+                            <option value="Basket III">Basket III (12 credits)</option>
+                            <option value="Basket IV">Basket IV (12 credits)</option>
+                            <option value="Basket V">Basket V (4 credits)</option>
+                          </>
+                        );
+                      })()
+                    ) : (
+                      <>
+                        <option value="Basket I">Basket I (17/6 credits)</option>
+                        <option value="Basket II">Basket II (12/9 credits)</option>
+                        <option value="Basket III">Basket III (25 credits)</option>
+                        <option value="Basket IV">Basket IV ({is2024Onwards ? '60/48' : '58/48'} credits)</option>
+                        <option value="Basket V">Basket V ({is2024Onwards ? '46/32' : '48/32'} credits)</option>
+                      </>
+                    )}
+                  </select>
+                  <div className="text-xs text-gray-500">
+                    💡 Filter results by specific basket or view all baskets
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Submit and Clear Buttons */}
@@ -2022,33 +2392,63 @@ Please check if the department name matches exactly with the available departmen
                     <th className="border border-gray-300 px-4 py-3 text-left font-semibold text-gray-900">Department</th>
                     {/* Dynamic Basket Columns - Show only selected basket or all if "All" is selected */}
                     {(!basket || basket === "All" || basket === "Select Basket" || basket === "") ? (
-                      isDiploma ? (
+                      isMba ? (
                         <>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket I (12/0)</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket II (13/5)</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket III (20/12)</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket IV (26)</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket V (49/37)</th>
+                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Sem I (20)</th>
+                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Sem II (21)</th>
+                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Sem III (17)</th>
+                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Sem IV (15)</th>
                         </>
+                      ) : isBba ? (
+                        (() => {
+                          const isHonours = bbaDegreeType === "4year";
+                          return is2023Onwards ? (
+                            <>
+                              <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 text-blue-800">Basket I ({isHonours ? '80' : '60'})</th>
+                              <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 text-blue-800">Basket II ({isHonours ? '40' : '32'})</th>
+                              <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket III (12)</th>
+                              <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket IV (12)</th>
+                              <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket V (4)</th>
+                              {isHonours && <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 text-purple-700">Basket VI (12)</th>}
+                            </>
+                          ) : (
+                            <>
+                              <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 text-blue-800">Basket I (60)</th>
+                              <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900 text-blue-800">Basket II (32)</th>
+                              <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket III (12)</th>
+                              <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket IV (12)</th>
+                              <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket V (4)</th>
+                            </>
+                          );
+                        })()
+                      ) : isDiploma ? (
+                          <>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket I (12/0)</th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket II (13/5)</th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket III (20/12)</th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket IV (26)</th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket V (49/37)</th>
+                          </>
+                        ) : (
+                          <>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket I (17/6)</th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket II (12/9)</th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket III (25)</th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket IV ({is2024Onwards ? '60/48' : '58/48'})</th>
+                            <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket V ({is2024Onwards ? '46/32' : '48/32'})</th>
+                          </>
+                        )
                       ) : (
-                        <>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket I (17/6)</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket II (12/9)</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket III (25)</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket IV ({is2024Onwards ? '60/48' : '58/48'})</th>
-                          <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Basket V ({is2024Onwards ? '46/32' : '48/32'})</th>
-                        </>
-                      )
-                    ) : (
                       <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">
-                        {basket === "Basket I" ? `Basket I (${isDiploma ? '12/0' : '17/6'})` :
-                          basket === "Basket II" ? `Basket II (${isDiploma ? '13/5' : '12/9'})` :
-                            basket === "Basket III" ? `Basket III (${isDiploma ? '20/12' : '25'})` :
-                              basket === "Basket IV" ? `Basket IV (${isDiploma ? '26' : (is2024Onwards ? '60/48' : '58/48')})` :
-                                basket === "Basket V" ? `Basket V (${isDiploma ? '49/37' : (is2024Onwards ? '46/32' : '48/32')})` : basket}
+                        {basket === "Basket I" ? (isBba ? (is2023Onwards ? `Basket I (${bbaDegreeType === "4year" ? '80' : '60'})` : 'Basket I (60)') : `Basket I (${isDiploma ? '12/0' : '17/6'})`) :
+                          basket === "Basket II" ? (isBba ? (is2023Onwards ? `Basket II (${bbaDegreeType === "4year" ? '40' : '32'})` : 'Basket II (32)') : `Basket II (${isDiploma ? '13/5' : '12/9'})`) :
+                            basket === "Basket III" ? (isBba ? 'Basket III (12)' : `Basket III (${isDiploma ? '20/12' : '25'})`) :
+                              basket === "Basket IV" ? (isBba ? 'Basket IV (12)' : `Basket IV (${isDiploma ? '26' : (is2024Onwards ? '60/48' : '58/48')})`) :
+                                basket === "Basket V" ? (isBba ? 'Basket V (4)' : `Basket V (${isDiploma ? '49/37' : (is2024Onwards ? '46/32' : '48/32')})`) :
+                                  basket === "Basket VI" ? (isBba ? (is2023Onwards ? `Basket VI (${bbaDegreeType === "4year" ? '12' : '0'})` : 'Basket VI') : 'Basket VI') : basket}
                       </th>
                     )}
-                    <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Total Credits ({isDiploma ? '120/80' : '160/120'})</th>
+                    <th className="border border-gray-300 px-4 py-3 text-center font-semibold text-gray-900">Total Credits ({isMba ? '73' : (isBba ? (is2023Onwards ? (bbaDegreeType === "4year" ? '160' : '120') : '120') : (isDiploma ? '120/80' : '160/120'))})</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2073,45 +2473,104 @@ Please check if the department name matches exactly with the available departmen
                           </span>
                         )}
                       </td>
-                      {/* Dynamic Basket Columns - Show only selected basket or all if "All" is selected */}
                       {(!basket || basket === "All" || basket === "Select Basket" || basket === "") ? (
-                        <>
-                          <td
-                            className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                            onClick={() => handleBulkBasketClick(student, "I")}
-                            title="Click to view Basket I details"
-                          >
-                            {student.basketI || student.basket1 || 0}
-                          </td>
-                          <td
-                            className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                            onClick={() => handleBulkBasketClick(student, "II")}
-                            title="Click to view Basket II details"
-                          >
-                            {student.basketII || student.basket2 || 0}
-                          </td>
-                          <td
-                            className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                            onClick={() => handleBulkBasketClick(student, "III")}
-                            title="Click to view Basket III details"
-                          >
-                            {student.basketIII || student.basket3 || 0}
-                          </td>
-                          <td
-                            className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                            onClick={() => handleBulkBasketClick(student, "IV")}
-                            title="Click to view Basket IV details"
-                          >
-                            {student.basketIV || student.basket4 || 0}
-                          </td>
-                          <td
-                            className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                            onClick={() => handleBulkBasketClick(student, "V")}
-                            title="Click to view Basket V details"
-                          >
-                            {student.basketV || student.basket5 || 0}
-                          </td>
-                        </>
+                        isMba ? (
+                          <>
+                            <td className={`border border-gray-300 px-4 py-3 text-sm text-center font-medium ${(student.semCredits?.sem1 || 0) >= 20 ? 'text-green-600' : 'text-gray-900'}`}>{student.semCredits?.sem1 || 0}</td>
+                            <td className={`border border-gray-300 px-4 py-3 text-sm text-center font-medium ${(student.semCredits?.sem2 || 0) >= 21 ? 'text-green-600' : 'text-gray-900'}`}>{student.semCredits?.sem2 || 0}</td>
+                            <td className={`border border-gray-300 px-4 py-3 text-sm text-center font-medium ${(student.semCredits?.sem3 || 0) >= 17 ? 'text-green-600' : 'text-gray-900'}`}>{student.semCredits?.sem3 || 0}</td>
+                            <td className={`border border-gray-300 px-4 py-3 text-sm text-center font-medium ${(student.semCredits?.sem4 || 0) >= 15 ? 'text-green-600' : 'text-gray-900'}`}>{student.semCredits?.sem4 || 0}</td>
+                          </>
+                        ) : isBba || isDiploma ? (
+                          (() => {
+                            return (
+                              <>
+                                <td
+                                  className={`border border-gray-300 px-4 py-3 text-sm text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors ${(isBba && (student.basketI || student.basket1 || 0) >= (is2023Onwards ? (bbaDegreeType === "4year" ? 80 : 60) : 60)) ? 'text-green-600' : 'text-gray-900'}`}
+                                  onClick={() => handleBulkBasketClick(student, "I")}
+                                  title="Click to view Basket I details"
+                                >
+                                  {student.basketI || student.basket1 || 0}
+                                </td>
+                                <td
+                                  className={`border border-gray-300 px-4 py-3 text-sm text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors ${(isBba && (student.basketII || student.basket2 || 0) >= (is2023Onwards ? (bbaDegreeType === "4year" ? 40 : 32) : 32)) ? 'text-green-600' : 'text-gray-900'}`}
+                                  onClick={() => handleBulkBasketClick(student, "II")}
+                                  title="Click to view Basket II details"
+                                >
+                                  {student.basketII || student.basket2 || 0}
+                                </td>
+                                <td
+                                  className={`border border-gray-300 px-4 py-3 text-sm text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors ${(isBba && (student.basketIII || student.basket3 || 0) >= 12) ? 'text-green-600' : 'text-gray-900'}`}
+                                  onClick={() => handleBulkBasketClick(student, "III")}
+                                  title="Click to view Basket III details"
+                                >
+                                  {student.basketIII || student.basket3 || 0}
+                                </td>
+                                <td
+                                  className={`border border-gray-300 px-4 py-3 text-sm text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors ${(isBba && (student.basketIV || student.basket4 || 0) >= 12) ? 'text-green-600' : 'text-gray-900'}`}
+                                  onClick={() => handleBulkBasketClick(student, "IV")}
+                                  title="Click to view Basket IV details"
+                                >
+                                  {student.basketIV || student.basket4 || 0}
+                                </td>
+                                <td
+                                  className={`border border-gray-300 px-4 py-3 text-sm text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors ${(isBba && (student.basketV || student.basket5 || 0) >= 4) ? 'text-green-600' : 'text-gray-900'}`}
+                                  onClick={() => handleBulkBasketClick(student, "V")}
+                                  title="Click to view Basket V details"
+                                >
+                                  {student.basketV || student.basket5 || 0}
+                                </td>
+                                {isBba && is2023Onwards && bbaDegreeType === "4year" && (
+                                  <td
+                                    className={`border border-gray-300 px-4 py-3 text-sm text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors ${(student.basketVI || student.basket6 || 0) >= 12 ? 'text-green-600' : 'text-gray-900'}`}
+                                    onClick={() => handleBulkBasketClick(student, "VI")}
+                                    title="Click to view Basket VI details"
+                                  >
+                                    {student.basketVI || student.basket6 || 0}
+                                  </td>
+                                )}
+                              </>
+                            );
+                          })()
+                        ) : (
+                          <>
+                            <td
+                              className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                              onClick={() => handleBulkBasketClick(student, "I")}
+                              title="Click to view Basket I details"
+                            >
+                              {student.basketI || student.basket1 || 0}
+                            </td>
+                            <td
+                              className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                              onClick={() => handleBulkBasketClick(student, "II")}
+                              title="Click to view Basket II details"
+                            >
+                              {student.basketII || student.basket2 || 0}
+                            </td>
+                            <td
+                              className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                              onClick={() => handleBulkBasketClick(student, "III")}
+                              title="Click to view Basket III details"
+                            >
+                              {student.basketIII || student.basket3 || 0}
+                            </td>
+                            <td
+                              className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                              onClick={() => handleBulkBasketClick(student, "IV")}
+                              title="Click to view Basket IV details"
+                            >
+                              {student.basketIV || student.basket4 || 0}
+                            </td>
+                            <td
+                              className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                              onClick={() => handleBulkBasketClick(student, "V")}
+                              title="Click to view Basket V details"
+                            >
+                              {student.basketV || student.basket5 || 0}
+                            </td>
+                          </>
+                        )
                       ) : (
                         <td
                           className="border border-gray-300 px-4 py-3 text-sm text-gray-900 text-center cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
@@ -2278,10 +2737,13 @@ Please check if the department name matches exactly with the available departmen
                         <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Total Required Credits:</td>
                         <td className="px-4 py-3 text-gray-900">
                           <span className={`font-bold ${studentData.is_lateral_entry ? 'text-orange-600' : 'text-blue-600'}`}>
-                            {studentData.overall_stats?.total_required_credits || (studentData.is_lateral_entry ? 120 : 160)} credits
+                            {overallStats.totalRequired} credits
                           </span>
                           {studentData.is_lateral_entry && (
                             <span className="ml-2 text-xs text-gray-500">(Lateral Entry)</span>
+                          )}
+                          {isBba && is2023Onwards && (
+                            <span className="ml-2 text-xs text-blue-500 font-medium">({bbaDegreeType === "4year" ? 'Honours Track' : 'Regular Track'})</span>
                           )}
                         </td>
                       </tr>
@@ -2296,134 +2758,216 @@ Please check if the department name matches exactly with the available departmen
                 </div>
               </div>
 
-              {/* Basket Progress Section */}
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-md font-semibold text-gray-800">Basket Progress</h4>
-                  <div className="flex items-center gap-4 text-xs">
-                    <span className="text-gray-600">Data Sources:</span>
+              {/* MBA Semester-wise Progress Section */}
+              {isMba && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-md font-semibold text-gray-800">Semester-wise Progress</h4>
                     <div className="flex items-center gap-2">
-                      <span className="px-2 py-1 rounded bg-blue-100 text-blue-800 font-medium">Reg</span>
-                      <span className="text-gray-600">Registration Data</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-1 rounded bg-gray-100 text-gray-800 font-medium">Result</span>
-                      <span className="text-gray-600">Result Database</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-1 rounded bg-yellow-100 text-yellow-800 font-medium">Result Not Published</span>
-                      <span className="text-gray-600">Registration subjects (no grade yet)</span>
+                       <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-md text-xs font-bold">
+                         CURRICULUM TOTAL: 73 CREDITS
+                       </span>
                     </div>
                   </div>
-                </div>
-                <div className="border border-gray-300 rounded-lg overflow-hidden">
-                  <table className="w-full border-collapse">
-                    <thead>
-                      <tr className="bg-gray-100 border-b-2 border-gray-300">
-                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Sl.No</th>
-                        <th className="px-4 py-3 text-left font-semibold text-gray-900">Basket</th>
-                        <th className="px-4 py-3 text-center font-semibold text-gray-900">Required Credits</th>
-                        <th className="px-4 py-3 text-center font-semibold text-gray-900">Earned Credits</th>
-                        <th className="px-4 py-3 text-center font-semibold text-gray-900">Failed Credits</th>
-                        <th className="px-4 py-3 text-center font-semibold text-gray-900">Total Credits</th>
-                        <th className="px-4 py-3 text-center font-semibold text-gray-900">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(basketProgress || {}).length > 0 ? (
-                        Object.entries(basketProgress).map(([basketName, info], index) => {
-                          const earnedCredits = Number(info?.earned_credits) || 0;
-                          const failedCredits = Number(info?.failed_credits) || 0;
-                          const totalCredits = earnedCredits + failedCredits; // earned + failed per basket row
-                          const requiredCredits = Number(info?.required_credits) || 0;
-                          const isCompleted = earnedCredits >= requiredCredits && requiredCredits > 0;
-                          const status = isCompleted ? "Completed" : "Not Completed";
-
+                  <div className="border border-gray-300 rounded-lg overflow-hidden">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="bg-gray-100 border-b-2 border-gray-300">
+                          <th className="px-4 py-3 text-left font-semibold text-gray-900">Semester</th>
+                          <th className="px-4 py-3 text-center font-semibold text-gray-900">Required Credits</th>
+                          <th className="px-4 py-3 text-center font-semibold text-gray-900">Earned Credits</th>
+                          <th className="px-4 py-3 text-center font-semibold text-gray-900">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          { sem: "I", req: 20, val: 1 },
+                          { sem: "II", req: 21, val: 2 },
+                          { sem: "III", req: 17, val: 3 },
+                          { sem: "IV", req: 15, val: 4 }
+                        ].map((item) => {
+                          const earned = overallStats.semStats[item.val] || 0;
+                          const isCompleted = earned >= item.req;
                           return (
-                            <tr key={basketName} className="border-b border-gray-200 hover:bg-gray-50 transition-colors">
-                              <td className="px-4 py-3 text-center text-gray-900">{index + 1}</td>
-                              <td
-                                className="px-4 py-3 cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                                onClick={() => handleBasketClick(basketName, info)}
-                                title="Click to view detailed subjects"
-                              >
-                                {basketName} 📋
+                            <tr
+                              key={item.sem}
+                              className="border-b border-gray-200 hover:bg-blue-50 transition-colors cursor-pointer group"
+                              onClick={() => handleSemesterClick(item.val)}
+                              title={`Click to view subjects for Semester ${item.sem}`}
+                            >
+                              <td className="px-4 py-3 text-gray-900 font-medium flex items-center justify-between">
+                                <span>Semester {item.sem}</span>
+                                <span className="opacity-0 group-hover:opacity-100 transition-opacity text-blue-600 text-xs font-bold">
+                                  View Subjects →
+                                </span>
                               </td>
-                              <td className="px-4 py-3 text-center text-gray-900">{requiredCredits}</td>
-                              <td className="px-4 py-3 text-center text-green-600 font-medium">{earnedCredits}</td>
-                              <td className="px-4 py-3 text-center text-red-600 font-medium">{failedCredits}</td>
-                              <td className="px-4 py-3 text-center text-gray-900 font-semibold">{totalCredits}</td>
+                              <td className="px-4 py-3 text-center text-gray-900">{item.req}</td>
+                              <td className={`px-4 py-3 text-center font-bold ${isCompleted ? 'text-green-600' : 'text-orange-600'}`}>
+                                {earned}
+                              </td>
                               <td className="px-4 py-3 text-center">
                                 <span className={`px-2 py-1 rounded text-xs font-medium ${isCompleted
                                   ? 'bg-green-100 text-green-800'
                                   : 'bg-red-100 text-red-800'
                                   }`}>
-                                  {status}
+                                  {isCompleted ? "Completed" : "Pending"}
                                 </span>
                               </td>
                             </tr>
                           );
-                        })
-                      ) : (
-                        <tr>
-                          <td colSpan="7" className="px-4 py-8 text-center text-gray-500">
-                            No basket progress data available for this student
-                          </td>
-                        </tr>
-                      )}
-
-                      {/* Total Row */}
-                      {Object.entries(basketProgress || {}).length > 0 && (
+                        })}
+                        {/* Total Summary Row */}
                         <tr className="bg-gray-50 border-t-2 border-gray-300">
-                          <td className="px-4 py-3 font-semibold text-center text-gray-900" colSpan="2">Total</td>
-                          <td className="px-4 py-3 text-center font-semibold text-gray-900">
-                            {studentData.is_lateral_entry ? 120 : overallStats.totalRequired}
-                            {studentData.is_lateral_entry && (
-                              <div className="text-xs text-orange-600 mt-1">
-                                Lateral Entry Total
-                              </div>
-                            )}
+                          <td className="px-4 py-3 font-bold text-gray-900">Program Total</td>
+                          <td className="px-4 py-3 text-center font-bold text-gray-900">73</td>
+                          <td className={`px-4 py-3 text-center font-bold ${overallStats.totalEarned >= 73 ? 'text-green-600' : 'text-blue-600'}`}>
+                            {overallStats.totalEarned}
                           </td>
-                          <td className="px-4 py-3 text-center font-semibold text-green-600">{overallStats.totalEarned}</td>
-                          <td className="px-4 py-3 text-center font-semibold text-red-600">{overallStats.totalFailed}</td>
-                          <td className="px-4 py-3 text-center font-semibold text-gray-900">{overallStats.totalCredits}</td>
                           <td className="px-4 py-3 text-center">
-                            {/* Total status is "Completed" ONLY when ALL individual baskets are completed */}
-                            {(() => {
-                              // CRITICAL: Check if ALL baskets are completed
-                              // basketsCompleted must equal totalBaskets (5) for status to be "Completed"
-                              const allBasketsCompleted = overallStats.basketsCompleted === overallStats.totalBaskets && overallStats.totalBaskets > 0;
-
-                              // Always log for debugging
-                              console.log('✅ Total Status Render:', {
-                                basketsCompleted: overallStats.basketsCompleted,
-                                totalBaskets: overallStats.totalBaskets,
-                                allBasketsCompleted,
-                                condition: `${overallStats.basketsCompleted} === ${overallStats.totalBaskets} && ${overallStats.totalBaskets} > 0`,
-                                willShow: allBasketsCompleted ? '✅ Completed' : '❌ Not Completed'
-                              });
-
-                              return (
-                                <span className={`px-2 py-1 rounded text-xs font-medium ${allBasketsCompleted
+                             <span className={`px-2 py-1 rounded text-xs font-bold ${overallStats.totalEarned >= 73
                                   ? 'bg-green-100 text-green-800'
-                                  : 'bg-red-100 text-red-800'
+                                  : 'bg-blue-100 text-blue-800'
                                   }`}>
-                                  {allBasketsCompleted ? "Completed" : "Not Completed"}
+                                  {overallStats.percentage}% Complete
                                 </span>
-                              );
-                            })()}
-                            {studentData.is_lateral_entry && (
-                              <div className="text-xs text-orange-600 mt-1">
-                                Lateral Entry Student
-                              </div>
-                            )}
                           </td>
                         </tr>
-                      )}
-                    </tbody>
-                  </table>
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Basket Progress Section */}
+              {!isMba && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-md font-semibold text-gray-800">Basket Progress</h4>
+                    <div className="flex items-center gap-4 text-xs">
+                      <span className="text-gray-600">Data Sources:</span>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-1 rounded bg-blue-100 text-blue-800 font-medium">Reg</span>
+                        <span className="text-gray-600">Registration Data</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-1 rounded bg-gray-100 text-gray-800 font-medium">Result</span>
+                        <span className="text-gray-600">Result Database</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-1 rounded bg-yellow-100 text-yellow-800 font-medium">Result Not Published</span>
+                        <span className="text-gray-600">Registration subjects (no grade yet)</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="border border-gray-300 rounded-lg overflow-hidden">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="bg-gray-100 border-b-2 border-gray-300">
+                          <th className="px-4 py-3 text-left font-semibold text-gray-900">Sl.No</th>
+                          <th className="px-4 py-3 text-left font-semibold text-gray-900">Basket</th>
+                          <th className="px-4 py-3 text-center font-semibold text-gray-900">Required Credits</th>
+                          <th className="px-4 py-3 text-center font-semibold text-gray-900">Earned Credits</th>
+                          <th className="px-4 py-3 text-center font-semibold text-gray-900">Failed Credits</th>
+                          <th className="px-4 py-3 text-center font-semibold text-gray-900">Total Credits</th>
+                          <th className="px-4 py-3 text-center font-semibold text-gray-900">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(basketProgress || {}).length > 0 ? (
+                          Object.entries(basketProgress).map(([basketName, info], index) => {
+                            const earnedCredits = Number(info?.earned_credits) || 0;
+                            const failedCredits = Number(info?.failed_credits) || 0;
+                            const totalCredits = earnedCredits + failedCredits; // earned + failed per basket row
+                            const requiredCredits = Number(info?.required_credits) || 0;
+                            const isCompleted = earnedCredits >= requiredCredits && requiredCredits > 0;
+                            const status = isCompleted ? "Completed" : "Not Completed";
+  
+                            return (
+                              <tr key={basketName} className="border-b border-gray-200 hover:bg-gray-50 transition-colors">
+                                <td className="px-4 py-3 text-center text-gray-900">{index + 1}</td>
+                                <td
+                                  className="px-4 py-3 cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                                  onClick={() => handleBasketClick(basketName, info)}
+                                  title="Click to view detailed subjects"
+                                >
+                                  {basketName} 📋
+                                </td>
+                                <td className="px-4 py-3 text-center text-gray-900">{requiredCredits}</td>
+                                <td className="px-4 py-3 text-center text-green-600 font-medium">{earnedCredits}</td>
+                                <td className="px-4 py-3 text-center text-red-600 font-medium">{failedCredits}</td>
+                                <td className="px-4 py-3 text-center text-gray-900 font-semibold">{totalCredits}</td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className={`px-2 py-1 rounded text-xs font-medium ${isCompleted
+                                    ? 'bg-green-100 text-green-800'
+                                    : 'bg-red-100 text-red-800'
+                                    }`}>
+                                    {status}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan="7" className="px-4 py-8 text-center text-gray-500">
+                              No basket progress data available for this student
+                            </td>
+                          </tr>
+                        )}
+  
+                        {/* Total Row */}
+                        {Object.entries(basketProgress || {}).length > 0 && (
+                          <tr className="bg-gray-50 border-t-2 border-gray-300">
+                            <td className="px-4 py-3 font-semibold text-center text-gray-900" colSpan="2">Total</td>
+                            <td className="px-4 py-3 text-center font-semibold text-gray-900">
+                              {overallStats.totalRequired}
+                              {studentData.is_lateral_entry && (
+                                <div className="text-xs text-orange-600 mt-1">
+                                  Lateral Entry Total
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-center font-semibold text-green-600">{overallStats.totalEarned}</td>
+                            <td className="px-4 py-3 text-center font-semibold text-red-600">{overallStats.totalFailed}</td>
+                            <td className="px-4 py-3 text-center font-semibold text-gray-900">{overallStats.totalCredits}</td>
+                            <td className="px-4 py-3 text-center">
+                              {/* Total status is "Completed" ONLY when ALL individual baskets are completed */}
+                              {(() => {
+                                // CRITICAL: Check if ALL baskets are completed
+                                // basketsCompleted must equal totalBaskets (5) for status to be "Completed"
+                                const allBasketsCompleted = overallStats.basketsCompleted === overallStats.totalBaskets && overallStats.totalBaskets > 0;
+  
+                                // Always log for debugging
+                                console.log('✅ Total Status Render:', {
+                                  basketsCompleted: overallStats.basketsCompleted,
+                                  totalBaskets: overallStats.totalBaskets,
+                                  allBasketsCompleted,
+                                  condition: `${overallStats.basketsCompleted} === ${overallStats.totalBaskets} && ${overallStats.totalBaskets} > 0`,
+                                  willShow: allBasketsCompleted ? '✅ Completed' : '❌ Not Completed'
+                                });
+  
+                                return (
+                                  <span className={`px-2 py-1 rounded text-xs font-medium ${allBasketsCompleted
+                                    ? 'bg-green-100 text-green-800'
+                                    : 'bg-red-100 text-red-800'
+                                    }`}>
+                                    {allBasketsCompleted ? "Completed" : "Not Completed"}
+                                  </span>
+                                );
+                              })()}
+                              {studentData.is_lateral_entry && (
+                                <div className="text-xs text-orange-600 mt-1">
+                                  Lateral Entry Student
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -2525,7 +3069,7 @@ Please check if the department name matches exactly with the available departmen
                                 {subject.grade || (subject.completed ? 'PASS' : 'FAIL')}
                               </span>
                             </td>
-                            <td className="border border-gray-300 px-3 py-2 text-center text-gray-900">{subject.semester || 'N/A'}</td>
+                            <td className="border border-gray-300 px-3 py-2 text-center text-gray-900">{subject.Sem || subject.semester || 'N/A'}</td>
                             <td className="border border-gray-300 px-3 py-2 text-center">
                               <div className="flex flex-col gap-1">
                                 <span className={`px-2 py-1 rounded text-xs font-medium ${subject.status === 'Completed'

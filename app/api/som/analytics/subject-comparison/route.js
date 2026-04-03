@@ -1,0 +1,209 @@
+import { NextResponse } from "next/server";
+import { clientPromise } from "@/lib/mongodb";
+import { jwtVerify } from "jose";
+import { getCampusSchoolDatabase } from "@/lib/campus";
+
+async function verifyToken(token) {
+  try {
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET || "dev-secret");
+    const { payload } = await jwtVerify(token, secret);
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * SOM Analytics Subject Comparison Route - SOM (BBA/MBA) only
+ * Compares passing rates across multiple subjects
+ */
+export async function GET(req) {
+  try {
+    const token = req.cookies.get("token")?.value;
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized - Please login first" }, { status: 401 });
+    }
+
+    const payload = await verifyToken(token);
+    if (!payload?.email) {
+      return NextResponse.json({ error: "Unauthorized - Invalid token" }, { status: 401 });
+    }
+
+    const userRole = payload.role?.toLowerCase();
+    if (!["admin", "teacher"].includes(userRole)) {
+      return NextResponse.json({
+        error: "Access denied - Only admins or teachers can access analytics data"
+      }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const subjectsParam = searchParams.get('subjects');
+    const batchFilter = searchParams.get('batch');
+    const branchFilter = searchParams.get('branch');
+    const semesterFilter = searchParams.get('semester');
+
+    if (!subjectsParam) {
+      return NextResponse.json({ error: "Subjects parameter is required" }, { status: 400 });
+    }
+
+    const subjectCodes = subjectsParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+
+    if (subjectCodes.length === 0) {
+      return NextResponse.json({ error: "At least one subject code is required" }, { status: 400 });
+    }
+
+    const client = await clientPromise;
+    const campusParam = searchParams.get('campus');
+    const campus = campusParam || payload.campus || null;
+    
+    // Force school to SOM
+    const school = 'SOM';
+    const dbName = getCampusSchoolDatabase(campus, school);
+    
+    console.log(`[SOM Subject Comparison] Database selection: campus=${campus}, school=${school}, dbName=${dbName}`);
+    
+    const db = client.db(dbName);
+    const cutm = db.collection("som_result");
+
+    // Build base query
+    const baseQuery = {
+      $or: subjectCodes.map(code => [
+        { Subject_Code: code },
+        { "Subject Code": code }
+      ]).flat()
+    };
+
+    // Add batch filter
+    if (batchFilter && batchFilter !== "all") {
+      const batchPrefix = batchFilter.length === 4 ? batchFilter.substring(2, 4) : batchFilter;
+      baseQuery.Reg_No = { ...(baseQuery.Reg_No || {}), $regex: `^${batchPrefix}` };
+    }
+
+    // Add semester filter
+    if (semesterFilter && semesterFilter !== "all") {
+      const cleanSem = String(semesterFilter).replace(/^Sem\s*/i, "").trim();
+      baseQuery.$or = [
+        ...(baseQuery.$or || []),
+        { Sem: semesterFilter },
+        { Sem: cleanSem },
+        { Sem: `Sem ${cleanSem}` }
+      ];
+    }
+
+    // Fetch records
+    // Limit records to prevent excessive MongoDB connections
+    const MAX_SUBJECT_COMPARISON_RECORDS = 10000; // Limit to 10k records
+    let records = await cutm.find(baseQuery).limit(MAX_SUBJECT_COMPARISON_RECORDS).toArray();
+
+    // Filter for SOM (BBA/MBA) students
+    const { parseSOMRegistration } = await import('../../parse-registration/route');
+    records = records.filter(record => {
+      if (!record.Reg_No) return false;
+      const parsed = parseSOMRegistration(String(record.Reg_No).trim());
+      return parsed && parsed.isValid && parsed.isSOM;
+    });
+
+    // Filter by branch if specified (use short codes to avoid CSE/AIML merging)
+    if (branchFilter && branchFilter !== "all") {
+      const branchShortMap = {
+        '111': 'CIVIL',
+        '112': 'CSE',
+        '113': 'ECE',
+        '115': 'EEE',
+        '116': 'ME',
+        '137': 'AIML'
+      };
+      const filterShortMap = {
+        'CSE': 'CSE',
+        'AIML': 'AIML',
+        'ECE': 'ECE',
+        'EEE': 'EEE',
+        'ME': 'ME',
+        'MECHANICAL': 'ME',
+        'CIVIL': 'CIVIL'
+      };
+      const filterShort = filterShortMap[branchFilter.toUpperCase()] || branchFilter.toUpperCase();
+
+      records = records.filter(record => {
+        if (!record.Reg_No) return false;
+        const parsed = parseSOMRegistration(String(record.Reg_No).trim());
+        if (!parsed || !parsed.isValid || !parsed.isSOM) return false;
+
+        const parsedShort = branchShortMap[parsed.branchCode] || (parsed.branch || '').toUpperCase().trim();
+        return parsedShort === filterShort;
+      });
+    }
+
+    // Calculate statistics for each subject
+    // S and R grades are unattempted (neither pass nor fail)
+    // F, M, I grades are failed
+    const subjectStats = subjectCodes.map(subjectCode => {
+      const subjectRecords = records.filter(record => {
+        const code = (record.Subject_Code || record["Subject Code"] || '').toUpperCase();
+        return code === subjectCode;
+      });
+
+      const total = subjectRecords.length;
+      // Passed: grades that are not F, S, M, I, R
+      const passed = subjectRecords.filter(r => {
+        const grade = (r.Grade || '').toUpperCase();
+        return !['F', 'S', 'M', 'I', 'R'].includes(grade);
+      }).length;
+      
+      // Unattempted: S and R grades
+      const unattempted = subjectRecords.filter(r => {
+        const grade = (r.Grade || '').toUpperCase();
+        return ['S', 'R'].includes(grade);
+      }).length;
+      
+      // Failed: F, M, I grades (excluding S and R)
+      const failed = subjectRecords.filter(r => {
+        const grade = (r.Grade || '').toUpperCase();
+        return ['F', 'M', 'I'].includes(grade);
+      }).length;
+      
+      // Calculate all percentages based on total students so they add up to 100%
+      const attempted = total - unattempted;
+      const passRate = total > 0 ? ((passed / total) * 100).toFixed(2) : '0.00';
+      const failRate = total > 0 ? ((failed / total) * 100).toFixed(2) : '0.00';
+      const unattemptedRate = total > 0 ? ((unattempted / total) * 100).toFixed(2) : '0.00';
+
+      return {
+        subjectCode: subjectCode,
+        subjectName: subjectRecords[0]?.Subject_Name || subjectRecords[0]?.["Subject Name"] || subjectRecords[0]?.Subject_name || subjectCode,
+        total: total,
+        passed: passed,
+        failed: failed,
+        unattempted: unattempted,
+        attempted: attempted,
+        passRate: parseFloat(passRate),
+        failRate: parseFloat(failRate),
+        unattemptedRate: parseFloat(unattemptedRate)
+      };
+    });
+
+    return NextResponse.json({
+      success: true,
+      data: subjectStats.map(stat => ({
+        subject: stat.subjectCode,
+        subjectName: stat.subjectName,
+        totalStudents: stat.total,
+        passed: stat.passed,
+        failed: stat.failed,
+        unattempted: stat.unattempted,
+        attempted: stat.attempted,
+        passRate: stat.passRate,
+        failRate: stat.failRate,
+        unattemptedRate: stat.unattemptedRate
+      })),
+      count: subjectStats.length,
+      school: 'SOM'
+    });
+
+  } catch (error) {
+    // Removed console.error to reduce overhead
+    return NextResponse.json({
+      error: `Failed to compare subjects: ${error.message}`
+    }, { status: 500 });
+  }
+}

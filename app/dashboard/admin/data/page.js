@@ -8,6 +8,7 @@ import { useSearchParams } from "next/navigation";
 function AdminCBCSIndexContent() {
   const searchParams = useSearchParams();
   const isDiploma = searchParams.get("school") === "SOVET";
+  const isSom = searchParams.get("school") === "SOM";
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadFile, setUploadFile] = useState(null);
   const [selectedSemester, setSelectedSemester] = useState("");
@@ -123,6 +124,14 @@ function AdminCBCSIndexContent() {
                   style={{ background: "linear-gradient(135deg, #FF9966, #FF5E62)" }}
                 >
                   🎓 Track Progress (Diploma)
+                </Link>
+              ) : isSom ? (
+                <Link
+                  href={`/dashboard/admin/data/baskettrack?${searchParams.toString()}`}
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-white text-sm font-bold transition-all hover:shadow-lg active:scale-95 min-h-[44px]"
+                  style={{ background: "linear-gradient(135deg, #FF9966, #FF5E62)" }}
+                >
+                  🎓 Track Progress (SOM)
                 </Link>
               ) : (
                 <Link

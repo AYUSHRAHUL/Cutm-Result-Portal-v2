@@ -10,11 +10,11 @@ export default function AdminDashboardPKD() {
   const [animatedOnce, setAnimatedOnce] = useState(false);
   const [counters, setCounters] = useState({ students: 0, records: 0, backlogs: 0, health: 0 });
   const [selectedSchool, setSelectedSchool] = useState(null);
-  
+
   // Loading states
   const [isLoading, setIsLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState('Loading Admin Dashboard...');
-  
+
   // Load selected school from localStorage or query params
   useEffect(() => {
     const savedSchool = localStorage.getItem('selectedSchool');
@@ -39,7 +39,7 @@ export default function AdminDashboardPKD() {
       'Almost Ready...',
       'Welcome Back!'
     ];
-    
+
     let messageIndex = 0;
     const messageInterval = setInterval(() => {
       if (messageIndex < messages.length) {
@@ -105,7 +105,7 @@ export default function AdminDashboardPKD() {
   // Loading Screen
   if (isLoading) {
     return (
-      <div 
+      <div
         className="fixed inset-0 flex flex-col items-center justify-center z-50"
         style={{
           background: 'linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)',
@@ -116,21 +116,21 @@ export default function AdminDashboardPKD() {
         {/* Spinner Container */}
         <div className="relative flex items-center justify-center mb-8">
           <div className="w-28 h-28 sm:w-32 sm:h-32 lg:w-36 lg:h-36">
-            <img 
+            <img
               className="w-full h-full rounded-full object-cover p-2 backdrop-blur-lg"
               style={{
                 border: '4px solid rgba(255, 255, 255, 0.4)',
                 boxShadow: '0 0 60px rgba(255, 255, 255, 0.6)',
                 animation: 'logoSpin 3s ease-in-out infinite'
               }}
-              src="/spinner.jpg"  
-              alt="CUTM Logo Loading" 
+              src="/spinner.jpg"
+              alt="CUTM Logo Loading"
             />
           </div>
         </div>
 
         {/* Loading Text */}
-        <div 
+        <div
           className="text-white text-xl sm:text-2xl lg:text-3xl font-black text-center mb-6 px-4"
           style={{
             textShadow: '0 0 20px rgba(255, 255, 255, 0.8)',
@@ -139,10 +139,10 @@ export default function AdminDashboardPKD() {
         >
           {loadingMessage}
         </div>
-        
+
         {/* Progress Bar */}
         <div className="w-56 sm:w-64 lg:w-72 h-1.5 sm:h-2 bg-white/20 rounded-full overflow-hidden mb-4">
-          <div 
+          <div
             className="h-full rounded-full"
             style={{
               background: 'linear-gradient(90deg, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0.5) 100%)',
@@ -150,7 +150,7 @@ export default function AdminDashboardPKD() {
             }}
           ></div>
         </div>
-        
+
         {/* Status */}
         <div className="text-white/90 text-sm sm:text-base text-center px-4 font-semibold">
           🔐 Secure Admin Access - PKD Campus
@@ -177,33 +177,33 @@ export default function AdminDashboardPKD() {
   }
 
   return (
-    <div 
+    <div
       className="min-h-screen pb-10"
       style={{
         background: "linear-gradient(to bottom, #F5F8FA 0%, #E8F4F8 50%, #D1E9F6 100%)",
       }}
     >
       {/* Progress bar */}
-      <div 
-        className="fixed top-0 left-0 h-1 sm:h-1.5 z-50 animate-pulse" 
-        style={{ 
-          width: "100%", 
+      <div
+        className="fixed top-0 left-0 h-1 sm:h-1.5 z-50 animate-pulse"
+        style={{
+          width: "100%",
           background: "linear-gradient(90deg, #05A3C7 0%, #04748F 50%, #05A3C7 100%)",
-          opacity: 0.6 
-        }} 
+          opacity: 0.6
+        }}
       />
 
       {/* Welcome Header */}
       <section className="pt-12 sm:pt-16 pb-6 sm:pb-8 text-center px-3 sm:px-6">
         <div className="mx-auto max-w-5xl">
-          <div 
+          <div
             className="w-20 h-20 sm:w-24 sm:h-24 lg:w-28 lg:h-28 rounded-full mx-auto mb-4 sm:mb-6 flex items-center justify-center text-white text-3xl sm:text-4xl shadow-lg relative overflow-hidden hover:scale-105 transition-transform duration-300"
             style={{
               background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
               boxShadow: "0 0 40px rgba(5,163,199,0.4)"
             }}
           >
-            <div 
+            <div
               className="absolute inset-0 rounded-full opacity-30 animate-[spin_4s_linear_infinite]"
               style={{
                 background: "conic-gradient(from 0deg, transparent, rgba(255,255,255,0.3), transparent)"
@@ -211,7 +211,7 @@ export default function AdminDashboardPKD() {
             />
             <span className="relative animate-bounce">🛡️</span>
           </div>
-          <h1 
+          <h1
             className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight mb-2 sm:mb-3"
             style={{
               background: "linear-gradient(135deg, #05A3C7 0%, #04748F 50%, #023945 100%)",
@@ -227,7 +227,7 @@ export default function AdminDashboardPKD() {
           </p>
         </div>
       </section>
- 
+
 
       {/* School Selection Section */}
       <section className="py-6 sm:py-8 px-3 sm:px-6">
@@ -249,7 +249,7 @@ export default function AdminDashboardPKD() {
               }}
               gradient="from-blue-500 to-cyan-600"
             />
-            {/* <SchoolCard
+            <SchoolCard
               title="SOM"
               subtitle="School of Management"
               icon="💼"
@@ -261,7 +261,7 @@ export default function AdminDashboardPKD() {
                 router.push('/dashboard/admin/pkd/som');
               }}
               gradient="from-purple-500 to-pink-600"
-            /> */}
+            />
             <SchoolCard
               title="SOVET"
               subtitle="School of Vocational Education & Training"
@@ -305,41 +305,41 @@ export default function AdminDashboardPKD() {
 
 function StatCard({ icon, label, value, trend, trendUp }) {
   return (
-    <div 
+    <div
       className="group relative overflow-hidden rounded-xl sm:rounded-2xl border-2 bg-white p-4 sm:p-5 lg:p-6 text-center transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
       style={{ borderColor: "rgba(5,163,199,0.2)" }}
     >
-      <div 
+      <div
         className="absolute inset-x-0 top-0 h-1 scale-x-0 origin-left group-hover:scale-x-100 transition-transform duration-500"
         style={{
           background: "linear-gradient(90deg, #05A3C7 0%, #04748F 100%)",
         }}
       />
-      
+
       <div className="text-3xl sm:text-4xl mb-3 sm:mb-4 group-hover:scale-110 transition-transform duration-300">
         {icon}
       </div>
-      
-      <div 
+
+      <div
         className="text-3xl sm:text-4xl font-black mb-1 sm:mb-2"
         style={{ color: "#05A3C7" }}
       >
         {value}
       </div>
-      
+
       <div className="text-[10px] sm:text-xs uppercase tracking-wide text-[#5A6C7D] font-bold">
         {label}
       </div>
-      
-      <div 
+
+      <div
         className={`mt-3 sm:mt-4 pt-2 sm:pt-3 border-t text-xs sm:text-sm font-bold flex items-center justify-center gap-1 ${trendUp ? "text-green-600" : "text-red-600"}`}
         style={{ borderColor: "rgba(5,163,199,0.1)" }}
       >
-        <span className="group-hover:animate-pulse">{trendUp ? "▲" : "▼"}</span> 
+        <span className="group-hover:animate-pulse">{trendUp ? "▲" : "▼"}</span>
         <span>{trend}</span>
       </div>
-      
-      <div 
+
+      <div
         className="absolute inset-0 opacity-0 group-hover:opacity-5 transition-opacity duration-300 -z-10 rounded-2xl"
         style={{
           background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
@@ -351,8 +351,8 @@ function StatCard({ icon, label, value, trend, trendUp }) {
 
 function SchoolCard({ title, subtitle, icon, onClick, gradient, isSelected }) {
   return (
-    <button 
-      onClick={onClick} 
+    <button
+      onClick={onClick}
       className={`group relative overflow-hidden rounded-xl sm:rounded-2xl bg-gradient-to-br ${gradient} p-6 sm:p-8 text-white transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl focus:outline-none focus:ring-4 focus:ring-white/30 ${isSelected ? 'ring-4 ring-white/50 scale-105' : ''}`}
     >
       {isSelected && (
@@ -379,19 +379,19 @@ function SchoolCard({ title, subtitle, icon, onClick, gradient, isSelected }) {
 
 function ModuleCard({ title, icon, children, onClick, features = [] }) {
   return (
-    <button 
-      onClick={onClick} 
+    <button
+      onClick={onClick}
       className="group text-left rounded-xl sm:rounded-2xl border-2 bg-white p-4 sm:p-5 lg:p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-[#05A3C7]/20 relative overflow-hidden"
       style={{ borderColor: "rgba(5,163,199,0.2)" }}
     >
-      <div 
+      <div
         className="absolute inset-x-0 top-0 h-1 scale-x-0 origin-left group-hover:scale-x-100 transition-transform duration-500"
         style={{
           background: "linear-gradient(90deg, #05A3C7 0%, #04748F 100%)",
         }}
       />
-      
-      <div 
+
+      <div
         className="w-14 h-14 sm:w-16 sm:h-16 lg:w-20 lg:h-20 mx-auto mb-3 sm:mb-4 lg:mb-5 rounded-2xl flex items-center justify-center text-2xl sm:text-3xl text-white shadow-md group-hover:scale-110 group-hover:shadow-lg transition-all duration-300"
         style={{
           background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
@@ -399,33 +399,33 @@ function ModuleCard({ title, icon, children, onClick, features = [] }) {
       >
         <span className="group-hover:animate-bounce">{icon}</span>
       </div>
-      
-      <h4 
+
+      <h4
         className="text-base sm:text-lg lg:text-xl font-black text-center mb-2 sm:mb-3 text-[#1A1F29] transition-colors group-hover:text-[#05A3C7]"
       >
         {title}
       </h4>
-      
+
       <p className="text-xs sm:text-sm text-[#5A6C7D] text-center mb-3 sm:mb-4 leading-relaxed">
         {children}
       </p>
-      
+
       {features.length > 0 && (
-        <ul 
+        <ul
           className="text-[10px] sm:text-xs space-y-1.5 sm:space-y-2 mb-3 sm:mb-4 lg:mb-5 rounded-lg p-2 sm:p-3"
           style={{ background: "rgba(5,163,199,0.05)" }}
         >
           {features.map((feature, index) => (
             <li key={index} className="flex items-center gap-2 text-[#1A1F29]">
-              <span className="text-green-500 group-hover:scale-125 transition-transform text-sm">✓</span> 
+              <span className="text-green-500 group-hover:scale-125 transition-transform text-sm">✓</span>
               <span className="group-hover:text-[#05A3C7] transition-colors font-medium">{feature}</span>
             </li>
           ))}
         </ul>
       )}
-      
+
       <div className="flex justify-center">
-        <span 
+        <span
           className="inline-flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-white text-xs sm:text-sm font-bold shadow-sm group-hover:shadow-md transition-all duration-300"
           style={{
             background: "linear-gradient(135deg, #05A3C7 0%, #04748F 100%)",
@@ -435,7 +435,7 @@ function ModuleCard({ title, icon, children, onClick, features = [] }) {
         </span>
       </div>
 
-      <div 
+      <div
         className="absolute top-0 right-0 w-24 h-24 sm:w-32 sm:h-32 opacity-5 pointer-events-none"
         style={{
           background: "radial-gradient(circle, #05A3C7 0%, transparent 70%)",

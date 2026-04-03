@@ -255,7 +255,12 @@ function TeacherDashboardPKDContent() {
               title="Placement Management"
               icon="💼"
               gradient="from-[#3B82F6] to-[#2563EB]"
-              onClick={() => go("/dashboard/teacher/pkd/soet/placement")}
+              onClick={() => {
+                const subPath = selectedSchool?.toLowerCase() === 'som' 
+                  ? "/dashboard/teacher/pkd/som/placement" 
+                  : "/dashboard/teacher/pkd/soet/placement";
+                go(subPath);
+              }}
               badge="View Only"
             >
               View placement records, statistics and analytics (Read-only access).

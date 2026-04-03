@@ -95,6 +95,7 @@ export default function AnalyticsDashboard() {
   const schoolParam = searchParams.get('school');
   const campusParam = searchParams.get('campus');
   const isDiploma = schoolParam === 'SOVET' || schoolParam === 'sovet';
+  const isSom = schoolParam === 'SOM' || schoolParam === 'som';
 
   // Store school and campus in localStorage when URL params are present
   useEffect(() => {
@@ -110,11 +111,15 @@ export default function AnalyticsDashboard() {
 
   const batches = isDiploma
     ? ["all", "2023", "2024", "2025"]
-    : ["all", "2022", "2023", "2024", "2025"];
+    : isSom
+      ? ["all", "2022", "2023", "2024", "2025"]
+      : ["all", "2022", "2023", "2024", "2025"];
 
   const branches = isDiploma
     ? ["all", "CSE", "EE", "ME", "CIVIL", "MINING", "AUTOMOBILE"]
-    : ["all", "CSE", "ECE", "EEE", "ME", "CIVIL", "AIML"];
+    : isSom
+      ? ["all", "BBA", "MBA"]
+      : ["all", "CSE", "ECE", "EEE", "ME", "CIVIL", "AIML"];
 
   const semesters = isDiploma
     ? ["all", "Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6"]

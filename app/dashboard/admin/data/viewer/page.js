@@ -9,6 +9,7 @@ function RegistrationDataViewerContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const isDiploma = searchParams.get("school") === "SOVET";
+  const isSom = searchParams.get("school") === "SOM";
   const [registrationData, setRegistrationData] = useState([]);
   const [filteredData, setFilteredData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -297,6 +298,21 @@ function RegistrationDataViewerContent() {
               }
             }
             return false;
+          } else if (isSom) {
+            // SOM filtering - use index 5-7 for branch code
+            // Branch codes: 912=BBA, 214=MBA
+            if (regNo.length >= 8) {
+              const branchCode = regNo.slice(5, 8); // Index 5-7
+              const somBranchMap = {
+                '912': 'BBA',
+                '214': 'MBA'
+              };
+              const branchName = somBranchMap[branchCode];
+              if (branchName) {
+                return branchName === departmentFilter;
+              }
+            }
+            return false;
           } else {
             // B.Tech Legacy filtering - use index 5-7 for branch code
             // Branch codes: 111=Civil, 112=CSE, 113=ECE, 115=EEE, 116=Mechanical, 117=CSE AIML
@@ -486,6 +502,11 @@ function RegistrationDataViewerContent() {
                   <option value="Mechanical">Mechanical (ME)</option>
                   <option value="Automobile">Automobile (AE)</option>
                   <option value="Mining">Mining</option>
+                </>
+              ) : isSom ? (
+                <>
+                  <option value="BBA">BBA</option>
+                  <option value="MBA">MBA</option>
                 </>
               ) : (
                 <>

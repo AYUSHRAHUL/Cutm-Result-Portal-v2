@@ -294,8 +294,14 @@ export default function AdminDashboardPKDSOM() {
             >
               Override a student's branch by Reg_No; applies across all panels.
             </ModuleCard>
-
-
+            <ModuleCard
+              title="Placement Tracking"
+              icon="💼"
+              onClick={() => go("/dashboard/admin/pkd/som/placement")}
+              features={["Track Placements", "Salary Stats", "Company Reports"]}
+            >
+              Manage student placements, track offers, and generate detailed placement statistics.
+            </ModuleCard>
           </div>
         </div>
       </section>

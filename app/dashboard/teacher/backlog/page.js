@@ -50,7 +50,11 @@ const regNoBranchMap = {
   '713': 'Diploma Civil',
   '714': 'Diploma Computer Science',
   '715': 'Diploma Automobile',
-  '716': 'Diploma Mining'
+  '716': 'Diploma Mining',
+
+  // SOM
+  '912': 'BBA',
+  '214': 'MBA'
 };
 
 function getBranchFromRegNo(regNo = "") {
@@ -113,23 +117,19 @@ function BacklogContent() {
   const [dynamicBatches, setDynamicBatches] = useState([]);
   const [dynamicBranches, setDynamicBranches] = useState([]);
   const [isSovet, setIsSovet] = useState(false);
+  const [isSom, setIsSom] = useState(false);
 
-  // Load Metadata for SOVET
-  // Load Metadata for SOVET
+  // Load Metadata for SOVET / SOM
   useEffect(() => {
     const { school: lsSchool } = getSchoolAndCampus();
     const urlSchool = searchParams.get('school');
     const school = urlSchool || lsSchool;
 
-    /* Check if school is SOVET (case-insensitive) */
-    if (school && school.toUpperCase() === 'SOVET') {
-      setIsSovet(true);
-      fetchMetadata(school);
-    } else {
-      setIsSovet(false);
-      setDynamicBatches([]);
-      setDynamicBranches([]);
-    }
+    const schoolUpper = (school || "").toUpperCase();
+    setIsSovet(schoolUpper === 'SOVET');
+    setIsSom(schoolUpper === 'SOM');
+    
+    fetchMetadata(schoolUpper);
   }, [searchParams]);
 
   async function fetchMetadata(schoolOverride) {
@@ -1644,7 +1644,11 @@ function BacklogContent() {
                     >
                       <option value="">Batch (Year)</option>
                       <option value="All">All</option>
-                      {["2022", "2023", "2024", "2025"].map(y => <option key={y} value={y}>{y}</option>)}
+                      {dynamicBatches.length > 0 ? (
+                        dynamicBatches.map(y => <option key={y} value={y}>{y}</option>)
+                      ) : (
+                        ["2022", "2023", "2024", "2025"].map(y => <option key={y} value={y}>{y}</option>)
+                      )}
                     </select>
                     <select
                       className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
@@ -1654,15 +1658,8 @@ function BacklogContent() {
                     >
                       <option value="">Branch</option>
                       <option value="All">All</option>
-                      {isSovet ? (
-                        <>
-                          <option value="CSE">Computer Science Engineering</option>
-                          <option value="Electrical Engineering (Diploma)">Electrical Engineering</option>
-                          <option value="Mechanical">Mechanical Engineering</option>
-                          <option value="Civil">Civil Engineering</option>
-                          <option value="ME">Mining Engineering</option>
-                          <option value="Automobile Engineering">Automobile Engineering</option>
-                        </>
+                      {isSovet || isSom ? (
+                        dynamicBranches.map(b => <option key={b} value={b}>{b}</option>)
                       ) : (
                         <>
                           <option value="Civil">Civil</option>
@@ -1759,7 +1756,7 @@ function BacklogContent() {
                   >
                     <option value="">All Branches</option>
                     <option value="All">All</option>
-                    {isSovet ? (
+                    {isSovet || isSom ? (
                       dynamicBranches.map(b => <option key={b} value={b}>{b}</option>)
                     ) : (
                       <>
@@ -1780,7 +1777,7 @@ function BacklogContent() {
                   >
                     <option value="">All Batches</option>
                     <option value="All">All</option>
-                    {isSovet ? (
+                    {isSovet || isSom ? (
                       dynamicBatches.map(y => <option key={y} value={y}>{y}</option>)
                     ) : (
                       ["2020", "2021", "2022", "2023", "2024", "2025"].map(y => <option key={y} value={y}>{y}</option>)

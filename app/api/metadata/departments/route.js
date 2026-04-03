@@ -28,7 +28,10 @@ export async function GET(req) {
     const client = await clientPromise;
     const dbName = getCampusSchoolDatabase(campus, school);
     const db = client.db(dbName);
-    const collection = db.collection("result");
+    
+    // Choose collection based on school
+    const collectionName = (school && school.toUpperCase() === 'SOM') ? "som_result" : "result";
+    const collection = db.collection(collectionName);
 
     // Get all registration numbers
     const records = await collection.find({ Reg_No: { $exists: true } })
@@ -59,6 +62,17 @@ export async function GET(req) {
             // Map short branch name to full department name
             const fullDeptName = diplomaBranchMap[parsed.branch] || parsed.branch;
             branchSet.add(fullDeptName);
+          }
+        }
+      });
+    } else if (school.toUpperCase() === 'SOM') {
+      // For SOM (Management), use parseSOMRegistration
+      const { parseSOMRegistration } = await import('../../som/parse-registration/route');
+      records.forEach(record => {
+        if (record.Reg_No) {
+          const parsed = parseSOMRegistration(String(record.Reg_No).trim());
+          if (parsed && parsed.isValid && parsed.isSOM && parsed.branch) {
+            branchSet.add(parsed.branch);
           }
         }
       });

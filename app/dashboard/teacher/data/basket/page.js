@@ -9,6 +9,7 @@ function TeacherCBCSBasketPageContent() {
   const searchParams = useSearchParams();
   const school = searchParams.get('school');
   const isDiploma = school?.toUpperCase() === 'SOVET' || school?.toUpperCase()?.includes('VOCATIONAL');
+  const isSom = school?.toUpperCase() === 'SOM';
 
   const btechBranches = [
     { value: "CIVIL", label: "CIVIL" },
@@ -26,7 +27,11 @@ function TeacherCBCSBasketPageContent() {
     { value: "MINING", label: "MINING" },
     { value: "AUTOMOBILE", label: "AUTOMOBILE" }
   ];
-  const branchOptions = isDiploma ? diplomaBranches : btechBranches;
+  const somBranches = [
+    { value: "BBA", label: "BBA" },
+    { value: "MBA", label: "MBA" }
+  ];
+  const branchOptions = isSom ? somBranches : (isDiploma ? diplomaBranches : btechBranches);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -59,6 +64,13 @@ function TeacherCBCSBasketPageContent() {
   }
 
   useEffect(() => { fetchItems(); }, []);
+  
+  // Set default branch for SOM
+  useEffect(() => {
+    if (isSom && !branch) {
+      setBranch("BBA");
+    }
+  }, [isSom, branch]);
 
   // Trigger search when search term changes
   useEffect(() => {

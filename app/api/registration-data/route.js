@@ -26,6 +26,15 @@ async function getBranchFromRegistration(registration, department = null) {
     }
   } catch {}
   
+  // Try SOM BBA/MBA
+  try {
+    const { parseSOMRegistration } = await import('../som/parse-registration/route');
+    const parsed = parseSOMRegistration(registration);
+    if (parsed && parsed.isValid && parsed.isSOM) {
+      return parsed.branch || department || 'Unknown';
+    }
+  } catch {}
+  
   return department || 'Unknown';
 }
 

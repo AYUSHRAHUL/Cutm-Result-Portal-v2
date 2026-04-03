@@ -11,18 +11,17 @@ export default function TeacherDashboard() {
   const [schoolError, setSchoolError] = useState(null);
   const [initialized, setInitialized] = useState(false);
 
-  // Get default schools for campus
   const getDefaultSchools = (campus) => {
     if (campus === 'pkd') {
       return [
         { code: 'SOET', name: 'School of Engineering & Technology' },
-        // { code: 'SOM', name: 'School of Management' },
+        { code: 'SOM', name: 'School of Management' },
         { code: 'SOVET', name: 'School of Vocational & Engineering Technology' }
       ];
     } else if (campus === 'bbsr') {
       return [
         { code: 'SOET', name: 'School of Engineering & Technology' },
-        // { code: 'SOM', name: 'School of Management' },
+        { code: 'SOM', name: 'School of Management' },
         { code: 'SOVET', name: 'School of Vocational & Engineering Technology' }
       ];
     }

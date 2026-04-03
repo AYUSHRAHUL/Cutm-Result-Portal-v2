@@ -120,7 +120,8 @@ async function isDiplomaStudent(registration, department = null, school = null) 
 }
 
 // Function to get required credits based on student type and batch year
-async function getRequiredCreditsForStudent(registration, department = null, school = null, overrideBatch = null) {
+// Function to get required credits based on student type and batch year
+async function getRequiredCreditsForStudent(registration, department = null, school = null, overrideBatch = null, bbaDegreeType = "4year") {
   const isDiploma = await isDiplomaStudent(registration, department, school);
   const isLateral = isLateralEntryStudent(registration);
 
@@ -130,6 +131,54 @@ async function getRequiredCreditsForStudent(registration, department = null, sch
       return DIPLOMA_LATERAL_ENTRY_CREDITS;
     }
     return DIPLOMA_REGULAR_CREDITS;
+  }
+
+  // SOM (MBA/BBA) check
+  const isMbaProgram = (school === 'SOM' || (department && (department.toUpperCase() === 'MBA' || department.toUpperCase().includes('MASTER OF BUSINESS')))) && !String(department).toUpperCase().includes('BBA');
+  const isBbaProgram = (school === 'SOM' || (department && (department.toUpperCase() === 'BBA' || department.toUpperCase().includes('BACHELOR OF BUSINESS')))) && !String(department).toUpperCase().includes('MBA');
+
+  // Detect 2023 onwards for BBA (NEP Cycle supports both 3yr and 4yr)
+  const is2023Onwards = registration && (registration.startsWith('23') || registration.startsWith('24') || parseInt(registration.substring(0, 2)) >= 23);
+
+  if (isMbaProgram) {
+    // Return a flat 73 credits requirement for MBA
+    return {
+      "Total": 73
+    };
+  }
+
+  // BBA Basket Structure (3yr - 120 credits OR 4yr - 160 credits)
+  if (isBbaProgram) {
+    if (is2023Onwards) {
+      if (bbaDegreeType === "3year") {
+        // 3-year BBA exit for NEP batches
+        return {
+          "Basket I": 60,
+          "Basket II": 32,
+          "Basket III": 12,
+          "Basket IV": 12,
+          "Basket V": 4
+        };
+      }
+      // 4-year BBA (160 credits) as default for NEP
+      return {
+        "Basket I": 80,
+        "Basket II": 40,
+        "Basket III": 12,
+        "Basket IV": 12,
+        "Basket V": 4,
+        "Basket VI": 12
+      };
+    } else {
+      // 3-year BBA (120 credits) for earlier batches
+      return {
+        "Basket I": 60,
+        "Basket II": 32,
+        "Basket III": 12,
+        "Basket IV": 12,
+        "Basket V": 4
+      };
+    }
   }
 
   // Regular B.Tech students
@@ -177,7 +226,7 @@ export async function POST(req) {
     }
 
     // FIXED: Extract request data first
-    const { department, batch, registration, semesters = [], basket } = await req.json();
+    const { department, batch, registration, semesters = [], basket, bbaDegreeType = "4year" } = await req.json();
 
     // Get user role for access control
     const userRole = payload.role?.toLowerCase();
@@ -240,10 +289,22 @@ export async function POST(req) {
     const useOrQuery = !isNaN(regAsInt) && String(regAsInt) === reg;
     const lookupQuery = useOrQuery ? { $or: [{ Reg_No: reg }, { Reg_No: regAsInt }] } : { Reg_No: reg };
 
+    // Security check: If school context is SOM, enforce BBA/MBA only
+    if (school === 'SOM') {
+      const { isSOMStudent, parseSOMRegistration } = await import('../../som/parse-registration/route');
+      const parsed = parseSOMRegistration(reg);
+      if (!parsed || !parsed.isSOM || !['BBA', 'MBA'].includes(parsed.branch)) {
+        return NextResponse.json({ 
+          error: "Access denied - This page only supports BBA and MBA students" 
+        }, { status: 403 });
+      }
+    }
+
     // First, get student info to validate department and batch
-    // Check both CUTM1 collection and RegistrationData collection
+    // Check both primary collection (result/som_result) and RegistrationData collection
+    const studentInfoCol = school === 'SOVET' ? 'diploma_result' : (school === 'SOM' ? 'som_result' : 'result');
     let studentInfo = await db
-      .collection("result")
+      .collection(studentInfoCol)
       .findOne(lookupQuery, { projection: { _id: 0, Name: 1, Reg_No: 1, Branch: 1 } });
 
     // If not found in CUTM1, check RegistrationData collection
@@ -269,8 +330,9 @@ export async function POST(req) {
       console.log(`Student not found in both collections: ${reg}`);
 
       // Check if there are similar registration numbers in both collections
+      const similarCol = school === 'SOVET' ? 'diploma_result' : (school === 'SOM' ? 'som_result' : 'result');
       const similarRegsCUTM1 = await db
-        .collection("result")
+        .collection(similarCol)
         .find({ Reg_No: { $regex: `^${reg.slice(0, 6)}` } })
         .project({ _id: 0, Reg_No: 1, Name: 1 })
         .limit(3)
@@ -298,10 +360,15 @@ export async function POST(req) {
     let actualBatch = `20${regBatch}`;
 
     // Extract department from registration number
-    // For diploma: branch code is at positions 6-7
-    // For B.Tech: branch code is at position 7 (8th character)
     const { getBranchFromRegistration: getBranch } = await getDiplomaHelpers();
     let actualDepartment = await getBranch(reg, studentInfo?.Branch);
+
+    // SOM detection: branch code is at positions 5-7 (e.g. 214=MBA, 912=BBA)
+    if (school === 'SOM') {
+      const somCode = reg.slice(5, 8);
+      if (somCode === '214') actualDepartment = 'MBA';
+      else if (somCode === '912') actualDepartment = 'BBA';
+    }
 
     // If not found from registration pattern, try B.Tech mapping
     if (!actualDepartment || actualDepartment === 'Unknown') {
@@ -407,9 +474,12 @@ export async function POST(req) {
     console.log(`Querying results for ${reg} with query:`, JSON.stringify(resultQuery));
     console.log(`Registration number being searched: "${reg}"`);
 
-    // Get results from CUTM1 collection
+    // Get results from correct collection based on school
+    const studentCol = school === 'SOVET' ? 'diploma_result' : (school === 'SOM' ? 'som_result' : 'result');
+    console.log(`Querying results for ${reg} in ${studentCol} with query:`, JSON.stringify(resultQuery));
+
     const resultsCUTM1 = await db
-      .collection("result")
+      .collection(studentCol)
       .find(resultQuery)
       .project({ _id: 0, Reg_No: 1, Name: 1, Subject_Code: 1, Subject_Name: 1, Credits: 1, Grade: 1, Sem: 1, Type: 1 })
       .toArray();
@@ -480,9 +550,10 @@ export async function POST(req) {
       )
     );
 
-    // Fetch CBCS mapping for codes → Basket and Branch/Department
     const codeMap = new Map();
     const codeDepartmentMap = new Map(); // NEW: Map subject codes to their departments
+
+    // Load CBCS mappings for subjects (Used for B.Tech, Diploma and SOM BBA)
     if (codes.length > 0) {
       const cbcsDocs = await db
         .collection("cbcs")
@@ -491,7 +562,21 @@ export async function POST(req) {
         .toArray();
       cbcsDocs.forEach((d) => {
         const code = String(d["Subject Code"]).toUpperCase().trim();
-        codeMap.set(code, String(d.Basket || "").trim());
+        let basketVal = String(d.Basket || "").trim();
+        
+        // Normalize numeric baskets for SOM/B.Tech (e.g. "1" -> "Basket I")
+        const basketMap = {
+          "1": "Basket I", "2": "Basket II", "3": "Basket III", "4": "Basket IV", "5": "Basket V", "6": "Basket VI",
+          "I": "Basket I", "II": "Basket II", "III": "Basket III", "IV": "Basket IV", "V": "Basket V", "VI": "Basket VI"
+        };
+        
+        if (basketMap[basketVal]) {
+          basketVal = basketMap[basketVal];
+        } else if (basketVal && !basketVal.startsWith("Basket")) {
+          basketVal = `Basket ${basketVal}`;
+        }
+        
+        codeMap.set(code, basketVal);
         // Store department info from Branch field (or Department if available)
         const dept = String(d.Branch || d.Department || "").trim();
         codeDepartmentMap.set(code, dept);
@@ -573,7 +658,8 @@ export async function POST(req) {
     // Initialize baskets with appropriate credit requirements
     // Force diploma if school detected as SOVET
     const isDiplomaSchool = (String(school || '').toUpperCase() === 'SOVET');
-    const requiredCredits = await getRequiredCreditsForStudent(reg, actualDepartment, isDiplomaSchool ? 'SOVET' : school, actualBatch);
+    // PASS EFFECTIVE BATCH AND DEGREE TYPE HERE
+    const requiredCredits = await getRequiredCreditsForStudent(reg, actualDepartment, isDiplomaSchool ? 'SOVET' : school, actualBatch, bbaDegreeType);
     const basketNames = Object.keys(requiredCredits);
     const basketProgress = Object.fromEntries(
       basketNames.map((name) => [name, buildBasketState(requiredCredits[name])])
@@ -596,9 +682,16 @@ export async function POST(req) {
       const isRegistrationData = r.Type === 'Registration';
       const isFailed = isRegistrationData ? false : FAIL_OR_INCOMPLETE_GRADES.has(grade);
 
-      // Special handling for CUTM1057 and CUTM1046 based on branch
+      // Special handling for SOM: MBA uses 'Total', BBA uses Baskets I-V
       let targetBasket = codeMap.get(code) || "Basket V"; // default assignment
-      if (code === "CUTM1057") {
+      if (school === 'SOM') {
+        const is2023Onwards = reg && (reg.startsWith('23') || reg.startsWith('24') || parseInt(reg.substring(0, 2)) >= 23);
+        const isMbaNow = actualDepartment === 'MBA' || reg.slice(5, 8) === '214';
+        if (isMbaNow) {
+          targetBasket = "Total"; // MBA uses flat structure
+        }
+        // BBA continues to use targetBasket (mapped from codeMap or default Basket V)
+      } else if (code === "CUTM1057") {
         if (actualDepartment === "Computer Science Engineering" || actualDepartment === "Electronics & Communication Engineering") {
           targetBasket = "Basket V";
         } else {
@@ -649,7 +742,7 @@ export async function POST(req) {
         completed: isCompleted,
         failed: isFailed,
         status: status, // Add status field to show proper status
-        semester: r.Sem || "",
+        Sem: r.Sem || "", // Use 'Sem' for consistency across APIs
         is_default_assigned: !codeMap.has(code) && targetBasket === "Basket V",
         dataSource: isRegistrationData ? 'Registration' : 'CUTM1', // Add data source indicator
       };
@@ -680,7 +773,11 @@ export async function POST(req) {
     const totalCredits = totalEarned + totalFailed; // Include both earned and failed
     // Calculate total required credits based on student type
     let defaultTotalRequired = 160; // Default for B.Tech Regular
-    if (isDiploma) {
+    if (school === 'SOM') {
+      const isBbaProgram = actualDepartment === 'BBA' || reg.slice(5, 8) === '912';
+      const is2023Onwards = reg && (reg.startsWith('23') || reg.startsWith('24') || parseInt(reg.substring(0, 2)) >= 23);
+      defaultTotalRequired = isBbaProgram ? (is2023Onwards ? 160 : 120) : 73; // BBA: 160 (23+) / 120 (Regular), MBA: 73
+    } else if (isDiploma) {
       defaultTotalRequired = isLateralEntry ? 80 : 120; // Diploma: 80 (lateral) or 120 (regular)
     } else if (isLateralEntry) {
       defaultTotalRequired = 120; // B.Tech Lateral Entry

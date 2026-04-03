@@ -8,6 +8,7 @@ function TeacherBatchPageContent() {
   const searchParams = useSearchParams();
   const school = searchParams.get('school');
   const isDiploma = school?.toUpperCase() === 'SOVET' || school?.toUpperCase()?.includes('VOCATIONAL');
+  const isSom = school?.toUpperCase() === 'SOM';
 
   const btechBranches = [
     { value: "Civil", label: "Civil Engineering" },
@@ -25,8 +26,12 @@ function TeacherBatchPageContent() {
     { value: "Mining", label: "Mining Engineering" },
     { value: "Automobile", label: "Automobile Engineering" }
   ];
+  const somBranches = [
+    { value: "BBA", label: "BBA" },
+    { value: "MBA", label: "MBA" }
+  ];
 
-  const branchOptions = isDiploma ? diplomaBranches : btechBranches;
+  const branchOptions = isSom ? somBranches : (isDiploma ? diplomaBranches : btechBranches);
   const [branch, setBranch] = useState("");
   const [batch, setBatch] = useState("");
   const [rows, setRows] = useState([]);

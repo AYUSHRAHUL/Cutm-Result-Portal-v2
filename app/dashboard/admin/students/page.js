@@ -19,7 +19,11 @@ const regNoBranchMap = {
     '713': 'Civil Engineering',
     '714': 'Computer Science Engineering',
     '715': 'Automobile Engineering',
-    '716': 'Mining Engineering'
+    '716': 'Mining Engineering',
+
+    // SOM
+    '912': 'BBA',
+    '214': 'MBA'
 };
 
 const shortBranchFromCode = {

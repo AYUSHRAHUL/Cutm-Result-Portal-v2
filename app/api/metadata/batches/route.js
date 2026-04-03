@@ -28,7 +28,10 @@ export async function GET(req) {
     const client = await clientPromise;
     const dbName = getCampusSchoolDatabase(campus, school);
     const db = client.db(dbName);
-    const collection = db.collection("result");
+    
+    // Choose collection based on school
+    const collectionName = (school && school.toUpperCase() === 'SOM') ? "som_result" : "result";
+    const collection = db.collection(collectionName);
 
     // Get all registration numbers
     const records = await collection.find({ Reg_No: { $exists: true } })
@@ -37,14 +40,26 @@ export async function GET(req) {
 
     // Parse registration numbers to extract batches
     const batchSet = new Set();
+    const schoolUpper = String(school || '').toUpperCase();
     
-    if (school.toUpperCase() === 'SOVET') {
+    if (schoolUpper === 'SOVET') {
       // For SOVET (Diploma), use parseDiplomaRegistration
       const { parseDiplomaRegistration } = await import('../../sovet/parse-registration/route');
       records.forEach(record => {
         if (record.Reg_No) {
           const parsed = parseDiplomaRegistration(String(record.Reg_No).trim());
           if (parsed && parsed.isValid && parsed.isDiploma && parsed.year) {
+            batchSet.add(parsed.year);
+          }
+        }
+      });
+    } else if (schoolUpper === 'SOM') {
+      // For SOM (Management), use parseSOMRegistration
+      const { parseSOMRegistration } = await import('../../som/parse-registration/route');
+      records.forEach(record => {
+        if (record.Reg_No) {
+          const parsed = parseSOMRegistration(String(record.Reg_No).trim());
+          if (parsed && parsed.isValid && parsed.isSOM && parsed.year) {
             batchSet.add(parsed.year);
           }
         }
