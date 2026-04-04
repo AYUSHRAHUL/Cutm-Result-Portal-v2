@@ -36,6 +36,10 @@ export async function PUT(req, { params }) {
     if (typeof updates.SubjectCode === "string") set["Subject Code"] = updates.SubjectCode.trim().toUpperCase();
     if (typeof updates.SubjectName === "string") set["Subject_name"] = updates.SubjectName.trim();
     if (updates.Credits !== undefined) set["Credits"] = String(updates.Credits).trim();
+    if (updates.AlternativeCode !== undefined) {
+      const alt = typeof updates.AlternativeCode === "string" ? updates.AlternativeCode.trim().toUpperCase() : "";
+      set["Alternative Code"] = alt;
+    }
 
     const col = db.collection("cbcs");
 

@@ -100,12 +100,16 @@ async function getAnalyticsData(db, batchFilter = [], branchFilter = [], semeste
   }
 
   if (semesterFilter.length > 0 && !semesterFilter.includes("all")) {
-    const cleanSems = semesterFilter.map(s => s.replace(/^Sem\s*/i, "").trim());
-    match.$or = [
-      { Sem: { $in: cleanSems } },
-      { Sem: { $in: cleanSems.map(s => `Sem ${s}`) } },
-      { Sem: { $in: cleanSems.map(s => `Sem${s}`) } }
+    const cleanSems = semesterFilter.map(s => String(s).replace(/^Sem\s*/i, "").trim()).filter(Boolean);
+    const numericSems = cleanSems.map(s => parseInt(s, 10)).filter(n => !Number.isNaN(n));
+    const inList = [
+      ...cleanSems,
+      ...cleanSems.map(s => `Sem ${s}`),
+      ...cleanSems.map(s => `Sem${s}`),
+      ...numericSems,
+      ...numericSems.map(n => String(n).padStart(2, "0")),
     ];
+    match.$or = [{ Sem: { $in: inList } }];
   }
 
   const allRecords = await collection.find(match, {
@@ -202,6 +206,16 @@ async function getAnalyticsData(db, batchFilter = [], branchFilter = [], semeste
     cgpa: calculateCGPA(data.grades)
   })).sort((a, b) => b.cgpa - a.cgpa).slice(0, 100);
 
+  let registrationDataCount = 0;
+  try {
+    registrationDataCount = await db.collection("registrationData").estimatedDocumentCount();
+  } catch {
+    registrationDataCount = 0;
+  }
+  const dataSourceTotal = totalStudents + registrationDataCount;
+  const resultPct = dataSourceTotal > 0 ? Number(((totalStudents / dataSourceTotal) * 100).toFixed(1)) : 100;
+  const regPct = dataSourceTotal > 0 ? Number(((registrationDataCount / dataSourceTotal) * 100).toFixed(1)) : 0;
+
   return {
     totalStudents,
     totalSubjects: uniqueSubjects.size,
@@ -218,6 +232,9 @@ async function getAnalyticsData(db, batchFilter = [], branchFilter = [], semeste
     performanceMetricsByBatch: batchStats.map(s => ({ batch: s.name, total: s.total, passed: s.passed, failed: s.failed, passRate: parseFloat(s.passRate) })),
     performanceMetricsByBranch: departmentStats.map(s => ({ branch: s.name, total: s.total, passed: s.passed, failed: s.failed, passRate: parseFloat(s.passRate) })),
     performanceMetricsBySemester: semesterStats.map(s => ({ semester: s.name, total: s.total, passed: s.passed, failed: s.failed, passRate: parseFloat(s.passRate) })),
-    dataSourceStats: [{ name: 'SOM (BBA/MBA) Results', count: totalStudents, percentage: 100 }]
+    dataSourceStats: [
+      { name: "Result Database", count: totalStudents, percentage: resultPct },
+      { name: "Registration Data", count: registrationDataCount, percentage: regPct },
+    ],
   };
 }

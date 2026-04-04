@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
+import { getSubjectSemesterRaw, normalizeSemesterBucket, formatSemesterDisplay } from "@/lib/subject-semester";
+import { getProgramSemesterKeys, capSemesterKeysForReport } from "@/lib/basket-report-semesters";
 
 // Excel XML Helper Functions
 function escapeXml(value) {
@@ -558,9 +560,9 @@ Please check if the department name matches exactly with the available departmen
         const branch = department && department !== "All" ? branchMap[department] : undefined;
         const hasBatch = batch && batch !== "All";
         const body = { ...(branch ? { branch } : {}), ...(hasBatch ? { batch } : {}) };
-        const batchUrl = getSchoolApiUrl("batch");
-        const batchUrlWithMode = batchUrl.includes('?') ? `${batchUrl}&mode=list` : `${batchUrl}?mode=list`;
-        const res = await fetch(batchUrlWithMode, {
+        const baseBatch = getSchoolApiUrl("batch");
+        const batchUrl = baseBatch.includes("?") ? `${baseBatch}&mode=list` : `${baseBatch}?mode=list`;
+        const res = await fetch(batchUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
@@ -757,8 +759,8 @@ Please check if the department name matches exactly with the available departmen
     };
 
     return [...selectedBasket.subjects].sort((a, b) => {
-      const semA = parseSemesterValue(a.semester);
-      const semB = parseSemesterValue(b.semester);
+      const semA = parseSemesterValue(getSubjectSemesterRaw(a));
+      const semB = parseSemesterValue(getSubjectSemesterRaw(b));
 
       if (semA !== semB) return semA - semB;
 
@@ -923,7 +925,7 @@ Please check if the department name matches exactly with the available departmen
       // Group by semester
       const subjectsBySemester = {};
       allSubjects.forEach(subject => {
-        const sem = subject.semester || "Unknown";
+        const sem = normalizeSemesterBucket(subject);
         if (!subjectsBySemester[sem]) {
           subjectsBySemester[sem] = [];
         }
@@ -1070,7 +1072,7 @@ Please check if the department name matches exactly with the available departmen
       // Group by semester
       const subjectsBySemester = {};
       allSubjects.forEach(subject => {
-        const sem = subject.semester || "Unknown";
+        const sem = normalizeSemesterBucket(subject);
         if (!subjectsBySemester[sem]) {
           subjectsBySemester[sem] = [];
         }
@@ -1291,12 +1293,8 @@ Please check if the department name matches exactly with the available departmen
       // For individual student: Export in CBCS.xlsx template format matching the exact format provided
       // Group subjects by semester and organize by basket columns
 
-      // Get semesters based on program (4 for MBA, 6 for Diploma/BBA 3yr, 8 for others)
-      const allSemesterKeys = isMba 
-        ? ["Sem 1", "Sem 2", "Sem 3", "Sem 4"]
-        : (isDiploma || (isBba && bbaDegreeType !== "4year"))
-          ? ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6"]
-          : ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"];
+      const programSemKeys = getProgramSemesterKeys({ isMba, isDiploma, isBba, bbaDegreeType });
+      const allSemesterKeys = capSemesterKeysForReport(programSemKeys, semesterValues);
       
       const allSubjects = [];
       Object.entries(basketProgress).forEach(([basketName, basketInfo]) => {
@@ -1323,19 +1321,7 @@ Please check if the department name matches exactly with the available departmen
       // Group by semester - Normalize semester keys to match expected format
       const subjectsBySemester = {};
       allSubjects.forEach(subject => {
-        let sem = subject.semester || "Unknown";
-        // Normalize semester format: "Semester 1" -> "Sem 1", "Sem1" -> "Sem 1", "1" -> "Sem 1", etc.
-        sem = String(sem).replace(/semester\s*/i, "Sem ").replace(/sem\s*/i, "Sem ").trim();
-        if (!sem.match(/^Sem\s*\d+$/i) && sem.match(/^\d+$/)) {
-          sem = `Sem ${sem}`;
-        }
-        if (!sem.match(/^Sem\s*\d+$/i)) {
-          // Try to extract number if format is different
-          const numMatch = sem.match(/\d+/);
-          if (numMatch) {
-            sem = `Sem ${numMatch[0]}`;
-          }
-        }
+        const sem = normalizeSemesterBucket(subject);
         if (!subjectsBySemester[sem]) {
           subjectsBySemester[sem] = [];
         }
@@ -1572,18 +1558,14 @@ Please check if the department name matches exactly with the available departmen
           // Bottom row: Sem 3 (left) + Sem 4 (right)
           let result = '';
 
-          // First row: Sem 1 + Sem 2 (side-by-side)
-          const sem1Key = allSemesterKeys[0]; // Sem 1
-          const sem2Key = allSemesterKeys[1]; // Sem 2
-          const sem1Table = buildSemesterTable(sem1Key, 1);
-          const sem2Table = buildSemesterTable(sem2Key, 2);
-
-          const sem1Colspan = 4; // Sem 1 is odd (no Sl. No) = 8 cols, so 4 in outer table
-          const sem2Colspan = 5; // Sem 2 is even (has Sl. No) = 9 cols, so 5 in outer table
-
-          // Add "1st Year Total Credits" row inside Sem 2 table (in Subject column)
-          const sem2TableWithYearTotal = sem2Table.html + `
-                      <!-- 1st Year Total Credits Row (inside Sem 2 table, Subject column) -->
+          if (allSemesterKeys.length >= 2) {
+            const sem1Key = allSemesterKeys[0];
+            const sem2Key = allSemesterKeys[1];
+            const sem1Table = buildSemesterTable(sem1Key, 1);
+            const sem2Table = buildSemesterTable(sem2Key, 2);
+            const sem1Colspan = 4;
+            const sem2Colspan = 5;
+            const sem2TableWithYearTotal = sem2Table.html + `
                       <tr style="font-weight: bold; background-color: #E6F3FF;">
                         <td style="text-align: center; padding: 5px;"></td>
                         <td style="text-align: center; padding: 5px;"></td>
@@ -1596,8 +1578,7 @@ Please check if the department name matches exactly with the available departmen
                         <td style="text-align: center; padding: 5px;">${firstYearTotals.grandTotal || 0}</td>
                       </tr>
                     `;
-
-          result += `
+            result += `
                   <tr>
                     <td colspan="${sem1Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
                       <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
@@ -1611,22 +1592,20 @@ Please check if the department name matches exactly with the available departmen
                     </td>
                   </tr>
                 `;
+          }
 
-          // Add spacing between rows
-          result += `<tr><td colspan="9" style="height: 10px; border: 1px solid #000;"></td></tr>`;
+          if (allSemesterKeys.length > 2) {
+            result += `<tr><td colspan="9" style="height: 10px; border: 1px solid #000;"></td></tr>`;
+          }
 
-          // Second row: Sem 3 + Sem 4 (side-by-side)
-          const sem3Key = allSemesterKeys[2]; // Sem 3
-          const sem4Key = allSemesterKeys[3]; // Sem 4
-          const sem3Table = buildSemesterTable(sem3Key, 3);
-          const sem4Table = buildSemesterTable(sem4Key, 4);
-
-          const sem3Colspan = 4; // Sem 3 is odd (no Sl. No) = 8 cols, so 4 in outer table
-          const sem4Colspan = 5; // Sem 4 is even (has Sl. No) = 9 cols, so 5 in outer table
-
-          // Add "1st & 2nd Year Total Credits" row inside Sem 4 table (in Subject column)
-          const sem4TableWithYearTotal = sem4Table.html + `
-                      <!-- 1st & 2nd Year Total Credits Row (inside Sem 4 table, Subject column) -->
+          if (allSemesterKeys.length >= 4) {
+            const sem3Key = allSemesterKeys[2];
+            const sem4Key = allSemesterKeys[3];
+            const sem3Table = buildSemesterTable(sem3Key, 3);
+            const sem4Table = buildSemesterTable(sem4Key, 4);
+            const sem3Colspan = 4;
+            const sem4Colspan = 5;
+            const sem4TableWithYearTotal = sem4Table.html + `
                       <tr style="font-weight: bold; background-color: #E6F3FF;">
                         <td style="text-align: center; padding: 5px;"></td>
                         <td style="text-align: center; padding: 5px;"></td>
@@ -1639,8 +1618,7 @@ Please check if the department name matches exactly with the available departmen
                         <td style="text-align: center; padding: 5px;">${secondYearTotals.grandTotal || 0}</td>
                       </tr>
                     `;
-
-          result += `
+            result += `
                   <tr>
                     <td colspan="${sem3Colspan}" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
                       <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
@@ -1653,8 +1631,15 @@ Please check if the department name matches exactly with the available departmen
                       </table>
                     </td>
                   </tr>
-                `;          // Add remaining semesters (5,6,7,8) if needed, based on the actual semester count
+                `;
+          }
+          if (allSemesterKeys.length > 4) {
+            result += `<tr><td colspan="9" style="height: 10px; border: 1px solid #000;"></td></tr>`;
+          }
           for (let i = 4; i < allSemesterKeys.length; i += 2) {
+            if (i > 4) {
+              result += `<tr><td colspan="9" style="height: 10px; border: 1px solid #000;"></td></tr>`;
+            }
             const sem1Key = allSemesterKeys[i];
             const sem2Key = allSemesterKeys[i + 1];
             if (!sem1Key) break;
@@ -1720,7 +1705,6 @@ Please check if the department name matches exactly with the available departmen
                     </td>
                   </tr>
                 `;
-;
           }
 
           return result;
@@ -1733,7 +1717,7 @@ Please check if the department name matches exactly with the available departmen
       downloadFile(htmlContent, `CBCS_Registration_${studentData.registration}_${new Date().toISOString().split('T')[0]}.xls`, "application/vnd.ms-excel");
       addNotification('success', 'Report downloaded in CBCS template format');
     }
-  }, [registration, studentData, basketProgress, addNotification, downloadFile, isSom, isDiploma, isBba, bbaDegreeType]);
+  }, [registration, studentData, basketProgress, semesterValues, addNotification, downloadFile, isSom, isDiploma, isBba, bbaDegreeType, isMba]);
 
   // Helper function to generate HTML content for a student (same format as individual download)
   const generateStudentReportHtml = useCallback((studentData, basketProgress) => {
@@ -1757,21 +1741,15 @@ Please check if the department name matches exactly with the available departmen
     // Group by semester - Normalize semester keys
     const subjectsBySemester = {};
     allSubjects.forEach(subject => {
-      let sem = subject.semester || "Unknown";
-      sem = sem.replace(/semester\s*/i, "Sem ").replace(/sem\s*/i, "Sem ").trim();
-      if (!sem.match(/^Sem\s*\d+$/i)) {
-        const numMatch = sem.match(/\d+/);
-        if (numMatch) {
-          sem = `Sem ${numMatch[0]}`;
-        }
-      }
+      const sem = normalizeSemesterBucket(subject);
       if (!subjectsBySemester[sem]) {
         subjectsBySemester[sem] = [];
       }
       subjectsBySemester[sem].push(subject);
     });
 
-    const allSemesterKeys = ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"];
+    const programSemKeys = getProgramSemesterKeys({ isMba, isDiploma, isBba, bbaDegreeType });
+    const allSemesterKeys = capSemesterKeysForReport(programSemKeys, semesterValues);
 
     // Get session year and branch
     const regYear = studentData.registration ? studentData.registration.substring(0, 2) : new Date().getFullYear().toString().substring(2);
@@ -1927,11 +1905,11 @@ Please check if the department name matches exactly with the available departmen
       };
     };
 
-    // Build semester pairs
     let result = '';
-    const sem1Table = buildSemesterTable(allSemesterKeys[0], 1);
-    const sem2Table = buildSemesterTable(allSemesterKeys[1], 2);
-    const sem2TableWithYearTotal = sem2Table.html + `
+    if (allSemesterKeys.length >= 2) {
+      const sem1Table = buildSemesterTable(allSemesterKeys[0], 1);
+      const sem2Table = buildSemesterTable(allSemesterKeys[1], 2);
+      const sem2TableWithYearTotal = sem2Table.html + `
       <tr style="font-weight: bold; background-color: #E6F3FF;">
         <td style="text-align: center; padding: 5px;"></td>
         <td style="text-align: center; padding: 5px;"></td>
@@ -1944,8 +1922,7 @@ Please check if the department name matches exactly with the available departmen
         <td style="text-align: center; padding: 5px;">${firstYearTotals.grandTotal || 0}</td>
       </tr>
     `;
-
-    result += `
+      result += `
       <tr>
         <td colspan="4" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
           <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
@@ -1959,12 +1936,14 @@ Please check if the department name matches exactly with the available departmen
         </td>
       </tr>
     `;
-
-    result += `<tr><td colspan="9" style="height: 10px; border: 1px solid #000;"></td></tr>`;
-
-    const sem3Table = buildSemesterTable(allSemesterKeys[2], 3);
-    const sem4Table = buildSemesterTable(allSemesterKeys[3], 4);
-    const sem4TableWithYearTotal = sem4Table.html + `
+    }
+    if (allSemesterKeys.length > 2) {
+      result += `<tr><td colspan="9" style="height: 10px; border: 1px solid #000;"></td></tr>`;
+    }
+    if (allSemesterKeys.length >= 4) {
+      const sem3Table = buildSemesterTable(allSemesterKeys[2], 3);
+      const sem4Table = buildSemesterTable(allSemesterKeys[3], 4);
+      const sem4TableWithYearTotal = sem4Table.html + `
       <tr style="font-weight: bold; background-color: #E6F3FF;">
         <td style="text-align: center; padding: 5px;"></td>
         <td style="text-align: center; padding: 5px;"></td>
@@ -1977,8 +1956,7 @@ Please check if the department name matches exactly with the available departmen
         <td style="text-align: center; padding: 5px;">${secondYearTotals.grandTotal || 0}</td>
       </tr>
     `;
-
-    result += `
+      result += `
       <tr>
         <td colspan="4" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
           <table border="1" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse;">
@@ -1992,8 +1970,14 @@ Please check if the department name matches exactly with the available departmen
         </td>
       </tr>
     `;
-
-    for (let i = 4; i < 8; i += 2) {
+    }
+    if (allSemesterKeys.length > 4) {
+      result += `<tr><td colspan="9" style="height: 10px; border: 1px solid #000;"></td></tr>`;
+    }
+    for (let i = 4; i < allSemesterKeys.length; i += 2) {
+      if (i > 4) {
+        result += `<tr><td colspan="9" style="height: 10px; border: 1px solid #000;"></td></tr>`;
+      }
       const sem1Key = allSemesterKeys[i];
       const sem2Key = allSemesterKeys[i + 1];
       const sem1Num = i + 1;
@@ -2033,7 +2017,6 @@ Please check if the department name matches exactly with the available departmen
         `;
       }
 
-      result += `<tr><td colspan="9" style="height: 10px; border: 1px solid #000;"></td></tr>`;
       result += `
         <tr>
           <td colspan="4" style="width: 50%; vertical-align: top; padding: 0; border: 1px solid #000;">
@@ -2094,7 +2077,7 @@ Please check if the department name matches exactly with the available departmen
         </body>
       </html>
     `;
-  }, [isSom, bbaDegreeType]);
+  }, [isSom, bbaDegreeType, semesterValues, isMba, isDiploma, isBba]);
 
   const generateStudentWorksheetXmlFromHtmlFormat = useCallback((studentData, basketProgress, sheetName) => {
     // Internal XML Helpers
@@ -2137,9 +2120,25 @@ Please check if the department name matches exactly with the available departmen
     const isSBba = sSchool === "SOM" && (sBranch.includes("BBA") || sBranch.includes("BUSINESS ADMINISTRATION"));
     const isSDiploma = sBranch.includes("DIPLOMA") || String(studentData.school || "").toUpperCase().includes("SOVET");
 
-    const studentSemesterKeys = isSMba ? ["Sem 1", "Sem 2", "Sem 3", "Sem 4"]
-      : (isSDiploma || (isSBba && bbaDegreeType !== "4year")) ? ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6"]
-        : ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"];
+    // Page is school-scoped; API rows often omit school — use current SOM track so 3-year BBA never gets Sem 7–8 shells
+    let baseStudentSemKeys;
+    if (isSom && isMba) {
+      baseStudentSemKeys = ["Sem 1", "Sem 2", "Sem 3", "Sem 4"];
+    } else if (isSom && isBba) {
+      baseStudentSemKeys =
+        bbaDegreeType === "4year"
+          ? ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"]
+          : ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6"];
+    } else if (isSMba) {
+      baseStudentSemKeys = ["Sem 1", "Sem 2", "Sem 3", "Sem 4"];
+    } else if (isSDiploma || (isSBba && bbaDegreeType !== "4year")) {
+      baseStudentSemKeys = ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6"];
+    } else if (isSBba && bbaDegreeType === "4year") {
+      baseStudentSemKeys = ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"];
+    } else {
+      baseStudentSemKeys = ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"];
+    }
+    const studentSemesterKeys = capSemesterKeysForReport(baseStudentSemKeys, semesterValues);
 
     const allSubjects = [];
     Object.entries(basketProgress || {}).forEach(([basketName, basketInfo]) => {
@@ -2159,11 +2158,7 @@ Please check if the department name matches exactly with the available departmen
 
     const subjectsBySemester = {};
     allSubjects.forEach(subject => {
-      let sem = String(subject.semester || "Unknown").replace(/semester\s*/i, "Sem ").replace(/sem\s*/i, "Sem ").trim();
-      if (!sem.match(/^Sem\s*\d+$/i)) {
-        const numMatch = sem.match(/\d+/);
-        if (numMatch) sem = `Sem ${numMatch[0]}`;
-      }
+      const sem = normalizeSemesterBucket(subject);
       if (!subjectsBySemester[sem]) subjectsBySemester[sem] = [];
       subjectsBySemester[sem].push(subject);
     });
@@ -2288,7 +2283,7 @@ Please check if the department name matches exactly with the available departmen
     </WorksheetOptions>`;
 
     return `<Worksheet ss:Name="${escapeXml(cleanSheetName)}">${tableXml}${worksheetOptions}</Worksheet>`;
-  }, [bbaDegreeType]);
+  }, [bbaDegreeType, semesterValues, isSom, isBba, isMba]);
 
   const buildExcelWorkbookXml = useCallback((worksheetsXml = []) => {
     const workbookHeader = `<?xml version="1.0" encoding="UTF-8"?>
@@ -3676,7 +3671,7 @@ Please check if the department name matches exactly with the available departmen
                                 {subject.grade || (subject.completed ? 'PASS' : 'FAIL')}
                               </span>
                             </td>
-                            <td className="border border-gray-300 px-3 py-2 text-center text-gray-900">{subject.semester || 'N/A'}</td>
+                            <td className="border border-gray-300 px-3 py-2 text-center text-gray-900">{formatSemesterDisplay(subject)}</td>
                             <td className="border border-gray-300 px-3 py-2 text-center">
                               <div className="flex flex-col gap-1">
                                 <span className={`px-2 py-1 rounded text-xs font-medium ${subject.status === 'Completed'

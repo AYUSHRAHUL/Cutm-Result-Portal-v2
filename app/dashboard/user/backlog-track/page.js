@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { getSchoolApiUrl } from "@/lib/api-helper";
-import { getSchoolFromRegistration } from "@/lib/campus";
+import { resolveUserPanelSchool, getUserSchoolApiBase } from "@/lib/campus";
 
 export default function UserBacklogTrack() {
   const [user, setUser] = useState(null);
@@ -24,8 +24,12 @@ export default function UserBacklogTrack() {
           setUser(userData);
           
           // Auto-fill registration number for user's own results
-          if (userData.email && userData.email.includes('@cutm.ac.in')) {
-            const regNumber = userData.email.split('@')[0];
+          if (
+            userData.email &&
+            (userData.email.includes("@cutm.ac.in") ||
+              userData.email.includes("@centurionuniv.edu.in"))
+          ) {
+            const regNumber = userData.email.split("@")[0].toUpperCase();
             setRegistration(regNumber);
             console.log('Auto-filled registration number:', regNumber);
           }
@@ -57,9 +61,8 @@ export default function UserBacklogTrack() {
       
       // For user panel, determine school from registration number
       const regNum = registration.trim().toUpperCase();
-      const school = getSchoolFromRegistration(regNum);
-      // Default to SOET if school cannot be determined from registration
-      const apiUrl = school === 'SOVET' ? '/api/sovet/backlogs' : '/api/soet/backlogs';
+      const school = resolveUserPanelSchool(regNum, user?.school);
+      const apiUrl = `${getUserSchoolApiBase(school)}/backlogs`;
       
       console.log("Determined school from registration:", school, "API URL:", apiUrl);
       
@@ -106,7 +109,7 @@ export default function UserBacklogTrack() {
     } finally {
       setLoading(false);
     }
-  }, [registration]);
+  }, [registration, user?.school]);
 
   useEffect(() => {
     if (registration && registration.trim().length >= 6 && !autoFetched) {
@@ -114,6 +117,13 @@ export default function UserBacklogTrack() {
       setAutoFetched(true);
     }
   }, [registration, autoFetched, fetchBacklogs]);
+
+  useEffect(() => {
+    if (registration && registration.trim().length >= 6 && autoFetched && user?.school) {
+      fetchBacklogs();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.school]);
 
   // Export functions
   const exportToCSV = () => {

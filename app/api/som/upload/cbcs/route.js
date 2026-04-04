@@ -137,6 +137,7 @@ export async function POST(req) {
             const codeCol = findColumn(headers, 'Subject Code', 'Subject_Code', 'Code');
             const nameCol = findColumn(headers, 'Subject Name', 'Subject_Name', 'Name', 'Subject');
             const creditsCol = findColumn(headers, 'Credits', 'Credit');
+            const altCodeCol = findColumn(headers, 'Alternative Code', 'Alternative_Code', 'Alt Code', 'Alt_Code');
 
             if (!branchCol || !basketCol || !codeCol || !nameCol) {
                 return NextResponse.json({
@@ -151,6 +152,8 @@ export async function POST(req) {
                 const subjectCode = String(row[codeCol] || "").trim().toUpperCase();
                 const subjectName = String(row[nameCol] || "").trim();
                 const credits = row[creditsCol] !== undefined ? String(row[creditsCol]).trim() : "";
+                const altCodeRaw = altCodeCol ? String(row[altCodeCol] || "").trim() : "";
+                const alternativeCode = altCodeRaw ? altCodeRaw.toUpperCase() : "";
 
                 if (!branch || !basket || !subjectCode || !subjectName) continue;
 
@@ -161,26 +164,32 @@ export async function POST(req) {
 
                 if (existingRecord) {
                     // Update
+                    const setDoc = {
+                        Basket: basket,
+                        Subject_name: subjectName,
+                        Credits: credits,
+                    };
+                    if (altCodeCol) {
+                        setDoc["Alternative Code"] = alternativeCode;
+                    }
                     await collection.updateOne(
                         { _id: existingRecord._id },
-                        {
-                            $set: {
-                                Basket: basket,
-                                Subject_name: subjectName,
-                                Credits: credits
-                            }
-                        }
+                        { $set: setDoc }
                     );
                     totalUpdated++;
                 } else {
                     // Insert
-                    await collection.insertOne({
+                    const doc = {
                         Branch: branch,
                         Basket: basket,
                         "Subject Code": subjectCode,
                         Subject_name: subjectName,
-                        Credits: credits
-                    });
+                        Credits: credits,
+                    };
+                    if (altCodeCol) {
+                        doc["Alternative Code"] = alternativeCode;
+                    }
+                    await collection.insertOne(doc);
                     totalInserted++;
                 }
             }

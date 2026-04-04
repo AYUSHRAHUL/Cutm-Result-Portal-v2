@@ -319,20 +319,32 @@ export async function POST(req) {
       return parsedYear || recordBatch || "";
     };
 
-    // Helper to normalize branch for comparison
+    // Helper to normalize branch for comparison (UI sends ECE/CSE/…; DB/parser use full names with & or AND)
     const normalizeBranchForCompare = (br) => {
       if (!br) return "";
-      const brStr = String(br).trim().toUpperCase();
+      const raw = String(br).trim().toUpperCase();
+      const asAnd = raw.replace(/\s*&\s*/g, " AND ");
       const branchMap = {
-        'CIVIL ENGINEERING': 'CIVIL',
-        'COMPUTER SCIENCE AND ENGINEERING': 'CSE',
-        'COMPUTER SCIENCE ENGINEERING': 'CSE',
-        'ELECTRONICS AND COMMUNICATION ENGINEERING': 'ECE',
-        'ELECTRICAL AND ELECTRONICS ENGINEERING': 'EEE',
-        'MECHANICAL ENGINEERING': 'MECHANICAL',
-        'ME': 'MECHANICAL'
+        "CIVIL ENGINEERING": "CIVIL",
+        "COMPUTER SCIENCE AND ENGINEERING": "CSE",
+        "COMPUTER SCIENCE ENGINEERING": "CSE",
+        "ELECTRONICS AND COMMUNICATION ENGINEERING": "ECE",
+        "ELECTRICAL AND ELECTRONICS ENGINEERING": "EEE",
+        "MECHANICAL ENGINEERING": "MECHANICAL",
+        "CSE AIML": "AIML",
+        ME: "MECHANICAL",
       };
-      return branchMap[brStr] || brStr;
+      const shortToToken = {
+        ECE: "ECE",
+        CSE: "CSE",
+        EEE: "EEE",
+        CIVIL: "CIVIL",
+        MECHANICAL: "MECHANICAL",
+        ME: "MECHANICAL",
+        AIML: "AIML",
+      };
+      if (shortToToken[raw]) return shortToToken[raw];
+      return branchMap[asAnd] || branchMap[raw] || raw;
     };
 
     // Filter records based on branch and batch (B.Tech only) with override support

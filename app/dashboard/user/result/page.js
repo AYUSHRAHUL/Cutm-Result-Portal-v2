@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
-import { getSchoolFromRegistration } from "@/lib/campus";
+import { getSchoolFromRegistration, getUserSchoolApiBase, getSomProgramFromRegistration } from "@/lib/campus";
 
 function ResultPageContent() {
   const router = useRouter();
@@ -42,7 +42,7 @@ function ResultPageContent() {
 
           // For user panel, determine school from registration number
           const school = getSchoolFromRegistration(registration);
-          const resultApiUrl = school === 'SOVET' ? '/api/sovet/result' : '/api/soet/result';
+          const resultApiUrl = `${getUserSchoolApiBase(school)}/result`;
 
           for (const sem of semesters) {
             try {
@@ -96,8 +96,8 @@ function ResultPageContent() {
           // Single semester
           // For user panel, determine school from registration number
           const school = getSchoolFromRegistration(registration);
-          const resultApiUrl = school === 'SOVET' ? '/api/sovet/result' : '/api/soet/result';
-          
+          const resultApiUrl = `${getUserSchoolApiBase(school)}/result`;
+
           const res = await fetch(resultApiUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -122,6 +122,26 @@ function ResultPageContent() {
 
     fetchResults();
   }, [registration, semester]);
+
+  const schoolFromReg = useMemo(
+    () => (registration ? getSchoolFromRegistration(registration) : null),
+    [registration]
+  );
+  const somProgram = useMemo(
+    () => (registration ? getSomProgramFromRegistration(registration) : null),
+    [registration]
+  );
+  const printSchoolH2 = useMemo(() => {
+    if (schoolFromReg === "SOM") return "School of Management";
+    if (schoolFromReg === "SOVET") return "School of Vocational & Emerging Technology";
+    return "School Of Engineering & Technology, Paralakhemundi";
+  }, [schoolFromReg]);
+  const printSchoolProgramLine = useMemo(() => {
+    if (schoolFromReg !== "SOM" || !somProgram) return null;
+    return somProgram === "BBA"
+      ? "Bachelor of Business Administration (BBA)"
+      : "Master of Business Administration (MBA)";
+  }, [schoolFromReg, somProgram]);
 
   const parseCredits = (credits) => {
     if (!credits) return 0;
@@ -582,7 +602,18 @@ function ResultPageContent() {
           <div className="bg-white rounded-lg shadow-sm p-2 sm:p-4 border-l-4 border-blue-600">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-4">
               <div className="flex-1">
-                <h1 className="text-sm sm:text-lg font-bold text-gray-900">Academic Results</h1>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-sm sm:text-lg font-bold text-gray-900">Academic Results</h1>
+                  {somProgram && (
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wide text-white ${
+                        somProgram === "MBA" ? "bg-violet-600" : "bg-emerald-600"
+                      }`}
+                    >
+                      {somProgram}
+                    </span>
+                  )}
+                </div>
                 <p className="text-[10px] sm:text-sm text-gray-600">
                   Registration: <span className="font-mono font-semibold">{registration}</span>
                   {isMultipleSemesters ? (
@@ -653,8 +684,11 @@ function ResultPageContent() {
             Centurion University of Technology and Management
           </h1>
               <h2 className="text-xs sm:text-lg font-semibold text-gray-800 mb-0.5 sm:mb-1">
-            School Of Engineering & Technology, Paralakhemundi
+            {printSchoolH2}
           </h2>
+              {printSchoolProgramLine && (
+                <p className="text-[10px] sm:text-sm text-gray-700 mb-0.5 sm:mb-1">{printSchoolProgramLine}</p>
+              )}
               <p className="text-[10px] sm:text-base text-gray-700">Paralakhemundi Campus</p>
               <h3 className="text-sm sm:text-xl font-bold text-gray-900 mt-2 sm:mt-4">
                 Semester Grade Sheet
@@ -844,8 +878,11 @@ function ResultPageContent() {
                       Centurion University of Technology and Management
                     </h1>
                     <h2 className="text-xs sm:text-lg font-semibold text-gray-800 mb-0.5 sm:mb-1">
-                      School Of Engineering & Technology, Paralakhemundi
+                      {printSchoolH2}
                     </h2>
+                    {printSchoolProgramLine && (
+                      <p className="text-[10px] sm:text-sm text-gray-700 mb-0.5 sm:mb-1">{printSchoolProgramLine}</p>
+                    )}
                     <p className="text-[10px] sm:text-base text-gray-700">Paralakhemundi Campus</p>
                     <h3 className="text-sm sm:text-xl font-bold text-gray-900 mt-2 sm:mt-4">
                       Semester Grade Sheet
@@ -943,8 +980,11 @@ function ResultPageContent() {
                     Centurion University of Technology and Management
                   </h1>
                   <h2 className="text-lg font-semibold text-gray-800 mb-1">
-                    School Of Engineering & Technology, Paralakhemundi
+                    {printSchoolH2}
                   </h2>
+                  {printSchoolProgramLine && (
+                    <p className="text-sm text-gray-700 mb-1">{printSchoolProgramLine}</p>
+                  )}
                   <p className="text-base text-gray-700">Paralakhemundi Campus</p>
                   <h3 className="text-xl font-bold text-gray-900 mt-4">
                     Semester Grade Sheet

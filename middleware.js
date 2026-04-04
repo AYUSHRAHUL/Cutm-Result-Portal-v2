@@ -157,10 +157,26 @@ export async function middleware(req) {
     // School-specific routing for admin and user (not teacher)
     if (school && (path.startsWith("/dashboard/admin") || path.startsWith("/dashboard/user"))) {
       const schoolPath = getDashboardPathBySchool(role, school);
-      
-      // If user tries to access base route or wrong school route, redirect to their school
       const basePath = `/dashboard/${role}`;
-      if (path === basePath || (!path.includes(`/${role}/${school}`) && school)) {
+      const s = String(school).toLowerCase();
+
+      // Users: only force school home for /dashboard/user; allow shared routes (result, basket-track, …)
+      if (role === "user" && path.startsWith("/dashboard/user")) {
+        if (path === "/dashboard/user" || path === "/dashboard/user/") {
+          return NextResponse.redirect(new URL(schoolPath, req.url));
+        }
+        const schoolSlugs = ["soet", "som", "sovet"];
+        for (const slug of schoolSlugs) {
+          if (slug === s) continue;
+          const prefix = `/dashboard/user/${slug}`;
+          if (path === prefix || path.startsWith(`${prefix}/`)) {
+            return NextResponse.redirect(new URL(schoolPath, req.url));
+          }
+        }
+        return NextResponse.next();
+      }
+
+      if (path === basePath || (!path.includes(`/${role}/${s}`) && school)) {
         return NextResponse.redirect(new URL(schoolPath, req.url));
       }
     }
@@ -206,7 +222,12 @@ export async function middleware(req) {
       }
       target = getTeacherDashboardPath(teacherCampus);
     } else {
-      target = "/dashboard/user";
+      const sch = school ? String(school).toLowerCase() : "";
+      if (sch && ["soet", "som", "sovet"].includes(sch)) {
+        target = getUserDashboardPathBySchool(sch);
+      } else {
+        target = "/dashboard/user";
+      }
     }
 
     return NextResponse.redirect(new URL(target, req.url));

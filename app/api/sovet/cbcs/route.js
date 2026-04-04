@@ -59,6 +59,7 @@ export async function GET(req) {
         "$or": [
           { "Subject_name": { $regex: search, $options: "i" } },
           { "Subject Code": { $regex: search, $options: "i" } },
+          { "Alternative Code": { $regex: search, $options: "i" } },
         ]
       });
     }
@@ -88,6 +89,7 @@ export async function POST(req) {
     const Basket = typeof body.Basket === 'string' ? body.Basket.trim() : '';
     const SubjectCode = typeof body.SubjectCode === 'string' ? body.SubjectCode.trim().toUpperCase() : '';
     const SubjectName = typeof body.SubjectName === 'string' ? body.SubjectName.trim() : '';
+    const AlternativeCode = typeof body.AlternativeCode === 'string' ? body.AlternativeCode.trim().toUpperCase() : '';
     const CreditsRaw = body.Credits;
     
     if (!Branch || !SubjectCode || !SubjectName) {
@@ -99,6 +101,7 @@ export async function POST(req) {
       : String(CreditsRaw).trim();
     
     const doc = { Branch, Basket, "Subject Code": SubjectCode, Subject_name: SubjectName, Credits };
+    if (AlternativeCode) doc["Alternative Code"] = AlternativeCode;
     const client = await clientPromise;
 
     const { searchParams } = new URL(req.url);

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import { verifyToken } from "@/lib/auth";
-import { getCampusSchoolDatabase } from "@/lib/campus";
+import { getCampusSchoolDatabase, getSomStudentDatabaseCandidates } from "@/lib/campus";
 
 // Hard safety cap for very broad admin queries
 const MAX_BACKLOG_ROWS = 2000;
@@ -26,23 +26,56 @@ export async function POST(req) {
     const body = await req.json();
     const client = await clientPromise;
 
-    // Get user role for access control
     const userRole = payload.role?.toLowerCase();
+    const isStudent = userRole === "user" || userRole === "student";
 
-    // Get campus and database
+    if (isStudent) {
+      const email = payload.email || "";
+      const campusStudent =
+        email.includes("@cutm.ac.in") || email.includes("@centurionuniv.edu.in");
+      if (campusStudent) {
+        const userRegNumber = email.split("@")[0].toUpperCase();
+        if (body.registration && String(body.registration).toUpperCase() !== userRegNumber) {
+          return NextResponse.json({ error: "Access denied" }, { status: 403 });
+        }
+        body.registration = userRegNumber;
+      }
+    }
+
     const { searchParams } = new URL(req.url);
-    const campusParam = searchParams.get('campus');
+    const campusParam = searchParams.get("campus");
     const campus = campusParam || payload.campus || null;
-    const school = 'SOM';
-    const dbName = getCampusSchoolDatabase(campus, school);
+    const school = "SOM";
 
-    const db = client.db(dbName);
-    const cutm = db.collection("som_result");
+    const { registration, subject_code, registrations, bulkSummary } = body;
+    let { branch, year } = body;
 
-    // Load Overrides
-    const overridesCol = db.collection("branch_overrides");
-    const overridesArr = await overridesCol.find({}, { projection: { _id: 0, reg: 1, branch: 1, batch: 1 } }).toArray();
-    const overrideMap = new Map(overridesArr.map(o => [String(o.reg || "").toUpperCase(), o]));
+    const dbNames = isStudent && registration
+      ? getSomStudentDatabaseCandidates(String(registration).toUpperCase())
+      : [getCampusSchoolDatabase(campus, school)];
+
+    const overrideMap = new Map();
+    const inactiveRegsSet = new Set();
+    for (const name of dbNames) {
+      const dbc = client.db(name);
+      const overridesArr = await dbc
+        .collection("branch_overrides")
+        .find({}, { projection: { _id: 0, reg: 1, branch: 1, batch: 1 } })
+        .toArray();
+      overridesArr.forEach((o) => overrideMap.set(String(o.reg || "").toUpperCase(), o));
+      const inactiveDocs = await dbc
+        .collection("student_status")
+        .find({ isActive: { $in: [false, "false"] } })
+        .project({ Reg_No: 1 })
+        .toArray();
+      inactiveDocs.forEach((d) => {
+        if (d.Reg_No) inactiveRegsSet.add(String(d.Reg_No).toUpperCase());
+      });
+    }
+    const inactiveRegs = Array.from(inactiveRegsSet);
+
+    const adminDb = client.db(dbNames[0]);
+    const cutm = adminDb.collection("som_result");
 
     // Helper functions
     const getEffectiveBranch = (regNo, recordBranch) => {
@@ -72,24 +105,6 @@ export async function POST(req) {
       };
       return branchMap[brStr] || brStr;
     };
-
-    // Fetch inactive students list
-    const statusCollection = db.collection("student_status");
-    const inactiveDocs = await statusCollection.find({ isActive: { $in: [false, "false"] } }).project({ Reg_No: 1 }).toArray();
-    const inactiveRegs = inactiveDocs.map(d => String(d.Reg_No || "").toUpperCase()).filter(Boolean);
-
-    // Security check: Role-based access control
-    if (userRole === 'user' || userRole === 'student') {
-      const userRegNumber = payload.email?.split('@')[0]?.toUpperCase();
-      if (body.registration && body.registration.toUpperCase() !== userRegNumber) {
-        return NextResponse.json({ error: "Access denied" }, { status: 403 });
-      }
-      body.registration = userRegNumber;
-    }
-
-    // Search for backlogs
-    const { registration, subject_code, registrations, bulkSummary } = body;
-    let { branch, year } = body;
 
     // Handle bulk summary request (optimized for admin dashboard)
     if (bulkSummary && registrations && Array.isArray(registrations)) {
@@ -211,15 +226,29 @@ export async function POST(req) {
       query.$and.push({ Reg_No: { $nin: inactiveRegs } });
     }
 
-    let cursor = cutm.find(query, {
-      projection: { _id: 0, Reg_No: 1, Name: 1, Branch: 1, Sem: 1, Subject_Code: 1, Subject_Name: 1, Grade: 1 }
-    }).sort({ Sem: 1, Subject_Code: 1 });
+    const projection = {
+      projection: { _id: 0, Reg_No: 1, Name: 1, Branch: 1, Sem: 1, Subject_Code: 1, Subject_Name: 1, Grade: 1 },
+    };
+    const sortSpec = { Sem: 1, Subject_Code: 1 };
 
-    if (!registration && !subject_code) {
-      cursor = cursor.limit(MAX_BACKLOG_ROWS);
+    let backlogs = [];
+
+    if (isStudent && registration) {
+      for (const name of dbNames) {
+        const tryDb = client.db(name);
+        const rows = await tryDb.collection("som_result").find(query, projection).sort(sortSpec).toArray();
+        if (rows.length > 0) {
+          backlogs = rows;
+          break;
+        }
+      }
+    } else {
+      let cursor = cutm.find(query, projection).sort(sortSpec);
+      if (!registration && !subject_code) {
+        cursor = cursor.limit(MAX_BACKLOG_ROWS);
+      }
+      backlogs = await cursor.toArray();
     }
-
-    const backlogs = await cursor.toArray();
 
     // Final Processing
     const processed = backlogs.map(record => {

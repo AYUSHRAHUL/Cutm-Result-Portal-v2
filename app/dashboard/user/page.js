@@ -1,9 +1,9 @@
 "use client";
 
 import { getSchoolApiUrl } from "@/lib/api-helper";
-import { getSchoolFromRegistration } from "@/lib/campus";
+import { resolveUserPanelSchool, getUserSchoolApiBase, getSomProgramFromRegistration } from "@/lib/campus";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { FaGithub, FaLinkedinIn, FaTwitter, FaFacebookF } from "react-icons/fa";
 
@@ -33,11 +33,26 @@ export default function UserDashboard() {
   const statsRef = useRef(null);
   const multiSelectRef = useRef(null);
 
-  // Default semester options
-  const defaultSemesters = [
-    'Semester 1', 'Semester 2', 'Semester 3', 'Semester 4',
-    'Semester 5', 'Semester 6', 'Semester 7', 'Semester 8'
-  ];
+  const somProgram = useMemo(
+    () => getSomProgramFromRegistration(registration),
+    [registration]
+  );
+
+  const programDefaultSemesters = useMemo(() => {
+    if (somProgram === "MBA") {
+      return ["Semester 1", "Semester 2", "Semester 3", "Semester 4"];
+    }
+    if (somProgram === "BBA") {
+      return [
+        "Semester 1", "Semester 2", "Semester 3", "Semester 4",
+        "Semester 5", "Semester 6", "Semester 7", "Semester 8",
+      ];
+    }
+    return [
+      "Semester 1", "Semester 2", "Semester 3", "Semester 4",
+      "Semester 5", "Semester 6", "Semester 7", "Semester 8",
+    ];
+  }, [somProgram]);
 
   // Loading messages sequence
   const loadingMessages = [
@@ -129,9 +144,8 @@ export default function UserDashboard() {
       setLoading(true);
       setError("");
 
-      // For user panel, determine school from registration number
-      const school = getSchoolFromRegistration(reg);
-      const semestersApiUrl = school === 'SOVET' ? '/api/sovet/semesters' : '/api/soet/semesters';
+      const school = resolveUserPanelSchool(reg, user?.school);
+      const semestersApiUrl = `${getUserSchoolApiBase(school)}/semesters`;
 
       const res = await fetch(semestersApiUrl, {
         method: "POST",
@@ -148,6 +162,13 @@ export default function UserDashboard() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (registration.length >= 6 && user?.school) {
+      fetchSemesters(registration);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.school]);
 
   // Handle multi-select toggle
   const toggleMultiSelect = () => {
@@ -264,7 +285,7 @@ export default function UserDashboard() {
   };
 
   // Determine which semesters to show
-  const availableSemesters = semesters.length > 0 ? semesters : defaultSemesters;
+  const availableSemesters = semesters.length > 0 ? semesters : programDefaultSemesters;
   const showSemesters = registration.length >= 6 || semesters.length > 0;
 
   // Get selected text for multi-select header
@@ -440,6 +461,24 @@ export default function UserDashboard() {
             }}>
               Excellence in Education • Transparency in Results • Future in Your Hands
             </p>
+            {somProgram && (
+              <p
+                style={{
+                  fontSize: '1.05rem',
+                  color: 'rgba(255, 255, 255, 0.95)',
+                  fontWeight: 600,
+                  marginTop: '0.85rem',
+                  marginBottom: 0,
+                  textShadow: '0 2px 10px rgba(0, 0, 0, 0.35)',
+                  animation: 'subtitleFade 1.8s ease-out'
+                }}
+              >
+                School of Management —{" "}
+                {somProgram === "BBA"
+                  ? "Bachelor of Business Administration (BBA)"
+                  : "Master of Business Administration (MBA)"}
+              </p>
+            )}
           </div>
         </div>
       </section>
@@ -476,9 +515,30 @@ export default function UserDashboard() {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: '0.75rem'
+                  gap: '0.75rem',
+                  flexWrap: 'wrap'
                 }}>
                   <span style={{ color: '#3b82f6' }}>🎓</span>
+                  {somProgram && (
+                    <span
+                      style={{
+                        fontSize: "0.7rem",
+                        fontWeight: 800,
+                        letterSpacing: "0.06em",
+                        padding: "0.35rem 0.7rem",
+                        borderRadius: "999px",
+                        color: "#fff",
+                        textTransform: "uppercase",
+                        background:
+                          somProgram === "MBA"
+                            ? "linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)"
+                            : "linear-gradient(135deg, #059669 0%, #047857 100%)",
+                        boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                      }}
+                    >
+                      {somProgram}
+                    </span>
+                  )}
                   Check Your Results
                 </h2>
 

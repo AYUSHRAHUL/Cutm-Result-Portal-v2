@@ -265,15 +265,12 @@ export function DataSourceChart({ data }) {
 
   // Show message only if resultRecords is 0 (registrationRecords can be 0)
   if (resultRecords === 0) {
-    console.log('[DataSourceChart] resultRecords is 0, showing no data message');
     return (
       <div className="h-80 flex items-center justify-center text-white/60">
         No data source information available
       </div>
     );
   }
-  
-  console.log('[DataSourceChart] Rendering chart with:', { resultRecords, registrationRecords });
 
   // If registrationRecords is 0, analytics is using only the main Result database.
   // In that case, show a single slice so the chart isn't misleading.

@@ -159,8 +159,9 @@ export default function AnalyticsDashboard() {
 
       const result = await response.json();
 
-      // Verify source is result/CUTM1, not CBCS
-      if (result.source && result.source !== "result" && result.source !== "CUTM1") {
+      // Verify source is a result collection (not CBCS). SOM uses som_result; SOET/SOVET use CUTM1.
+      const allowedSources = new Set(["result", "CUTM1", "som_result"]);
+      if (result.source && !allowedSources.has(result.source)) {
         setBasketSubjects([]);
         return;
       }
@@ -563,13 +564,19 @@ export default function AnalyticsDashboard() {
               // Default to overall metrics
               let metrics = result.data?.performanceMetrics;
 
-              // If semester-specific request and server returned per-semester breakdown, use that slice
+              // If semester-specific request, prefer per-semester breakdown when labels match DB Sem values
               if (semesterParam) {
+                const semNorm = (v) => {
+                  const t = String(v ?? "").replace(/^Sem\s*/i, "").trim();
+                  const n = parseInt(t, 10);
+                  return Number.isNaN(n) ? t.toLowerCase() : n;
+                };
                 const semValue = String(semesterParam).replace(/^Sem\s*/i, "").trim();
+                const target = semNorm(semValue);
                 const semBreakdown = Array.isArray(result.data?.performanceMetricsBySemester)
                   ? result.data.performanceMetricsBySemester.find((s) => {
-                    const sv = String(s.semester || s.sem || s.Sem || "").replace(/^Sem\s*/i, "").trim();
-                    return sv === semValue;
+                    const raw = s.semester ?? s.sem ?? s.Sem ?? "";
+                    return semNorm(raw) === target;
                   })
                   : null;
                 if (semBreakdown) {
@@ -586,13 +593,8 @@ export default function AnalyticsDashboard() {
                     passRate: passRateVal,
                   };
                 } else {
-                  // No semester slice found -> treat as no data
-                  metrics = {
-                    totalRecords: 0,
-                    passedRecords: 0,
-                    failedRecords: 0,
-                    passRate: 0,
-                  };
+                  // Query was already scoped to this semester on the server — use aggregate metrics
+                  metrics = result.data?.performanceMetrics ?? null;
                 }
               }
 
@@ -1592,11 +1594,18 @@ export default function AnalyticsDashboard() {
       return { total: 0, passed: 0, fail: 0, passRate: 0 };
     }
 
+    const pr = metrics.passRate;
+    const passRateNum =
+      typeof pr === "number" && Number.isFinite(pr)
+        ? pr
+        : parseFloat(pr);
+    const safePassRate = Number.isFinite(passRateNum) ? parseFloat(passRateNum.toFixed(1)) : 0;
+
     return {
       total: metrics.totalRecords || 0,
       passed: metrics.passedRecords || 0,
       fail: metrics.failedRecords || 0,
-      passRate: metrics.passRate ? parseFloat(metrics.passRate.toFixed(1)) : 0
+      passRate: safePassRate
     };
   };
 
@@ -1618,6 +1627,8 @@ export default function AnalyticsDashboard() {
       'ME': '#f59e0b',      // Amber
       'CIVIL': '#ef4444',   // Red
       'AIML': '#ec4899',    // Pink
+      'BBA': '#6366f1',     // Indigo (SOM)
+      'MBA': '#14b8a6',     // Teal (SOM)
       'CS': '#3b82f6',
       'EC': '#8b5cf6',
       'EE': '#10b981',
@@ -1672,7 +1683,7 @@ export default function AnalyticsDashboard() {
     }
 
     // Try to extract branch from name
-    const branchMatch = name.match(/\b(CSE|ECE|EEE|ME|CE|AIML|CIVIL|CS|EC|EE|MECH)\b/i);
+    const branchMatch = name.match(/\b(CSE|ECE|EEE|ME|CE|AIML|CIVIL|BBA|MBA|CS|EC|EE|MECH)\b/i);
     if (branchMatch && branchColors[branchMatch[1].toUpperCase()]) {
       return branchColors[branchMatch[1].toUpperCase()];
     }
@@ -1780,12 +1791,12 @@ export default function AnalyticsDashboard() {
             if (batchMatch) batch = batchMatch[1];
 
             // Try to extract branch (CSE, ECE, etc.)
-            const branchMatch = label.match(/\b(CSE|ECE|EEE|ME|CE|AIML|CIVIL|CS|EC|EE|MECH)\b/i);
+            const branchMatch = label.match(/\b(CSE|ECE|EEE|ME|CE|AIML|CIVIL|BBA|MBA|CS|EC|EE|MECH)\b/i);
             if (branchMatch) branch = branchMatch[1].toUpperCase();
 
             // Try to extract semester number
             const semMatch = label.match(/Sem\s*(\d+)/i);
-            if (semMatch) semester = String(parseInt(semMatch[1])).padStart(2, '0');
+            if (semMatch) semester = String(parseInt(semMatch[1], 10)).padStart(2, "0");
 
             return `${batch}-${branch}-${semester}`;
           };
@@ -1801,7 +1812,8 @@ export default function AnalyticsDashboard() {
             // Calculate pass rate properly
             let passRate = 0;
             if (metrics.passRate !== undefined && metrics.passRate !== null) {
-              passRate = parseFloat(metrics.passRate.toFixed(1));
+              const n = typeof metrics.passRate === "number" ? metrics.passRate : parseFloat(metrics.passRate);
+              passRate = Number.isFinite(n) ? parseFloat(n.toFixed(1)) : 0;
             } else if (metrics.totalRecords > 0) {
               passRate = parseFloat(((metrics.passedRecords / metrics.totalRecords) * 100).toFixed(1));
             }
@@ -1816,7 +1828,7 @@ export default function AnalyticsDashboard() {
 
             // Extract batch, branch, and semester from label for color assignment
             const batchMatch = combo.label.match(/\b(20\d{2})\b/);
-            const branchMatch = combo.label.match(/\b(CSE|ECE|EEE|ME|CE|AIML|CIVIL|CS|EC|EE|MECH)\b/i);
+            const branchMatch = combo.label.match(/\b(CSE|ECE|EEE|ME|CE|AIML|CIVIL|BBA|MBA|CS|EC|EE|MECH)\b/i);
             const semMatch = combo.label.match(/Sem\s*(\d+)/i);
             const batch = batchMatch ? batchMatch[1] : null;
             const branch = branchMatch ? branchMatch[1].toUpperCase() : null;
@@ -1862,13 +1874,16 @@ export default function AnalyticsDashboard() {
           if (labels.length > 0) {
             passFailData = labels.map(label => {
               const batchMatch = label.match(/\b(20\d{2})\b/);
-              const branchMatch = label.match(/\b(CSE|ECE|EEE|ME|CE|AIML|CIVIL|CS|EC|EE|MECH)\b/i);
+              const branchMatch = label.match(/\b(CSE|ECE|EEE|ME|CE|AIML|CIVIL|BBA|MBA|CS|EC|EE|MECH)\b/i);
               const batch = batchMatch ? batchMatch[1] : null;
               const branch = branchMatch ? branchMatch[1].toUpperCase() : null;
               return {
                 name: label,
                 Passed: filteredPassingStats.passedRecords || 0,
-                PassRate: filteredPassingStats.passRate ? parseFloat(filteredPassingStats.passRate.toFixed(1)) : 0,
+                PassRate: (() => {
+                  const n = typeof filteredPassingStats.passRate === "number" ? filteredPassingStats.passRate : parseFloat(filteredPassingStats.passRate);
+                  return Number.isFinite(n) ? parseFloat(n.toFixed(1)) : 0;
+                })(),
                 Total: filteredPassingStats.totalRecords || 0,
                 batch: batch,
                 branch: branch,
@@ -1895,7 +1910,10 @@ export default function AnalyticsDashboard() {
               return {
                 name: `Batch ${batch} ${branch}`,
                 Passed: filteredPassingStats.passedRecords || 0,
-                PassRate: filteredPassingStats.passRate ? parseFloat(filteredPassingStats.passRate.toFixed(1)) : 0,
+                PassRate: (() => {
+                  const n = typeof filteredPassingStats.passRate === "number" ? filteredPassingStats.passRate : parseFloat(filteredPassingStats.passRate);
+                  return Number.isFinite(n) ? parseFloat(n.toFixed(1)) : 0;
+                })(),
                 Total: filteredPassingStats.totalRecords || 0,
                 batch: batch,
                 branch: branchUpper,

@@ -163,8 +163,19 @@ function TeacherDashboardPKDContent() {
         />
       </div>
 
+      {/* Back to school selection (explicit navigation — browser Back can skip this if history was replaced) */}
+      <div className="mx-auto max-w-6xl px-3 sm:px-6 pt-20 sm:pt-24">
+        {/* <button
+          type="button"
+          onClick={() => router.push("/dashboard/teacher")}
+          className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-[#04748F] bg-white/95 border-2 border-[#05A3C7]/30 shadow-sm hover:bg-white hover:border-[#05A3C7]/50 transition-colors focus:outline-none focus:ring-2 focus:ring-[#05A3C7]/40"
+        >
+          Change school
+        </button> */}
+      </div>
+
       {/* Header */}
-      <section className="pt-12 sm:pt-16 pb-6 sm:pb-8 px-3 sm:px-6">
+      <section className="pt-4 sm:pt-6 pb-6 sm:pb-8 px-3 sm:px-6">
         <div className="mx-auto max-w-6xl">
           <div className="flex flex-col items-center justify-center space-y-3 sm:space-y-4">
             <div className="flex items-center gap-3 sm:gap-4">

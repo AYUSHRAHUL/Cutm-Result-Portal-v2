@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { getSomProgramFromRegistration } from "@/lib/campus";
 
 export default function UserBasketTrack() {
   const [user, setUser] = useState(null);
@@ -26,8 +27,12 @@ export default function UserBasketTrack() {
           setUser(userData);
           
           // Auto-fill registration number for user's own results
-          if (userData.email && userData.email.includes('@cutm.ac.in')) {
-            const regNumber = userData.email.split('@')[0];
+          if (
+            userData.email &&
+            (userData.email.includes("@cutm.ac.in") ||
+              userData.email.includes("@centurionuniv.edu.in"))
+          ) {
+            const regNumber = userData.email.split("@")[0].toUpperCase();
             setRegistration(regNumber);
           }
         }
@@ -50,12 +55,16 @@ export default function UserBasketTrack() {
         throw new Error("Please enter a valid registration number (minimum 6 characters)");
       }
       
+      const regUpper = registration.trim().toUpperCase();
       const requestBody = {
         department: "",
-        batch: "", 
-        registration: registration.trim().toUpperCase(), 
+        batch: "",
+        registration: regUpper,
         semesters: [],
-        basket: ""
+        basket: "",
+        ...(getSomProgramFromRegistration(regUpper) === "BBA"
+          ? { bbaDegreeType: "3year" }
+          : {}),
       };
       
       const res = await fetch("/api/cbcs/track", {
@@ -110,7 +119,15 @@ export default function UserBasketTrack() {
     }
   }, [registration, autoFetched, fetchBasketProgress]);
 
-  // Stats calculation with lateral entry support
+  const isMba = useMemo(() => {
+    if (!studentData) return false;
+    const reg = String(studentData.registration || "").toUpperCase();
+    if (getSomProgramFromRegistration(reg) === "MBA") return true;
+    const dept = String(studentData.Branch || studentData.department || "").toUpperCase();
+    return dept === "MBA" || dept.includes("MASTER OF BUSINESS ADMINISTRATION");
+  }, [studentData]);
+
+  // Stats calculation with lateral entry support (MBA: semester-wise earned like admin basket track)
   const overallStats = useMemo(() => {
     const entries = Object.values(basketProgress || {});
     // Always expect 5 baskets (Basket I, II, III, IV, V) for total calculation
@@ -143,6 +160,27 @@ export default function UserBasketTrack() {
     const totalEarned = entries.reduce((sum, b) => sum + (Number(b?.earned_credits) || 0), 0);
     const totalFailed = entries.reduce((sum, b) => sum + (Number(b?.failed_credits) || 0), 0);
     const totalCredits = totalEarned + totalFailed;
+
+    const semStats = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0 };
+    entries.forEach((b) => {
+      if (b.subjects && Array.isArray(b.subjects)) {
+        b.subjects.forEach((sub) => {
+          const currentGrade = String(sub.Grade || sub.grade || "").toUpperCase();
+          const isSuccess = ["O", "E", "A", "B", "C", "D", "S", "M"].includes(currentGrade);
+          if (isSuccess) {
+            const semStr = String(sub.Sem || sub.semester || sub.sem || "")
+              .toUpperCase()
+              .replace(/^(SEM|SEMESTER)\.?\s*/, "")
+              .trim();
+            const sem = parseInt(semStr, 10);
+            if (!Number.isNaN(sem) && sem >= 1 && sem <= 8) {
+              const currentCredits = Number(sub.Credits || sub.credits || 0);
+              semStats[sem] += currentCredits;
+            }
+          }
+        });
+      }
+    });
     
     // Check if student is lateral entry / diploma from API data
     const isLateralEntry = studentData?.is_lateral_entry || false;
@@ -151,17 +189,32 @@ export default function UserBasketTrack() {
     const fallbackTotalRequired = (() => {
       const isDiploma = studentData?.is_diploma || false;
       if (isDiploma) {
-        // Diploma: 120 (regular) or 80 (lateral)
         return isLateralEntry ? 80 : 120;
       }
-      // B.Tech: 160 (regular) or 120 (lateral)
+      const reg = String(studentData?.registration || "").toUpperCase();
+      if (getSomProgramFromRegistration(reg) === "BBA") {
+        return 120;
+      }
+      if (getSomProgramFromRegistration(reg) === "MBA") {
+        return 73;
+      }
       return isLateralEntry ? 120 : 160;
     })();
 
     const totalRequired = typeof apiTotalRequired === "number" ? apiTotalRequired : fallbackTotalRequired;
     const percentage = Math.min(100, Math.round((totalEarned / totalRequired) * 100));
     
-    return { totalBaskets, basketsCompleted, totalEarned, totalFailed, totalCredits, totalRequired, percentage, isLateralEntry };
+    return {
+      totalBaskets,
+      basketsCompleted,
+      totalEarned,
+      totalFailed,
+      totalCredits,
+      totalRequired,
+      percentage,
+      isLateralEntry,
+      semStats,
+    };
   }, [basketProgress, studentData]);
 
   // Handle basket click for details
@@ -178,6 +231,50 @@ export default function UserBasketTrack() {
     setShowBasketDetails(false);
     setSelectedBasket(null);
   }
+
+  const handleSemesterClick = (semNum) => {
+    const allSubjects = [];
+    Object.values(basketProgress || {}).forEach((b) => {
+      if (b.subjects && Array.isArray(b.subjects)) {
+        b.subjects.forEach((sub) => {
+          const subSemStr = String(sub.Sem || sub.semester || sub.sem || "")
+            .toUpperCase()
+            .replace(/^(SEM|SEMESTER)\.?\s*/, "")
+            .trim();
+          if (parseInt(subSemStr, 10) === parseInt(semNum, 10)) {
+            allSubjects.push(sub);
+          }
+        });
+      }
+    });
+
+    if (allSubjects.length === 0) {
+      window.alert(`No subjects found for Semester ${semNum}`);
+      return;
+    }
+
+    allSubjects.sort((a, b) =>
+      String(a.code || a.Code || "").localeCompare(String(b.code || b.Code || ""))
+    );
+
+    const reqPerSem = [20, 21, 17, 15];
+    const req = reqPerSem[semNum - 1] || 0;
+    const earned = overallStats.semStats[semNum] || 0;
+
+    setSelectedBasket({
+      name: `Semester ${semNum}`,
+      info: {
+        required_credits: req,
+        earned_credits: earned,
+        failed_credits: allSubjects
+          .filter((s) => s.failed)
+          .reduce((sum, s) => sum + (Number(s.credits || s.Credits || 0)), 0),
+        status: earned >= req ? "Completed" : "Not Completed",
+      },
+      subjects: allSubjects,
+    });
+    setShowBasketDetails(true);
+  };
 
   // Export functions
   const exportToCSV = () => {
@@ -1109,6 +1206,48 @@ export default function UserBasketTrack() {
                 </div>
               )}
 
+              {/* BBA (SOM) — 120-credit CBCS on user panel */}
+              {!studentData.is_lateral_entry &&
+                getSomProgramFromRegistration(
+                  String(studentData.registration || "").toUpperCase()
+                ) === "BBA" && (
+                  <div className="mb-6 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-lg p-4">
+                    <div className="flex items-center">
+                      <div className="flex-shrink-0">
+                        <div className="w-8 h-8 bg-emerald-600 rounded-full flex items-center justify-center">
+                          <span className="text-white font-bold text-sm">120</span>
+                        </div>
+                      </div>
+                      <div className="ml-3">
+                        <h3 className="text-lg font-semibold text-emerald-900">
+                          BBA — CBCS (120 credits)
+                        </h3>
+                        <p className="text-emerald-800 text-sm">
+                          Basket progress uses the <strong>120-credit</strong> structure (Baskets I–V) for BBA.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+              {isMba && (
+                <div className="mb-6 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-center">
+                    <div className="flex-shrink-0">
+                      <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
+                        <span className="text-white font-bold text-sm">73</span>
+                      </div>
+                    </div>
+                    <div className="ml-3">
+                      <h3 className="text-lg font-semibold text-blue-900">MBA — semester-wise progress</h3>
+                      <p className="text-blue-800 text-sm">
+                        Progress is shown <strong>by semester</strong> (Sem I–IV), same as the admin tracker. Total program requirement is <strong>73 credits</strong>.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Student Information Section */}
               <div className="mb-6">
                 <h4 className="text-md font-semibold text-gray-800 mb-3">Student Information</h4>
@@ -1164,7 +1303,9 @@ export default function UserBasketTrack() {
                       </tr>
                       <tr>
                         <td className="px-4 py-3 font-semibold text-gray-700 bg-gray-50">Semester:</td>
-                          <td className="px-4 py-3 text-gray-900">All Semesters</td>
+                        <td className="px-4 py-3 text-gray-900">
+                          {isMba ? "Semesters I–IV (see table below)" : "All Semesters"}
+                        </td>
                       </tr>
                     </tbody>
                   </table>
@@ -1172,104 +1313,195 @@ export default function UserBasketTrack() {
                 </div>
               </div>
 
-              {/* Basket Progress Section */}
-              <div>
-                <h4 className="text-md font-semibold text-gray-800 mb-3">Basket Progress</h4>
-                <div className="border border-gray-300 rounded-lg overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse text-[11px] sm:text-sm">
-                    <thead>
-                      <tr className="bg-gray-100 border-b-2 border-gray-300 text-[10px] sm:text-xs">
-                        <th className="px-2 py-1 sm:px-4 sm:py-3 text-left font-semibold text-gray-900">Basket</th>
-                        <th className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">Required Credits</th>
-                        <th className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">Earned Credits</th>
-                        <th className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">Failed Credits</th>
-                        <th className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">Total Credits</th>
-                        <th className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(basketProgress || {}).length > 0 ? (
-                        Object.entries(basketProgress).map(([basketName, info], index) => {
-                          const earnedCredits = Number(info?.earned_credits) || 0;
-                          const failedCredits = Number(info?.failed_credits) || 0;
-                          const totalCredits = earnedCredits + failedCredits;
-                          const requiredCredits = Number(info?.required_credits) || 0;
-                          const isCompleted = earnedCredits >= requiredCredits && requiredCredits > 0;
-                          const status = isCompleted ? "Completed" : "Not Completed";
-
-                          return (
-                            <tr key={basketName} className="border-b border-gray-200 hover:bg-gray-50 transition-colors text-[11px] sm:text-sm">
-                              <td 
-                                className="px-2 py-1 sm:px-4 sm:py-3 cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                                onClick={() => handleBasketClick(basketName, info)}
-                                title="Click to view detailed subjects"
+              {/* MBA: semester-wise (matches admin basket track); others: basket table */}
+              {isMba ? (
+                <div>
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+                    <h4 className="text-md font-semibold text-gray-800">Semester-wise Progress</h4>
+                    <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-md text-xs font-bold w-fit">
+                      CURRICULUM TOTAL: 73 CREDITS
+                    </span>
+                  </div>
+                  <div className="border border-gray-300 rounded-lg overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse text-[11px] sm:text-sm">
+                        <thead>
+                          <tr className="bg-gray-100 border-b-2 border-gray-300">
+                            <th className="px-2 py-2 sm:px-4 sm:py-3 text-left font-semibold text-gray-900">Semester</th>
+                            <th className="px-2 py-2 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">Required Credits</th>
+                            <th className="px-2 py-2 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">Earned Credits</th>
+                            <th className="px-2 py-2 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[
+                            { sem: "I", req: 20, val: 1 },
+                            { sem: "II", req: 21, val: 2 },
+                            { sem: "III", req: 17, val: 3 },
+                            { sem: "IV", req: 15, val: 4 },
+                          ].map((item) => {
+                            const earned = overallStats.semStats[item.val] || 0;
+                            const isCompleted = earned >= item.req;
+                            return (
+                              <tr
+                                key={item.sem}
+                                className="border-b border-gray-200 hover:bg-blue-50 transition-colors cursor-pointer group"
+                                onClick={() => handleSemesterClick(item.val)}
+                                title={`View subjects for Semester ${item.sem}`}
                               >
-                                {basketName} 📋
-                              </td>
-                              <td className="px-2 py-1 sm:px-4 sm:py-3 text-center text-gray-900">{requiredCredits}</td>
-                              <td className="px-2 py-1 sm:px-4 sm:py-3 text-center text-green-600 font-medium">{earnedCredits}</td>
-                              <td className="px-2 py-1 sm:px-4 sm:py-3 text-center text-red-600 font-medium">{failedCredits}</td>
-                              <td className="px-2 py-1 sm:px-4 sm:py-3 text-center text-gray-900 font-semibold">{totalCredits}</td>
-                              <td className="px-2 py-1 sm:px-4 sm:py-3 text-center">
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium ${
-                                  isCompleted 
-                                    ? 'bg-green-100 text-green-800' 
-                                    : 'bg-red-100 text-red-800'
-                                }`}>
-                                  {status}
-                                </span>
+                                <td className="px-2 py-2 sm:px-4 sm:py-3 text-gray-900 font-medium">
+                                  <span className="flex items-center justify-between gap-2">
+                                    <span>Semester {item.sem}</span>
+                                    <span className="opacity-0 group-hover:opacity-100 transition-opacity text-blue-600 text-[10px] sm:text-xs font-bold whitespace-nowrap">
+                                      View subjects →
+                                    </span>
+                                  </span>
+                                </td>
+                                <td className="px-2 py-2 sm:px-4 sm:py-3 text-center text-gray-900">{item.req}</td>
+                                <td
+                                  className={`px-2 py-2 sm:px-4 sm:py-3 text-center font-bold ${
+                                    isCompleted ? "text-green-600" : "text-orange-600"
+                                  }`}
+                                >
+                                  {earned}
+                                </td>
+                                <td className="px-2 py-2 sm:px-4 sm:py-3 text-center">
+                                  <span
+                                    className={`inline-flex px-2 py-0.5 rounded text-[10px] sm:text-xs font-medium ${
+                                      isCompleted ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+                                    }`}
+                                  >
+                                    {isCompleted ? "Completed" : "Pending"}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          <tr className="bg-gray-50 border-t-2 border-gray-300">
+                            <td className="px-2 py-2 sm:px-4 sm:py-3 font-bold text-gray-900">Program Total</td>
+                            <td className="px-2 py-2 sm:px-4 sm:py-3 text-center font-bold text-gray-900">73</td>
+                            <td
+                              className={`px-2 py-2 sm:px-4 sm:py-3 text-center font-bold ${
+                                overallStats.totalEarned >= 73 ? "text-green-600" : "text-blue-600"
+                              }`}
+                            >
+                              {overallStats.totalEarned}
+                            </td>
+                            <td className="px-2 py-2 sm:px-4 sm:py-3 text-center">
+                              <span
+                                className={`inline-flex px-2 py-0.5 rounded text-[10px] sm:text-xs font-bold ${
+                                  overallStats.totalEarned >= 73
+                                    ? "bg-green-100 text-green-800"
+                                    : "bg-blue-100 text-blue-800"
+                                }`}
+                              >
+                                {overallStats.percentage}% Complete
+                              </span>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <h4 className="text-md font-semibold text-gray-800 mb-3">Basket Progress</h4>
+                  <div className="border border-gray-300 rounded-lg overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse text-[11px] sm:text-sm">
+                        <thead>
+                          <tr className="bg-gray-100 border-b-2 border-gray-300 text-[10px] sm:text-xs">
+                            <th className="px-2 py-1 sm:px-4 sm:py-3 text-left font-semibold text-gray-900">Basket</th>
+                            <th className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">Required Credits</th>
+                            <th className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">Earned Credits</th>
+                            <th className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">Failed Credits</th>
+                            <th className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">Total Credits</th>
+                            <th className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.entries(basketProgress || {}).length > 0 ? (
+                            Object.entries(basketProgress).map(([basketName, info]) => {
+                              const earnedCredits = Number(info?.earned_credits) || 0;
+                              const failedCredits = Number(info?.failed_credits) || 0;
+                              const totalCreditsRow = earnedCredits + failedCredits;
+                              const requiredCredits = Number(info?.required_credits) || 0;
+                              const isCompleted = earnedCredits >= requiredCredits && requiredCredits > 0;
+                              const status = isCompleted ? "Completed" : "Not Completed";
+
+                              return (
+                                <tr key={basketName} className="border-b border-gray-200 hover:bg-gray-50 transition-colors text-[11px] sm:text-sm">
+                                  <td
+                                    className="px-2 py-1 sm:px-4 sm:py-3 cursor-pointer hover:bg-blue-50 text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                                    onClick={() => handleBasketClick(basketName, info)}
+                                    title="Click to view detailed subjects"
+                                  >
+                                    {basketName} 📋
+                                  </td>
+                                  <td className="px-2 py-1 sm:px-4 sm:py-3 text-center text-gray-900">{requiredCredits}</td>
+                                  <td className="px-2 py-1 sm:px-4 sm:py-3 text-center text-green-600 font-medium">{earnedCredits}</td>
+                                  <td className="px-2 py-1 sm:px-4 sm:py-3 text-center text-red-600 font-medium">{failedCredits}</td>
+                                  <td className="px-2 py-1 sm:px-4 sm:py-3 text-center text-gray-900 font-semibold">{totalCreditsRow}</td>
+                                  <td className="px-2 py-1 sm:px-4 sm:py-3 text-center">
+                                    <span
+                                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium ${
+                                        isCompleted ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+                                      }`}
+                                    >
+                                      {status}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          ) : (
+                            <tr>
+                              <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                                No basket progress data available
                               </td>
                             </tr>
-                          );
-                        })
-                      ) : (
-                        <tr>
-                          <td colSpan="7" className="px-4 py-8 text-center text-gray-500">
-                            No basket progress data available
-                          </td>
-                        </tr>
-                      )}
-                      
-                      {Object.entries(basketProgress || {}).length > 0 && (
-                        <tr className="bg-gray-50 border-t-2 border-gray-300 text-[11px] sm:text-sm">
-                          <td className="px-2 py-1 sm:px-4 sm:py-3 font-semibold text-center text-gray-900">
-                            {overallStats.isLateralEntry ? "Lateral Entry Total" : "Total"}
-                          </td>
-                          <td className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">
-                            {overallStats.totalRequired}
-                            {overallStats.isLateralEntry && (
-                              <div className="text-xs text-orange-600 mt-1">Lateral Entry</div>
-                            )}
-                          </td>
-                          <td className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-green-600">{overallStats.totalEarned}</td>
-                          <td className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-red-600">{overallStats.totalFailed}</td>
-                          <td className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">{overallStats.totalCredits}</td>
-                          <td className="px-2 py-1 sm:px-4 sm:py-3 text-center">
-                            {/* Total status is "Completed" ONLY when ALL individual baskets are completed */}
-                            {(() => {
-                              // CRITICAL: Check if ALL baskets are completed
-                              // basketsCompleted must equal totalBaskets (5) for status to be "Completed"
-                              const allBasketsCompleted = overallStats.basketsCompleted === overallStats.totalBaskets && overallStats.totalBaskets > 0;
-                              
-                              return (
-                            <span className={`px-2 py-1 rounded text-[10px] sm:text-xs font-medium ${
-                                  allBasketsCompleted
-                                ? 'bg-green-100 text-green-800' 
-                                : 'bg-red-100 text-red-800'
-                            }`}>
-                                  {allBasketsCompleted ? "Completed" : "Not Completed"}
-                            </span>
-                              );
-                            })()}
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+                          )}
+
+                          {Object.entries(basketProgress || {}).length > 0 && (
+                            <tr className="bg-gray-50 border-t-2 border-gray-300 text-[11px] sm:text-sm">
+                              <td className="px-2 py-1 sm:px-4 sm:py-3 font-semibold text-center text-gray-900">
+                                {overallStats.isLateralEntry ? "Lateral Entry Total" : "Total"}
+                              </td>
+                              <td className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">
+                                {overallStats.totalRequired}
+                                {overallStats.isLateralEntry && (
+                                  <div className="text-xs text-orange-600 mt-1">Lateral Entry</div>
+                                )}
+                              </td>
+                              <td className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-green-600">{overallStats.totalEarned}</td>
+                              <td className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-red-600">{overallStats.totalFailed}</td>
+                              <td className="px-2 py-1 sm:px-4 sm:py-3 text-center font-semibold text-gray-900">{overallStats.totalCredits}</td>
+                              <td className="px-2 py-1 sm:px-4 sm:py-3 text-center">
+                                {(() => {
+                                  const allBasketsCompleted =
+                                    overallStats.basketsCompleted === overallStats.totalBaskets &&
+                                    overallStats.totalBaskets > 0;
+
+                                  return (
+                                    <span
+                                      className={`px-2 py-1 rounded text-[10px] sm:text-xs font-medium ${
+                                        allBasketsCompleted ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+                                      }`}
+                                    >
+                                      {allBasketsCompleted ? "Completed" : "Not Completed"}
+                                    </span>
+                                  );
+                                })()}
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         )}
@@ -1340,8 +1572,7 @@ export default function UserBasketTrack() {
                                 <span className={`px-2 py-1 rounded text-[10px] sm:text-xs font-medium ${
                                   grade === 'RESULT NOT PUBLISHED'
                                     ? 'bg-yellow-100 text-yellow-800'
-                                    : ["O","E","A"].includes(grade) ? 'bg-green-100 text-green-800' :
-                                    ["B","C","D"].includes(grade) ? 'bg-blue-100 text-blue-800' :
+                                    : ["O","E","A","B","C","D","S","M"].includes(grade) ? 'bg-green-100 text-green-800' :
                                     'bg-red-100 text-red-800'
                                 }`}>
                                   {grade || '—'}

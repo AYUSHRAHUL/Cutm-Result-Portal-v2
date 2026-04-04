@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
+import { getUserDashboardPathBySchool } from "@/lib/campus";
 
 export default function Navbar() {
   const [user, setUser] = useState(null);
@@ -9,14 +10,22 @@ export default function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [userLoading, setUserLoading] = useState(true);
+  const [placementEligible, setPlacementEligible] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const isDashboard = typeof pathname === "string" && pathname.startsWith("/dashboard");
 
   const roleLower = String(user?.role || "").toLowerCase();
   const isUserPanel = isDashboard && user && !userLoading && (roleLower === "user" || roleLower === "student");
+  const userSchoolSlug = user?.school ? String(user.school).toLowerCase() : "";
+  const userDashboardBase =
+    isUserPanel && ["soet", "som", "sovet"].includes(userSchoolSlug)
+      ? getUserDashboardPathBySchool(userSchoolSlug)
+      : "/dashboard/user";
+  const isResultsHome =
+    typeof pathname === "string" &&
+    (pathname === userDashboardBase || pathname === `${userDashboardBase}/`);
   const isActive = (path) => typeof pathname === "string" && pathname.startsWith(path);
-
   useEffect(() => {
     const fetchUser = async () => {
       try {
@@ -36,6 +45,31 @@ export default function Navbar() {
     };
     fetchUser();
   }, []);
+
+  useEffect(() => {
+    if (!user || userLoading) {
+      setPlacementEligible(false);
+      return;
+    }
+    const role = String(user.role || "").toLowerCase();
+    if (role !== "user" && role !== "student") {
+      setPlacementEligible(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/user/placement/eligibility", { credentials: "include" });
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled) setPlacementEligible(!!data.eligible);
+      } catch {
+        if (!cancelled) setPlacementEligible(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, userLoading]);
 
   useEffect(() => {
     setMounted(true);
@@ -139,8 +173,8 @@ export default function Navbar() {
         {isUserPanel && (
           <div className="hidden md:flex items-center gap-2 lg:gap-3 mx-2 overflow-x-auto scrollbar-none">
             <button
-              onClick={() => router.push("/dashboard/user")}
-              className={`px-3 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all duration-200 touch-manipulation ${isActive("/dashboard/user") && !isActive("/dashboard/user/")
+              onClick={() => router.push(userDashboardBase)}
+              className={`px-3 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all duration-200 touch-manipulation ${isResultsHome
                   ? "bg-white text-[#05A3C7] shadow-md"
                   : "bg-white/10 hover:bg-white/20 text-white backdrop-blur-sm"
                 }`}
@@ -174,17 +208,19 @@ export default function Navbar() {
               ⚠️ Backlogs
             </button>
 
-            <button
-              onClick={() => router.push("/dashboard/user/placement")}
-              className={`px-3 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all duration-200 touch-manipulation ${isActive("/dashboard/user/placement")
-                  ? "bg-white text-[#05A3C7] shadow-md"
-                  : "bg-white/10 hover:bg-white/20 text-white backdrop-blur-sm"
-                }`}
-              title="Placement Portal"
-              style={{ minHeight: "40px" }}
-            >
-              💼 Placement
-            </button>
+            {placementEligible && (
+              <button
+                onClick={() => router.push("/dashboard/user/placement")}
+                className={`px-3 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-all duration-200 touch-manipulation ${isActive("/dashboard/user/placement")
+                    ? "bg-white text-[#05A3C7] shadow-md"
+                    : "bg-white/10 hover:bg-white/20 text-white backdrop-blur-sm"
+                  }`}
+                title="Placement Portal"
+                style={{ minHeight: "40px" }}
+              >
+                💼 Placement
+              </button>
+            )}
           </div>
         )}
 
@@ -280,7 +316,12 @@ export default function Navbar() {
                       onClick={() => {
                         setOpen(false);
                         const role = String(user.role || "user").toLowerCase();
-                        const base = role === "admin" ? "/dashboard/admin" : role === "teacher" ? "/dashboard/teacher" : "/dashboard/user";
+                        const base =
+                          role === "admin"
+                            ? "/dashboard/admin"
+                            : role === "teacher"
+                              ? "/dashboard/teacher"
+                              : "/dashboard/user";
                         router.push(`${base}/profile`);
                       }}
                       style={{ minHeight: "44px" }}
@@ -296,7 +337,12 @@ export default function Navbar() {
                       onClick={() => {
                         setOpen(false);
                         const role = String(user.role || "user").toLowerCase();
-                        const base = role === "admin" ? "/dashboard/admin" : role === "teacher" ? "/dashboard/teacher" : "/dashboard/user";
+                        const base =
+                          role === "admin"
+                            ? "/dashboard/admin"
+                            : role === "teacher"
+                              ? "/dashboard/teacher"
+                              : "/dashboard/user";
                         router.push(`${base}/profile/edit`);
                       }}
                       style={{ minHeight: "44px" }}
@@ -313,7 +359,12 @@ export default function Navbar() {
                       onClick={() => {
                         setOpen(false);
                         const role = String(user.role || "user").toLowerCase();
-                        const target = role === "admin" ? "/dashboard/admin" : role === "teacher" ? "/dashboard/teacher" : "/dashboard/user";
+                        const target =
+                          role === "admin"
+                            ? "/dashboard/admin"
+                            : role === "teacher"
+                              ? "/dashboard/teacher"
+                              : userDashboardBase;
                         router.push(target);
                       }}
                       style={{ minHeight: "44px" }}
@@ -369,9 +420,9 @@ export default function Navbar() {
               <button
                 onClick={() => {
                   setMobileMenuOpen(false);
-                  router.push("/dashboard/user");
+                  router.push(userDashboardBase);
                 }}
-                className={`w-full text-left px-5 py-4 rounded-xl text-base font-bold transition-all duration-200 flex items-center gap-4 shadow-md touch-manipulation ${isActive("/dashboard/user") && !isActive("/dashboard/user/")
+                className={`w-full text-left px-5 py-4 rounded-xl text-base font-bold transition-all duration-200 flex items-center gap-4 shadow-md touch-manipulation ${isResultsHome
                     ? "bg-white text-[#05A3C7] border-2 border-[#05A3C7]"
                     : "bg-white text-[#2E4057] border-2 border-transparent hover:border-[#05A3C7]/30"
                   }`}
@@ -420,23 +471,25 @@ export default function Navbar() {
                 </div>
               </button>
 
-              <button
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  router.push("/dashboard/user/placement");
-                }}
-                className={`w-full text-left px-5 py-4 rounded-xl text-base font-bold transition-all duration-200 flex items-center gap-4 shadow-md touch-manipulation ${isActive("/dashboard/user/placement")
-                    ? "bg-white text-[#05A3C7] border-2 border-[#05A3C7]"
-                    : "bg-white text-[#2E4057] border-2 border-transparent hover:border-[#05A3C7]/30"
-                  }`}
-                style={{ minHeight: "56px" }}
-              >
-                <span className="text-2xl">💼</span>
-                <div>
-                  <div>Placement Portal</div>
-                  <div className="text-xs text-[#5A6C7D] font-medium mt-0.5">Check offers & status</div>
-                </div>
-              </button>
+              {placementEligible && (
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    router.push("/dashboard/user/placement");
+                  }}
+                  className={`w-full text-left px-5 py-4 rounded-xl text-base font-bold transition-all duration-200 flex items-center gap-4 shadow-md touch-manipulation ${isActive("/dashboard/user/placement")
+                      ? "bg-white text-[#05A3C7] border-2 border-[#05A3C7]"
+                      : "bg-white text-[#2E4057] border-2 border-transparent hover:border-[#05A3C7]/30"
+                    }`}
+                  style={{ minHeight: "56px" }}
+                >
+                  <span className="text-2xl">💼</span>
+                  <div>
+                    <div>Placement Portal</div>
+                    <div className="text-xs text-[#5A6C7D] font-medium mt-0.5">Check offers & status</div>
+                  </div>
+                </button>
+              )}
             </div>
 
             <div className="absolute bottom-0 left-0 right-0 p-6 bg-white/80 backdrop-blur-sm border-t-2 border-[#05A3C7]/20">

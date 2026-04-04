@@ -769,11 +769,18 @@ export async function POST(req) {
     if (codes.length > 0) {
       const cbcsDocs = await db
         .collection("cbcs")
-        .find({ "Subject Code": { $in: codes } })
-        .project({ _id: 0, "Subject Code": 1, Basket: 1, Branch: 1, Department: 1 })
+        .find({
+          $or: [
+            { "Subject Code": { $in: codes } },
+            { "Alternative Code": { $in: codes } },
+          ],
+        })
+        .project({ _id: 0, "Subject Code": 1, "Alternative Code": 1, Basket: 1, Branch: 1, Department: 1 })
         .toArray();
       cbcsDocs.forEach((d) => {
         const code = String(d["Subject Code"]).toUpperCase().trim();
+        const altRaw = String(d["Alternative Code"] || "").trim();
+        const altCode = altRaw ? altRaw.toUpperCase() : "";
         let basketVal = String(d.Basket || "").trim();
         
         // Normalize numeric baskets for SOM/B.Tech (e.g. "1" -> "Basket I")
@@ -788,10 +795,13 @@ export async function POST(req) {
           basketVal = `Basket ${basketVal}`;
         }
         
-        codeMap.set(code, basketVal);
-        // Store department info from Branch field (or Department if available)
         const dept = String(d.Branch || d.Department || "").trim();
+        codeMap.set(code, basketVal);
         codeDepartmentMap.set(code, dept);
+        if (altCode) {
+          codeMap.set(altCode, basketVal);
+          codeDepartmentMap.set(altCode, dept);
+        }
       });
     }
 
@@ -983,6 +993,11 @@ export async function POST(req) {
       // For diploma, use diploma-specific lateral entry check
       const isLateralEntry = isDiploma ? await checkLateral(student.Reg_No) : isLateralEntryStudent(student.Reg_No);
 
+      const regStr = String(student.Reg_No || "");
+      const isBbaStudentSom =
+        school === "SOM" && (actualDepartment === "BBA" || regStr.slice(5, 8) === "912");
+      const defaultBasketWhenMissing = isBbaStudentSom ? "Basket II" : "Basket V";
+
       // Process student results
       studentResults.forEach((r) => {
         const code = String(r.Subject_Code || "").toUpperCase().trim();
@@ -994,10 +1009,9 @@ export async function POST(req) {
         const isRegistrationData = r.Type === 'Registration';
         const isFailed = isRegistrationData ? false : FAIL_OR_INCOMPLETE_GRADES.has(grade);
 
-        // Special handling for CUTM1057 and CUTM1046 based on department
-        let targetBasket = codeMap.get(code) || "Basket V";
-        if (school === 'SOM') {
-          const isMbaNow = actualDepartment === 'MBA' || student.Reg_No.slice(5, 8) === '214';
+        let targetBasket = codeMap.get(code) || defaultBasketWhenMissing;
+        if (school === "SOM") {
+          const isMbaNow = actualDepartment === "MBA" || regStr.slice(5, 8) === "214";
           if (isMbaNow) {
             targetBasket = "Total";
           }

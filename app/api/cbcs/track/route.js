@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import { jwtVerify } from "jose";
-import { getCampusDatabase, getCampusSchoolDatabase, getDatabaseFromRegistration, getSchoolFromRegistration } from "@/lib/campus";
+import { getCampusDatabase, getCampusSchoolDatabase, getDatabaseFromRegistration, getSchoolFromRegistration, getSomDatabaseSearchOrder } from "@/lib/campus";
 // Import diploma helpers from SOVET parse-registration API
 async function getDiplomaHelpers() {
   const { isDiplomaStudent, isDiplomaLateralEntry, getDiplomaBranchName, getBranchFromRegistration } = await import('../../sovet/parse-registration/route');
@@ -226,20 +226,30 @@ export async function POST(req) {
     }
 
     // FIXED: Extract request data first
-    const { department, batch, registration, semesters = [], basket, bbaDegreeType = "4year" } = await req.json();
+    let {
+      department,
+      batch,
+      registration,
+      semesters = [],
+      basket,
+      bbaDegreeType = "4year",
+    } = await req.json();
 
     // Get user role for access control
     const userRole = payload.role?.toLowerCase();
 
     // Security check: Role-based access control
-    if (userRole === 'user' || userRole === 'student') {
-      // Students can only view their own progress
+    if (userRole === "user" || userRole === "student") {
       const userEmail = payload.email;
-      if (userEmail && userEmail.includes('@cutm.ac.in')) {
-        const userRegNumber = userEmail.split('@')[0];
-        if (registration && registration !== userRegNumber) {
+      const isCampusStudentEmail =
+        userEmail &&
+        (userEmail.includes("@cutm.ac.in") || userEmail.includes("@centurionuniv.edu.in"));
+      if (isCampusStudentEmail) {
+        const userRegNumber = userEmail.split("@")[0].toUpperCase();
+        const reqReg = String(registration || "").toUpperCase().trim();
+        if (reqReg && reqReg !== userRegNumber) {
           return NextResponse.json({
-            error: "Access denied - Students can only view their own progress"
+            error: "Access denied - Students can only view their own progress",
           }, { status: 403 });
         }
       }
@@ -273,85 +283,107 @@ export async function POST(req) {
       dbName = getCampusSchoolDatabase(campus, school);
     }
 
-    const db = client.db(dbName);
-
-    // Check if student is inactive (Global Exclusion)
-    const statusCollection = db.collection("student_status");
-    const inactiveStatus = await statusCollection.findOne({ Reg_No: reg, isActive: false });
-    if (inactiveStatus) {
-      return NextResponse.json({
-        error: `Student ${reg} is inactive/disabled and cannot be accessed.`
-      }, { status: 404 }); // Use 404 to hide existence effectively, or 403 to be explicit. User asked for "kahi nhi ana chaya", so 404 is good as if they don't exist.
+    if (school != null && school !== "") {
+      school = String(school).toUpperCase();
     }
 
-    // Prepare robust query for both string and number formats
+    // User panel BBA: always 120-credit basket split (Baskets I–V)
+    if (
+      (userRole === "user" || userRole === "student") &&
+      school === "SOM" &&
+      reg.length >= 8 &&
+      reg.slice(5, 8) === "912"
+    ) {
+      bbaDegreeType = "3year";
+    }
+
     const regAsInt = parseInt(reg);
     const useOrQuery = !isNaN(regAsInt) && String(regAsInt) === reg;
     const lookupQuery = useOrQuery ? { $or: [{ Reg_No: reg }, { Reg_No: regAsInt }] } : { Reg_No: reg };
 
-    // Security check: If school context is SOM, enforce BBA/MBA only
-    if (school === 'SOM') {
-      const { isSOMStudent, parseSOMRegistration } = await import('../../som/parse-registration/route');
+    if (school === "SOM") {
+      const { parseSOMRegistration } = await import("../../som/parse-registration/route");
       const parsed = parseSOMRegistration(reg);
-      if (!parsed || !parsed.isSOM || !['BBA', 'MBA'].includes(parsed.branch)) {
-        return NextResponse.json({ 
-          error: "Access denied - This page only supports BBA and MBA students" 
+      if (!parsed || !parsed.isSOM || !["BBA", "MBA"].includes(parsed.branch)) {
+        return NextResponse.json({
+          error: "Access denied - This page only supports BBA and MBA students",
         }, { status: 403 });
       }
     }
 
-    // First, get student info to validate department and batch
-    // Check both primary collection (result/som_result) and RegistrationData collection
-    const studentInfoCol = school === 'SOVET' ? 'diploma_result' : (school === 'SOM' ? 'som_result' : 'result');
-    let studentInfo = await db
-      .collection(studentInfoCol)
-      .findOne(lookupQuery, { projection: { _id: 0, Name: 1, Reg_No: 1, Branch: 1 } });
+    const studentInfoCol = school === "SOVET" ? "diploma_result" : school === "SOM" ? "som_result" : "result";
 
-    // If not found in CUTM1, check RegistrationData collection
-    if (!studentInfo) {
-      console.log(`Student not found in CUTM1, checking RegistrationData: ${reg}`);
-      const regData = await db
-        .collection("RegistrationData")
-        .findOne(lookupQuery, { projection: { _id: 0, Name: 1, Reg_No: 1, Sem: 1 } });
+    const somDbOrder =
+      (userRole === "user" || userRole === "student") && school === "SOM"
+        ? getSomDatabaseSearchOrder(reg)
+        : [];
+    const dbTryList = somDbOrder.length > 0 ? somDbOrder : [dbName];
 
-      if (regData) {
-        studentInfo = {
-          Name: regData.Name,
-          Reg_No: regData.Reg_No,
-          Branch: "From Registration Data", // Default branch for registration data
-          Sem: regData.Sem
-        };
-        console.log(`Found student in RegistrationData: ${regData.Name}`);
+    let db = null;
+    let studentInfo = null;
+
+    for (const tryName of dbTryList) {
+      const tryDb = client.db(tryName);
+
+      const inactiveStatus = await tryDb.collection("student_status").findOne({ Reg_No: reg, isActive: false });
+      if (inactiveStatus) {
+        return NextResponse.json({
+          error: `Student ${reg} is inactive/disabled and cannot be accessed.`,
+        }, { status: 404 });
+      }
+
+      let si = await tryDb
+        .collection(studentInfoCol)
+        .findOne(lookupQuery, { projection: { _id: 0, Name: 1, Reg_No: 1, Branch: 1 } });
+
+      if (!si) {
+        const regData = await tryDb
+          .collection("RegistrationData")
+          .findOne(lookupQuery, { projection: { _id: 0, Name: 1, Reg_No: 1, Sem: 1 } });
+        if (regData) {
+          si = {
+            Name: regData.Name,
+            Reg_No: regData.Reg_No,
+            Branch: "From Registration Data",
+            Sem: regData.Sem,
+          };
+        }
+      }
+
+      if (si) {
+        db = tryDb;
+        studentInfo = si;
+        break;
       }
     }
 
     if (!studentInfo) {
-      // FIXED: Enhanced error message with debugging info
-      console.log(`Student not found in both collections: ${reg}`);
-
-      // Check if there are similar registration numbers in both collections
-      const similarCol = school === 'SOVET' ? 'diploma_result' : (school === 'SOM' ? 'som_result' : 'result');
-      const similarRegsCUTM1 = await db
-        .collection(similarCol)
-        .find({ Reg_No: { $regex: `^${reg.slice(0, 6)}` } })
-        .project({ _id: 0, Reg_No: 1, Name: 1 })
-        .limit(3)
-        .toArray();
-
-      const similarRegsRegData = await db
-        .collection("RegistrationData")
-        .find({ Reg_No: { $regex: `^${reg.slice(0, 6)}` } })
-        .project({ _id: 0, Reg_No: 1, Name: 1 })
-        .limit(3)
-        .toArray();
-
-      const allSimilar = [...similarRegsCUTM1, ...similarRegsRegData];
-      const suggestions = allSimilar.length > 0
-        ? ` Similar registrations found: ${allSimilar.map(r => r.Reg_No).join(', ')}`
-        : '';
+      console.log(`Student not found in collections (tried DBs: ${dbTryList.join(", ")}): ${reg}`);
+      const similarCol = school === "SOVET" ? "diploma_result" : school === "SOM" ? "som_result" : "result";
+      const allSimilar = [];
+      for (const tryName of dbTryList) {
+        const tryDb = client.db(tryName);
+        const sim1 = await tryDb
+          .collection(similarCol)
+          .find({ Reg_No: { $regex: `^${reg.slice(0, 6)}` } })
+          .project({ _id: 0, Reg_No: 1, Name: 1 })
+          .limit(3)
+          .toArray();
+        const sim2 = await tryDb
+          .collection("RegistrationData")
+          .find({ Reg_No: { $regex: `^${reg.slice(0, 6)}` } })
+          .project({ _id: 0, Reg_No: 1, Name: 1 })
+          .limit(3)
+          .toArray();
+        allSimilar.push(...sim1, ...sim2);
+      }
+      const suggestions =
+        allSimilar.length > 0
+          ? ` Similar registrations found: ${allSimilar.map((r) => r.Reg_No).join(", ")}`
+          : "";
 
       return NextResponse.json({
-        error: `Student not found with registration number: ${reg}.${suggestions} Please verify the registration number or upload registration data first.`
+        error: `Student not found with registration number: ${reg}.${suggestions} Please verify the registration number or upload registration data first.`,
       }, { status: 404 });
     }
 
@@ -517,7 +549,7 @@ export async function POST(req) {
 
       // Check if student exists but has no results in both collections
       const studentExistsCUTM1 = await db
-        .collection("result")
+        .collection(studentCol)
         .findOne({ Reg_No: reg }, { projection: { _id: 0, Reg_No: 1, Name: 1 } });
 
       const studentExistsRegData = await db
@@ -557,11 +589,18 @@ export async function POST(req) {
     if (codes.length > 0) {
       const cbcsDocs = await db
         .collection("cbcs")
-        .find({ "Subject Code": { $in: codes } })
-        .project({ _id: 0, "Subject Code": 1, Basket: 1, Branch: 1, Department: 1 })
+        .find({
+          $or: [
+            { "Subject Code": { $in: codes } },
+            { "Alternative Code": { $in: codes } },
+          ],
+        })
+        .project({ _id: 0, "Subject Code": 1, "Alternative Code": 1, Basket: 1, Branch: 1, Department: 1 })
         .toArray();
       cbcsDocs.forEach((d) => {
         const code = String(d["Subject Code"]).toUpperCase().trim();
+        const altRaw = String(d["Alternative Code"] || "").trim();
+        const altCode = altRaw ? altRaw.toUpperCase() : "";
         let basketVal = String(d.Basket || "").trim();
         
         // Normalize numeric baskets for SOM/B.Tech (e.g. "1" -> "Basket I")
@@ -576,10 +615,13 @@ export async function POST(req) {
           basketVal = `Basket ${basketVal}`;
         }
         
-        codeMap.set(code, basketVal);
-        // Store department info from Branch field (or Department if available)
         const dept = String(d.Branch || d.Department || "").trim();
+        codeMap.set(code, basketVal);
         codeDepartmentMap.set(code, dept);
+        if (altCode) {
+          codeMap.set(altCode, basketVal);
+          codeDepartmentMap.set(altCode, dept);
+        }
       });
     }
 
@@ -671,6 +713,10 @@ export async function POST(req) {
     // For diploma, use diploma-specific lateral entry check
     const isLateralEntry = isDiploma ? await checkLateral(reg) : isLateralEntryStudent(reg);
 
+    const isBbaStudentSom =
+      school === "SOM" && (actualDepartment === "BBA" || reg.slice(5, 8) === "912");
+    const defaultBasketWhenMissing = isBbaStudentSom ? "Basket II" : "Basket V";
+
     // Assign subjects to baskets. Earn credits only for completed attempts
     results.forEach((r) => {
       const code = String(r.Subject_Code || "").toUpperCase().trim();
@@ -683,14 +729,13 @@ export async function POST(req) {
       const isFailed = isRegistrationData ? false : FAIL_OR_INCOMPLETE_GRADES.has(grade);
 
       // Special handling for SOM: MBA uses 'Total', BBA uses Baskets I-V
-      let targetBasket = codeMap.get(code) || "Basket V"; // default assignment
+      let targetBasket = codeMap.get(code) || defaultBasketWhenMissing;
       if (school === 'SOM') {
-        const is2023Onwards = reg && (reg.startsWith('23') || reg.startsWith('24') || parseInt(reg.substring(0, 2)) >= 23);
         const isMbaNow = actualDepartment === 'MBA' || reg.slice(5, 8) === '214';
         if (isMbaNow) {
           targetBasket = "Total"; // MBA uses flat structure
         }
-        // BBA continues to use targetBasket (mapped from codeMap or default Basket V)
+        // BBA: mapped from cbcs, or default Basket II when code not in cbcs
       } else if (code === "CUTM1057") {
         if (actualDepartment === "Computer Science Engineering" || actualDepartment === "Electronics & Communication Engineering") {
           targetBasket = "Basket V";
@@ -742,8 +787,12 @@ export async function POST(req) {
         completed: isCompleted,
         failed: isFailed,
         status: status, // Add status field to show proper status
-        Sem: r.Sem || "", // Use 'Sem' for consistency across APIs
-        is_default_assigned: !codeMap.has(code) && targetBasket === "Basket V",
+        Sem: r.Sem != null && String(r.Sem).trim() !== "" ? String(r.Sem).trim() : "",
+        semester: r.Sem != null && String(r.Sem).trim() !== "" ? String(r.Sem).trim() : (r.Semester != null ? String(r.Semester).trim() : ""),
+        is_default_assigned:
+          !codeMap.has(code) &&
+          ((isBbaStudentSom && targetBasket === "Basket II") ||
+            (!isBbaStudentSom && targetBasket === "Basket V")),
         dataSource: isRegistrationData ? 'Registration' : 'CUTM1', // Add data source indicator
       };
       basketProgress[targetBasket].subjects.push(subjectEntry);
@@ -775,8 +824,11 @@ export async function POST(req) {
     let defaultTotalRequired = 160; // Default for B.Tech Regular
     if (school === 'SOM') {
       const isBbaProgram = actualDepartment === 'BBA' || reg.slice(5, 8) === '912';
-      const is2023Onwards = reg && (reg.startsWith('23') || reg.startsWith('24') || parseInt(reg.substring(0, 2)) >= 23);
-      defaultTotalRequired = isBbaProgram ? (is2023Onwards ? 160 : 120) : 73; // BBA: 160 (23+) / 120 (Regular), MBA: 73
+      const is2023Onwards = reg && (reg.startsWith('23') || reg.startsWith('24') || parseInt(reg.substring(0, 2), 10) >= 23);
+      const bba120 =
+        isBbaProgram &&
+        (bbaDegreeType === "3year" || !is2023Onwards);
+      defaultTotalRequired = isBbaProgram ? (bba120 ? 120 : 160) : 73;
     } else if (isDiploma) {
       defaultTotalRequired = isLateralEntry ? 80 : 120; // Diploma: 80 (lateral) or 120 (regular)
     } else if (isLateralEntry) {

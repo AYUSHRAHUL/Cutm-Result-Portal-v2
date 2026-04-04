@@ -135,7 +135,7 @@ function TeacherCBCSBasketPageContent() {
               </div>
               <div className="form-group">
                 <label>Search</label>
-                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Subject name or code" className="form-control" />
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Subject name, code, or alt code" className="form-control" />
               </div>
               <div className="form-group">
                 <button type="submit" className="btn btn-success">Apply Filters</button>
@@ -155,6 +155,7 @@ function TeacherCBCSBasketPageContent() {
                 <th>Branch</th>
                 <th>Basket</th>
                 <th>Subject Code</th>
+                <th>Alt code</th>
                 <th>Subject Name</th>
                 <th>Credits</th>
               </tr>
@@ -162,7 +163,7 @@ function TeacherCBCSBasketPageContent() {
             <tbody>
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="no-data">No subjects to display.</td>
+                  <td colSpan={6} className="no-data">No subjects to display.</td>
                 </tr>
               )}
               {items.map(s => {
@@ -172,6 +173,7 @@ function TeacherCBCSBasketPageContent() {
                     <td>{s.Branch || ""}</td>
                     <td>{s.Basket || ""}</td>
                     <td><strong>{s["Subject Code"] || s.SubjectCode || ""}</strong></td>
+                    <td>{s["Alternative Code"] || s.AlternativeCode || "—"}</td>
                     <td>{s.Subject_name || s.Subject_Name || ""}</td>
                     <td>{s.Credits || ""}</td>
                   </tr>

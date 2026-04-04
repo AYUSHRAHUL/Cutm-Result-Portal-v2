@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useCallback, Suspense } from "react";
 import Link from "next/link";
 import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
+import { normalizeSemesterBucket, formatSemesterDisplay } from "@/lib/subject-semester";
 import { useSearchParams } from "next/navigation";
 
 export default function BasketProgressTracker() {
@@ -527,7 +528,8 @@ Please check if the department name matches exactly with the available departmen
         const branch = department && department !== "All" ? branchMap[department] : undefined;
         const hasBatch = batch && batch !== "All";
         const body = { ...(branch ? { branch } : {}), ...(hasBatch ? { batch } : {}) };
-        const batchUrl = getSchoolApiUrl("batch");
+        const baseBatch = getSchoolApiUrl("batch");
+        const batchUrl = baseBatch.includes("?") ? `${baseBatch}&mode=list` : `${baseBatch}?mode=list`;
         const res = await fetch(batchUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -919,7 +921,7 @@ Please check if the department name matches exactly with the available departmen
       // Group by semester
       const subjectsBySemester = {};
       allSubjects.forEach(subject => {
-        const sem = subject.semester || "Unknown";
+        const sem = normalizeSemesterBucket(subject);
         if (!subjectsBySemester[sem]) {
           subjectsBySemester[sem] = [];
         }
@@ -1072,19 +1074,7 @@ Please check if the department name matches exactly with the available departmen
       // Group by semester - Normalize semester keys to match expected format
       const subjectsBySemester = {};
       allSubjects.forEach(subject => {
-        let sem = subject.semester || "Unknown";
-        // Normalize semester format: "Semester 1" -> "Sem 1", "Sem1" -> "Sem 1", "1" -> "Sem 1", etc.
-        sem = String(sem).replace(/semester\s*/i, "Sem ").replace(/sem\s*/i, "Sem ").trim();
-        if (!sem.match(/^Sem\s*\d+$/i) && sem.match(/^\d+$/)) {
-          sem = `Sem ${sem}`;
-        }
-        if (!sem.match(/^Sem\s*\d+$/i)) {
-          // Try to extract number if format is different
-          const numMatch = sem.match(/\d+/);
-          if (numMatch) {
-            sem = `Sem ${numMatch[0]}`;
-          }
-        }
+        const sem = normalizeSemesterBucket(subject);
         if (!subjectsBySemester[sem]) {
           subjectsBySemester[sem] = [];
         }
@@ -1532,7 +1522,7 @@ Please check if the department name matches exactly with the available departmen
       // Group by semester
       const subjectsBySemester = {};
       allSubjects.forEach(subject => {
-        const sem = subject.semester || "Unknown";
+        const sem = normalizeSemesterBucket(subject);
         if (!subjectsBySemester[sem]) {
           subjectsBySemester[sem] = [];
         }
@@ -3069,7 +3059,7 @@ Please check if the department name matches exactly with the available departmen
                                 {subject.grade || (subject.completed ? 'PASS' : 'FAIL')}
                               </span>
                             </td>
-                            <td className="border border-gray-300 px-3 py-2 text-center text-gray-900">{subject.Sem || subject.semester || 'N/A'}</td>
+                            <td className="border border-gray-300 px-3 py-2 text-center text-gray-900">{formatSemesterDisplay(subject)}</td>
                             <td className="border border-gray-300 px-3 py-2 text-center">
                               <div className="flex flex-col gap-1">
                                 <span className={`px-2 py-1 rounded text-xs font-medium ${subject.status === 'Completed'

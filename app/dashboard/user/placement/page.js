@@ -7,32 +7,28 @@ import { motion } from "framer-motion";
 export default function PlacementPortal() {
     const router = useRouter();
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
     const [placementData, setPlacementData] = useState(null);
 
     useEffect(() => {
         async function fetchPlacementData() {
             try {
-                const response = await fetch("/api/user/placement");
-                if (!response.ok) {
-                    throw new Error("Failed to fetch placement data");
-                }
-                const data = await response.json();
+                const response = await fetch("/api/user/placement", { credentials: "include" });
+                const data = await response.json().catch(() => ({}));
 
-                if (!data.eligible) {
-                    setError(data.message || "You are not eligible for placement portal yet.");
-                } else {
-                    setPlacementData(data);
+                if (!response.ok || !data.eligible) {
+                    router.replace("/dashboard/user");
+                    return;
                 }
-            } catch (err) {
-                setError(err.message);
+                setPlacementData(data);
+            } catch {
+                router.replace("/dashboard/user");
             } finally {
                 setLoading(false);
             }
         }
 
         fetchPlacementData();
-    }, []);
+    }, [router]);
 
     if (loading) {
         return (
@@ -40,26 +36,6 @@ export default function PlacementPortal() {
                 <div className="text-center">
                     <div className="w-16 h-16 border-4 border-blue-400 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
                     <p className="text-lg animate-pulse">Loading Placement Profile...</p>
-                </div>
-            </div>
-        );
-    }
-
-    if (error) {
-        return (
-            <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-                <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center border-l-4 border-red-500">
-                    <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <span className="text-3xl">⚠️</span>
-                    </div>
-                    <h2 className="text-2xl font-bold text-gray-800 mb-2">Access Denied</h2>
-                    <p className="text-gray-600 mb-6">{error}</p>
-                    <button
-                        onClick={() => router.push("/dashboard/user")}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors font-medium"
-                    >
-                        Back to Dashboard
-                    </button>
                 </div>
             </div>
         );

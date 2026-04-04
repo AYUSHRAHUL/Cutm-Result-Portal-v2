@@ -47,11 +47,11 @@ function AdminCBCSBasketPageContent() {
 
   // Edit modal state
   const [editModal, setEditModal] = useState({ show: false, item: null });
-  const [editForm, setEditForm] = useState({ Branch: "", Basket: "", SubjectCode: "", SubjectName: "", Credits: "" });
+  const [editForm, setEditForm] = useState({ Branch: "", Basket: "", SubjectCode: "", AlternativeCode: "", SubjectName: "", Credits: "" });
 
   // Add subject modal state
   const [addModal, setAddModal] = useState({ show: false, mode: "manual" }); // "manual" or "upload"
-  const [addForm, setAddForm] = useState({ Branch: "", Basket: "", SubjectCode: "", SubjectName: "", Credits: "" });
+  const [addForm, setAddForm] = useState({ Branch: "", Basket: "", SubjectCode: "", AlternativeCode: "", SubjectName: "", Credits: "" });
   const [uploadFile, setUploadFile] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
 
@@ -148,6 +148,7 @@ function AdminCBCSBasketPageContent() {
       Branch: item.Branch || "",
       Basket: item.Basket || "",
       SubjectCode: item["Subject Code"] || item.SubjectCode || "",
+      AlternativeCode: item["Alternative Code"] || item.AlternativeCode || "",
       SubjectName: item.Subject_name || item.Subject_Name || "",
       Credits: item.Credits || ""
     });
@@ -156,7 +157,7 @@ function AdminCBCSBasketPageContent() {
 
   function closeEditModal() {
     setEditModal({ show: false, item: null });
-    setEditForm({ Branch: "", Basket: "", SubjectCode: "", SubjectName: "", Credits: "" });
+    setEditForm({ Branch: "", Basket: "", SubjectCode: "", AlternativeCode: "", SubjectName: "", Credits: "" });
   }
 
   async function saveEdit() {
@@ -171,6 +172,7 @@ function AdminCBCSBasketPageContent() {
         SubjectCode: ((editForm.SubjectCode || editModal.item["Subject Code"] || editModal.item.SubjectCode) || '').trim().toUpperCase(),
         SubjectName: ((editForm.SubjectName || editModal.item.Subject_name || editModal.item.Subject_Name) || '').trim(),
         Credits: (editForm.Credits ?? editModal.item.Credits ?? '').toString().trim(),
+        AlternativeCode: (editForm.AlternativeCode ?? '').toString().trim(),
       };
       if (!payload.Branch || !payload.SubjectCode || !payload.SubjectName) {
         throw new Error("Branch, Subject Code and Subject Name are required");
@@ -195,14 +197,14 @@ function AdminCBCSBasketPageContent() {
 
   function openAddModal(mode) {
     setAddModal({ show: true, mode });
-    setAddForm({ Branch: "", Basket: "", SubjectCode: "", SubjectName: "", Credits: "" });
+    setAddForm({ Branch: "", Basket: "", SubjectCode: "", AlternativeCode: "", SubjectName: "", Credits: "" });
     setUploadFile(null);
     setUploadProgress(0);
   }
 
   function closeAddModal() {
     setAddModal({ show: false, mode: "manual" });
-    setAddForm({ Branch: "", Basket: "", SubjectCode: "", SubjectName: "", Credits: "" });
+    setAddForm({ Branch: "", Basket: "", SubjectCode: "", AlternativeCode: "", SubjectName: "", Credits: "" });
     setUploadFile(null);
     setUploadProgress(0);
   }
@@ -216,6 +218,7 @@ function AdminCBCSBasketPageContent() {
         SubjectCode: (addForm.SubjectCode || '').trim(),
         SubjectName: (addForm.SubjectName || '').trim(),
         Credits: (addForm.Credits ?? '').toString().trim(),
+        AlternativeCode: (addForm.AlternativeCode ?? '').toString().trim(),
       };
       const cbcsUrl = getSchoolApiUrl("cbcs");
       const res = await fetch(cbcsUrl, {
@@ -348,7 +351,7 @@ function AdminCBCSBasketPageContent() {
               </div>
               <div className="form-group">
                 <label>Search</label>
-                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Subject name or code" className="form-control" />
+                <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Subject name, code, or alt code" className="form-control" />
               </div>
               <div className="form-group">
                 <button type="submit" className="btn btn-success">Apply Filters</button>
@@ -369,6 +372,7 @@ function AdminCBCSBasketPageContent() {
                 <th>Branch</th>
                 <th>Basket</th>
                 <th>Subject Code</th>
+                <th>Alt code</th>
                 <th>Subject Name</th>
                 <th>Credits</th>
                 <th>Actions</th>
@@ -377,7 +381,7 @@ function AdminCBCSBasketPageContent() {
             <tbody>
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="no-data">No subjects to display.</td>
+                  <td colSpan={8} className="no-data">No subjects to display.</td>
                 </tr>
               )}
               {items.map(s => {
@@ -388,6 +392,7 @@ function AdminCBCSBasketPageContent() {
                     <td>{s.Branch || ""}</td>
                     <td>{s.Basket || ""}</td>
                     <td><strong>{s["Subject Code"] || s.SubjectCode || ""}</strong></td>
+                    <td>{s["Alternative Code"] || s.AlternativeCode || "—"}</td>
                     <td>{s.Subject_name || s.Subject_Name || ""}</td>
                     <td>{s.Credits || ""}</td>
                     <td>
@@ -437,6 +442,11 @@ function AdminCBCSBasketPageContent() {
                   <input value={editForm.SubjectCode} onChange={e => setEditForm({ ...editForm, SubjectCode: e.target.value })} className="form-control" />
                 </div>
                 <div className="form-group">
+                  <label>Alternative code (optional)</label>
+                  <input value={editForm.AlternativeCode} onChange={e => setEditForm({ ...editForm, AlternativeCode: e.target.value })} className="form-control" placeholder="e.g. legacy code in marks sheet" />
+                  <small className="text-muted">Leave blank to clear. Tracking matches primary or alt code.</small>
+                </div>
+                <div className="form-group">
                   <label>Subject Name</label>
                   <input value={editForm.SubjectName} onChange={e => setEditForm({ ...editForm, SubjectName: e.target.value })} className="form-control" />
                 </div>
@@ -484,6 +494,10 @@ function AdminCBCSBasketPageContent() {
                       <input value={addForm.SubjectCode} onChange={e => setAddForm({ ...addForm, SubjectCode: e.target.value })} className="form-control" placeholder="e.g., CS101" />
                     </div>
                     <div className="form-group">
+                      <label>Alternative code (optional)</label>
+                      <input value={addForm.AlternativeCode} onChange={e => setAddForm({ ...addForm, AlternativeCode: e.target.value })} className="form-control" placeholder="If marks use a different code" />
+                    </div>
+                    <div className="form-group">
                       <label>Subject Name</label>
                       <input value={addForm.SubjectName} onChange={e => setAddForm({ ...addForm, SubjectName: e.target.value })} className="form-control" placeholder="e.g., Data Structures" />
                     </div>
@@ -508,9 +522,9 @@ function AdminCBCSBasketPageContent() {
                     <div className="alert alert-info">
                       <strong>File Format Requirements:</strong>
                       <ul className="mt-2 text-sm">
-                        <li>First row should contain headers: Branch, Basket, Subject Code, Subject Name, Credits</li>
+                        <li>First row should contain headers: Branch, Basket, Subject Code, Subject Name, Credits (optional: Alternative Code or Alt Code)</li>
                         <li>Each subsequent row should contain subject data</li>
-                        <li>Subject Code will be automatically converted to uppercase</li>
+                        <li>Subject Code and alternative code are stored uppercase when provided</li>
                       </ul>
                     </div>
                   </>

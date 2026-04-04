@@ -1,7 +1,7 @@
 import { clientPromise } from "@/lib/mongodb";
 import { NextResponse } from "next/server";
 import { jwtVerify } from "jose";
-import { getCampusSchoolDatabase, getDatabaseFromRegistration } from "@/lib/campus";
+import { getCampusSchoolDatabase, getDatabaseFromRegistration, getSomStudentDatabaseCandidates } from "@/lib/campus";
 import { parseSOMRegistration } from "../parse-registration/route";
 
 // 🧮 Map CUTM grades to numeric values
@@ -147,13 +147,16 @@ export async function POST(req) {
 
     const userRole = payload.role?.toLowerCase();
 
-    if (userRole === 'user' || userRole === 'student') {
+    if (userRole === "user" || userRole === "student") {
       const userEmail = payload.email;
-      if (userEmail && userEmail.includes('@cutm.ac.in')) {
-        const userRegNumber = userEmail.split('@')[0];
-        if (registration !== userRegNumber) {
+      const isCampusStudentEmail =
+        userEmail &&
+        (userEmail.includes("@cutm.ac.in") || userEmail.includes("@centurionuniv.edu.in"));
+      if (isCampusStudentEmail) {
+        const userRegNumber = userEmail.split("@")[0].toUpperCase();
+        if (String(registration || "").toUpperCase().trim() !== userRegNumber) {
           return NextResponse.json({
-            error: "Access denied - Students can only view their own results"
+            error: "Access denied - Students can only view their own results",
           }, { status: 403 });
         }
       }
@@ -166,22 +169,6 @@ export async function POST(req) {
     }
 
     const client = await clientPromise;
-    
-    // For user role, determine database from registration number (indices 2-5)
-    // For admin/teacher, use campus/school from params or JWT
-    let dbName;
-    if (userRole === 'user' || userRole === 'student') {
-      dbName = getDatabaseFromRegistration(registration);
-    } else {
-      const { searchParams } = new URL(req.url);
-      const campusParam = searchParams.get('campus');
-      const campus = campusParam || payload.campus || null;
-      const school = 'SOM';
-      dbName = getCampusSchoolDatabase(campus, school);
-    }
-    
-    const db = client.db(dbName);
-    const cutm = db.collection("som_result");
 
     // Build flexible semester variants to handle different storage formats
     const semInput = String(semester || "").trim();
@@ -212,32 +199,57 @@ export async function POST(req) {
       )
     );
 
-    // Support numeric-stored Reg_No
-    const regUpper = registration.toUpperCase();
+    const regUpper = String(registration || "").toUpperCase().trim();
     const regAsInt = parseInt(regUpper, 10);
-    const regQuery = isNaN(regAsInt)
+    const regQuery = Number.isNaN(regAsInt)
       ? [{ Reg_No: regUpper }]
       : [{ Reg_No: regUpper }, { Reg_No: regAsInt }];
 
-    let subjects = await cutm
-      .find({
-        $and: [
-          { $or: regQuery },
-          { Sem: { $in: semesterVariants } }
-        ]
-      })
-      .project({
-        _id: 0,
-        Reg_No: 1,
-        Name: 1,
-        Subject_Code: 1,
-        Subject_Name: 1,
-        Credits: 1,
-        Grade: 1,
-        Subject_Type: 1,
-        Sem: 1, // Include Sem to verify it matches the requested semester
-      })
-      .toArray();
+    const subjectProject = {
+      _id: 0,
+      Reg_No: 1,
+      Name: 1,
+      Subject_Code: 1,
+      Subject_Name: 1,
+      Credits: 1,
+      Grade: 1,
+      Subject_Type: 1,
+      Sem: 1,
+    };
+
+    const subjectFind = {
+      $and: [{ $or: regQuery }, { Sem: { $in: semesterVariants } }],
+    };
+
+    let db;
+    let subjects;
+
+    if (userRole === "user" || userRole === "student") {
+      const candidates = getSomStudentDatabaseCandidates(regUpper);
+      subjects = [];
+      db = null;
+      for (const name of candidates) {
+        const tryDb = client.db(name);
+        const subs = await tryDb.collection("som_result").find(subjectFind).project(subjectProject).toArray();
+        if (subs.length > 0) {
+          db = tryDb;
+          subjects = subs;
+          break;
+        }
+      }
+      if (!db) {
+        db = client.db(candidates[0]);
+      }
+    } else {
+      const { searchParams } = new URL(req.url);
+      const campusParam = searchParams.get("campus");
+      const campus = campusParam || payload.campus || null;
+      const dbName = getCampusSchoolDatabase(campus, "SOM");
+      db = client.db(dbName);
+      subjects = await db.collection("som_result").find(subjectFind).project(subjectProject).toArray();
+    }
+
+    const cutm = db.collection("som_result");
 
     // If no subjects found for the specific semester, return error (don't fallback to all results)
     if (!subjects.length) {
@@ -295,13 +307,13 @@ export async function POST(req) {
 
     let batch = "";
     let branch = "";
-    let course = parsed?.program || "SOM";
+    let course = "";
     let schoolName = "School Of Management";
 
     if (parsed && parsed.isValid) {
       batch = parsed.year;
       branch = parsed.branch;
-      course = "SOM (BBA/MBA)";
+      course = parsed.branch === "MBA" ? "MBA" : "BBA";
     } else {
       const batchMatch = registration.match(/^(\d{2})/);
       batch = batchMatch ? `20${batchMatch[1]}` : "";
@@ -314,17 +326,25 @@ export async function POST(req) {
       };
       if (branchCode && branchCodeMap[branchCode]) {
         branch = branchCodeMap[branchCode];
+        course = branchCode === "214" ? "MBA" : "BBA";
       }
 
       if (!branch && firstRecord?.Subject_Code) {
         const code = String(firstRecord.Subject_Code).toUpperCase();
-        if (code.startsWith('BBA') || code.includes('BUSS')) { branch = 'Bachelor of Business Administration (BBA)'; }
-        else if (code.startsWith('MBA') || code.includes('MGMT')) { branch = 'Master of Business Administration (MBA)'; }
+        if (code.startsWith('BBA') || code.includes('BUSS')) { branch = 'Bachelor of Business Administration (BBA)'; course = "BBA"; }
+        else if (code.startsWith('MBA') || code.includes('MGMT')) { branch = 'Master of Business Administration (MBA)'; course = "MBA"; }
       }
     }
 
     if (!branch) {
       branch = normalizeBranch(meta?.Branch || meta?.Department || "") || 'Engineering';
+    }
+
+    if (!course) {
+      const b = String(branch || "").toUpperCase();
+      if (b.includes("MBA") && !b.includes("BBA")) course = "MBA";
+      else if (b.includes("BBA")) course = "BBA";
+      else course = "BBA";
     }
 
     return NextResponse.json({
