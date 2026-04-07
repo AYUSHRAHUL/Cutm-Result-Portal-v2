@@ -63,26 +63,29 @@ export function DepartmentChart({ data }) {
     );
   }
 
+  const colors = [
+    'rgba(59, 130, 246, 0.8)',   // Blue
+    'rgba(16, 185, 129, 0.8)',  // Emerald
+    'rgba(245, 158, 11, 0.8)',   // Amber
+    'rgba(139, 92, 246, 0.8)',  // Purple
+    'rgba(236, 72, 153, 0.8)',  // Pink
+    'rgba(14, 165, 233, 0.8)',  // Sky
+    'rgba(168, 85, 247, 0.8)',  // Violet
+    'rgba(239, 68, 68, 0.8)',   // Red
+    'rgba(20, 184, 166, 0.8)',  // Teal
+    'rgba(249, 115, 22, 0.8)',  // Orange
+  ];
+
+  const borderColors = colors.map(c => c.replace('0.8', '1'));
+
   const chartData = {
     labels: data.map(item => item.name),
     datasets: [
       {
         label: 'Number of Students',
         data: data.map(item => item.students || item.count || item.total || 0),
-        backgroundColor: [
-          'rgba(59, 130, 246, 0.8)',
-          'rgba(16, 185, 129, 0.8)',
-          'rgba(245, 158, 11, 0.8)',
-          'rgba(139, 92, 246, 0.8)',
-          'rgba(236, 72, 153, 0.8)',
-        ],
-        borderColor: [
-          'rgba(59, 130, 246, 1)',
-          'rgba(16, 185, 129, 1)',
-          'rgba(245, 158, 11, 1)',
-          'rgba(139, 92, 246, 1)',
-          'rgba(236, 72, 153, 1)',
-        ],
+        backgroundColor: data.map((_, i) => colors[i % colors.length]),
+        borderColor: data.map((_, i) => borderColors[i % borderColors.length]),
         borderWidth: 2,
       },
     ],
@@ -95,6 +98,7 @@ export function DepartmentChart({ data }) {
         beginAtZero: true,
         ticks: {
           color: '#ffffff',
+          font: { weight: 'bold' }
         },
         grid: {
           color: 'rgba(255, 255, 255, 0.1)',
@@ -103,6 +107,9 @@ export function DepartmentChart({ data }) {
       x: {
         ticks: {
           color: '#ffffff',
+          maxRotation: 45,
+          minRotation: 45,
+          font: { size: 11, weight: '500' }
         },
         grid: {
           color: 'rgba(255, 255, 255, 0.1)',

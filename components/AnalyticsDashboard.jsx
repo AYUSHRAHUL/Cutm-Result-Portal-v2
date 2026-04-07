@@ -109,21 +109,73 @@ export default function AnalyticsDashboard() {
     }
   }, [schoolParam, campusParam]);
 
-  const batches = isDiploma
-    ? ["all", "2023", "2024", "2025"]
-    : isSom
-      ? ["all", "2022", "2023", "2024", "2025"]
-      : ["all", "2022", "2023", "2024", "2025"];
+  // Get dynamic batches from result data if available
+  const availableBatches = analyticsData?.batchStats
+    ?.map(b => String(b.batch || ""))
+    .filter(b => b && b !== "null" && b !== "undefined" && b !== "Unknown")
+    .sort((a, b) => b.localeCompare(a)) || [];
+  
+  const batches = availableBatches.length > 0
+    ? ["all", ...availableBatches]
+    : isDiploma
+      ? ["all", "2023", "2024", "2025"]
+      : isSom
+        ? ["all", "2022", "2023", "2024", "2025"]
+        : ["all", "2022", "2023", "2024", "2025"];
 
-  const branches = isDiploma
-    ? ["all", "CSE", "EE", "ME", "CIVIL", "MINING", "AUTOMOBILE"]
-    : isSom
-      ? ["all", "BBA", "MBA"]
-      : ["all", "CSE", "ECE", "EEE", "ME", "CIVIL", "AIML"];
+  // Get dynamic branches from result data if available (strip year suffix if it's granular)
+  const availableBranches = Array.from(new Set(analyticsData?.departmentStats?.map(d => {
+    const name = String(d.name || "").trim();
+    // For SOM granular labels like "BBA 2023", extract just "BBA"
+    const parts = name.split(' ');
+    let cleanName = name;
+    if (parts.length > 1 && /^\d{4}$/.test(parts[parts.length - 1])) {
+      cleanName = parts.slice(0, -1).join(' ');
+    }
 
-  const semesters = isDiploma
-    ? ["all", "Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6"]
-    : ["all", "Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"];
+    // Map to short names if it's SOET
+    if (!isSom && !isDiploma) {
+      const soetAbbreviationMap = {
+        'COMPUTER SCIENCE ENGINEERING': 'CSE',
+        'COMPUTER SCIENCE': 'CSE',
+        'ELECTRONICS & COMMUNICATION ENGINEERING': 'ECE',
+        'ELECTRONICS AND COMMUNICATION ENGINEERING': 'ECE',
+        'ELECTRONICS ENGINEERING': 'ECE',
+        'ELECTRICAL & ELECTRONICS ENGINEERING': 'EEE',
+        'ELECTRICAL AND ELECTRONICS ENGINEERING': 'EEE',
+        'ELECTRICAL ENGINEERING': 'EE',
+        'MECHANICAL ENGINEERING': 'ME',
+        'CIVIL ENGINEERING': 'CIVIL',
+        'AIML': 'AIML',
+        'CSE AIML': 'AIML'
+      };
+      const upperClean = cleanName.toUpperCase();
+      return soetAbbreviationMap[upperClean] || cleanName;
+    }
+    return cleanName;
+  }).filter(Boolean))).sort() || [];
+  
+  const branches = availableBranches.length > 0
+    ? ["all", ...availableBranches]
+    : isDiploma
+      ? ["all", "CSE", "EE", "ME", "CIVIL", "MINING", "AUTOMOBILE"]
+      : isSom
+        ? ["all", "BBA", "MBA"]
+        : ["all", "CSE", "ECE", "EEE", "ME", "CIVIL", "AIML"];
+
+  // Get dynamic semesters from result data if available
+  const availableSemesters = Array.from(new Set(analyticsData?.semesterStats?.map(s => {
+    const sem = String(s.semester || "").trim();
+    // Normalize "1" to "Sem 1" if it's just a number
+    if (/^\d+$/.test(sem)) return `Sem ${sem}`;
+    return sem;
+  }).filter(s => s && s !== "null" && s !== "undefined" && s !== "Unknown"))).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })) || [];
+
+  const semesters = availableSemesters.length > 0
+    ? ["all", ...availableSemesters]
+    : isDiploma
+      ? ["all", "Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6"]
+      : ["all", "Sem 1", "Sem 2", "Sem 3", "Sem 4", "Sem 5", "Sem 6", "Sem 7", "Sem 8"];
 
   // Fetch subjects from result database with filters
   const fetchBasketSubjects = useCallback(async () => {
@@ -275,22 +327,22 @@ export default function AnalyticsDashboard() {
     fetchBasketSubjects();
   }, [fetchBasketSubjects, subjectComparisonBatch, subjectComparisonBranch, subjectComparisonSemester]);
 
-  // Fetch top performing students data when semester filter changes
+  // Fetch top performing students data when filters change
   useEffect(() => {
-    if (!analyticsData) return; // Wait for initial data
+    if (!analyticsData) return;
 
     const fetchTopStudentsData = async () => {
       try {
         setLoadingTopStudents(true);
 
-        // If semester is "all", use the original data (CGPA-based)
-        if (topStudentsSemester === "all") {
-          setTopStudentsData(null); // null means use currentData.topPerformingStudents
+        // If all filters are "all", use original data from analyticsData
+        if (topStudentsSemester === "all" && topStudentsBatch === "all" && topStudentsBranch === "all") {
+          setTopStudentsData(null); // null means use analyticsData.topPerformingStudents
           setLoadingTopStudents(false);
           return;
         }
 
-        // Fetch data filtered by semester (this will calculate SGPA)
+        // Fetch data filtered by semester, batch, and branch
         const params = new URLSearchParams();
         const schoolParam = searchParams.get('school');
         const campusParam = searchParams.get('campus');
@@ -298,9 +350,18 @@ export default function AnalyticsDashboard() {
         if (schoolParam) params.set('school', schoolParam);
         if (campusParam) params.set('campus', campusParam);
 
+        if (topStudentsBatch !== "all") {
+          params.set('batch', topStudentsBatch);
+        }
+        if (topStudentsBranch !== "all") {
+          params.set('branch', topStudentsBranch);
+        }
+
         // Normalize semester format: "Sem 1" -> "1", "Sem1" -> "1", etc.
-        const semValue = String(topStudentsSemester).replace(/^Sem\s*/i, "").trim();
-        params.set('semester', semValue);
+        if (topStudentsSemester !== "all") {
+          const semValue = String(topStudentsSemester).replace(/^Sem\s*/i, "").trim();
+          params.set('semester', semValue);
+        }
 
         const baseUrl = getSchoolApiUrl("analytics");
         const url = baseUrl + (baseUrl.includes('?') ? '&' : '?') + params.toString();
@@ -329,7 +390,7 @@ export default function AnalyticsDashboard() {
     };
 
     fetchTopStudentsData();
-  }, [topStudentsSemester, analyticsData, searchParams]);
+  }, [topStudentsSemester, topStudentsBatch, topStudentsBranch, analyticsData, searchParams]);
 
   // Fetch filtered department stats when overviewBatchFilter / overviewBranchFilter changes (ONLY for Department Distribution chart)
   useEffect(() => {
@@ -1971,10 +2032,10 @@ export default function AnalyticsDashboard() {
         {/* HEADER */}
         <div className="text-center mb-8">
           <h2 className="text-4xl font-black bg-gradient-to-r from-white via-blue-300 to-purple-300 bg-clip-text text-transparent">
-            📊 Analytics Dashboard
+            📊 {isSom ? "SOM" : isDiploma ? "SOVET" : "SOET"} Analytics Dashboard
           </h2>
           <p className="text-blue-200/80 mt-2 text-lg">
-            Real-time insights, Passing Analysis & Top Performers
+            {isSom ? "BBA & MBA" : isDiploma ? "Diploma" : "B.Tech"} Real-time insights, Passing Analysis & Top Performers
           </p>
         </div>
 
@@ -2010,7 +2071,7 @@ export default function AnalyticsDashboard() {
 
             {((filteredDepartmentStats && filteredDepartmentStats.length > 0) ||
               (currentData?.departmentStats && currentData.departmentStats.length > 0)) && (
-                <CoolChartCard title="Department Distribution" icon="🏢">
+                <CoolChartCard title={isSom ? "Program Distribution" : "Department Distribution"} icon="🏢">
                   <div className="flex flex-wrap justify-end gap-3 mb-4">
                     <FilterSelect
                       value={overviewBatchFilter}
@@ -2039,7 +2100,7 @@ export default function AnalyticsDashboard() {
                     </div>
                   ) : (
                     <DepartmentChart
-                      key={`dept-${overviewBatchFilter}`}
+                      key={`dept-${overviewBatchFilter}-${overviewBranchFilter}`}
                       data={filteredDepartmentStats || currentData?.departmentStats || []}
                     />
                   )}
@@ -2078,7 +2139,7 @@ export default function AnalyticsDashboard() {
         {activeTab === "passinganalysis" && (
           <div className="space-y-10">
             {/* PASSING ANALYSIS */}
-            <CoolChartCard title="Passing Analysis" icon="✅" fullWidth>
+            <CoolChartCard title={isSom ? "BBA / MBA Passing Analysis" : "Passing Analysis"} icon="✅" fullWidth>
               {/* Enhanced Filter Section */}
               <div className="mb-6 p-5 rounded-2xl border border-white/10 bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-amber-400/10 backdrop-blur-sm">
                 <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
@@ -2130,9 +2191,9 @@ export default function AnalyticsDashboard() {
                       </div>
                     </div>
 
-                    {/* Branch Checkboxes */}
+                    {/* Branch / Program Checkboxes */}
                     <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-                      <label className="block text-white/90 font-semibold mb-3 text-sm">Branch</label>
+                      <label className="block text-white/90 font-semibold mb-3 text-sm">{isSom ? "Program (BBA/MBA)" : "Branch"}</label>
                       <div className="space-y-2 max-h-48 overflow-y-auto">
                         {/* Select All */}
                         <label className="flex items-center gap-2 cursor-pointer hover:bg-white/5 p-2 rounded transition-colors border-b border-white/10 pb-2 mb-2">
@@ -4653,8 +4714,10 @@ export default function AnalyticsDashboard() {
                     </div>
                   </div>
                     {loadingTopStudents && (
-                      <div className="mt-4 text-center text-white/70 text-sm">
-                        Loading semester data...
+                      <div className="mt-4 text-center text-white/70 text-sm animate-pulse">
+                        <span className="inline-block px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/30">
+                          Loading filtered student data...
+                        </span>
                       </div>
                     )}
                 </div>
@@ -4789,15 +4852,18 @@ function TopStudentsTable({ data, batchFilter = "all", branchFilter = "all", sea
     }
     
     // B.Tech (SOET) - Program code is not '07'
-    const btechBranchMap = {
+    // B.Tech (SOET) or MBA/BBA (SOM)
+    const branchMap = {
       '111': 'Civil Engineering',
       '112': 'Computer Science Engineering',
       '113': 'Electronics & Communication Engineering',
       '115': 'Electrical & Electronics Engineering',
       '116': 'Mechanical Engineering',
-      '117': 'CSE AIML'
+      '117': 'CSE AIML',
+      '912': 'BBA',
+      '214': 'MBA'
     };
-    return btechBranchMap[branchCode] || null;
+    return branchMap[branchCode] || null;
   };
 
   // Branch abbreviation mapping

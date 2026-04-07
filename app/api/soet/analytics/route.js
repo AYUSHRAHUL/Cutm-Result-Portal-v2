@@ -130,22 +130,45 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
   if (branchFilters.length > 0 && !branchFilters.includes("all")) {
     const branchCodeMap = {
       CSE: ["112"],
+      "COMPUTER SCIENCE ENGINEERING": ["112"],
+      "COMPUTER SCIENCE": ["112"],
       ECE: ["113"],
+      "ELECTRONICS & COMMUNICATION ENGINEERING": ["113"],
+      "ELECTRONICS AND COMMUNICATION ENGINEERING": ["113"],
+      "ELECTRONICS ENGINEERING": ["113", "115"], // Broad match
       EEE: ["115"],
+      "ELECTRICAL & ELECTRONICS ENGINEERING": ["115"],
+      "ELECTRICAL AND ELECTRONICS ENGINEERING": ["115"],
+      "ELECTRICAL ENGINEERING": ["115"],
       ME: ["116"],
+      "MECHANICAL ENGINEERING": ["116"],
       CIVIL: ["111"],
+      "CIVIL ENGINEERING": ["111"],
       AIML: ["137"],
+      "AIML": ["137"],
+      "CSE AIML": ["137"],
+      "CSE-AIML": ["137"],
     };
 
     const wantedCodes = [];
     for (const filterBranch of branchFilters) {
       const key = String(filterBranch).toUpperCase().trim();
-      if (branchCodeMap[key]) wantedCodes.push(...branchCodeMap[key]);
+      if (branchCodeMap[key]) {
+        wantedCodes.push(...branchCodeMap[key]);
+      } else {
+        // Fallback: search for acronyms in full names or vice-versa
+        for (const [mapName, mapCodes] of Object.entries(branchCodeMap)) {
+          if (key.includes(mapName) || mapName.includes(key)) {
+            wantedCodes.push(...mapCodes);
+          }
+        }
+      }
     }
 
-    if (wantedCodes.length > 0) {
+    const uniqueCodes = Array.from(new Set(wantedCodes));
+    if (uniqueCodes.length > 0) {
       match.$expr.$and.push({
-        $in: [{ $substr: ["$Reg_No", 5, 3] }, wantedCodes]
+        $in: [{ $substr: ["$Reg_No", 5, 3] }, uniqueCodes]
       });
     }
   }

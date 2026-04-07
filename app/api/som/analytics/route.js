@@ -174,10 +174,25 @@ async function getAnalyticsData(db, batchFilter = [], branchFilter = [], semeste
     }));
   };
 
+  const isAllBatch = !batchFilter.length || batchFilter.includes("all");
+  const isAllBranch = !branchFilter.length || branchFilter.includes("all");
+
   const departmentStats = getStats((r, reg) => {
     const code = String(reg).slice(5, 8);
-    return code === '912' ? 'BBA' : (code === '214' ? 'MBA' : 'Unknown');
-  });
+    const branch = code === '912' ? 'BBA' : (code === '214' ? 'MBA' : 'Unknown');
+    
+    // When All Batch is selected, show breakdown by Batch
+    if (isAllBatch && branch !== 'Unknown') {
+      const batchYear = `20${String(reg).slice(0, 2)}`;
+      // If All Branch is also selected, include Branch in label for clarity
+      if (isAllBranch) {
+        return `${branch} ${batchYear}`;
+      }
+      // If a specific Branch is selected, just show the Batch Year for that branch
+      return batchYear;
+    }
+    return branch;
+  }).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
   const batchStatsArr = getStats((r, reg) => `20${String(reg).slice(0, 2)}`);
   const batchStats = batchStatsArr.map(s => ({ batch: s.name, total: s.total, passed: s.passed, failed: s.failed, passRate: s.passRate }));
   
