@@ -21,6 +21,7 @@ export async function POST(req) {
     // Handle both 'branch' (old) and 'department' (new frontend) parameter names
     const requestData = await req.json();
     const branch = requestData.department || requestData.branch;
+    const batch = requestData.batch;
     const client = await clientPromise;
 
     // Get campus from query params (priority) or payload
