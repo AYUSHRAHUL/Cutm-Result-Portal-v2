@@ -98,9 +98,9 @@ export async function POST(req) {
     const branchCodeMap = {
       Civil: ['111'],
       'Civil Engineering': ['111'],
-      CSE: ['112', '137'],
-      'Computer Science Engineering': ['112', '137'],
-      'Computer Science and Engineering': ['112', '137'],
+      CSE: ['112'],  // Only 112 for CSE
+      'Computer Science Engineering': ['112'],
+      'Computer Science and Engineering': ['112'],
       ECE: ['113'],
       'Electronics & Communication Engineering': ['113'],
       'Electronics and Communication Engineering': ['113'],
