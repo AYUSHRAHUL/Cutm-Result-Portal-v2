@@ -28,24 +28,37 @@ export async function GET(req) {
     const client = await clientPromise;
     const dbName = getCampusSchoolDatabase(campus, school);
     const db = client.db(dbName);
-    
+
     // Choose collection based on school
     const collectionName = (school && school.toUpperCase() === 'SOM') ? "som_result" : "result";
     const collection = db.collection(collectionName);
 
-    // Get all registration numbers
+    // Get all registration numbers from primary collection
     const records = await collection.find({ Reg_No: { $exists: true } })
       .project({ Reg_No: 1 })
       .toArray();
 
+    // Also get registration numbers from RegistrationData collection (for newly uploaded registrations)
+    let registrationDataRecords = [];
+    try {
+      registrationDataRecords = await db.collection("RegistrationData").find({ Reg_No: { $exists: true } })
+        .project({ Reg_No: 1 })
+        .toArray();
+    } catch (e) {
+      console.warn('RegistrationData collection not available or query failed');
+    }
+
+    // Combine both sets of records
+    const allRecords = [...records, ...registrationDataRecords];
+
     // Parse registration numbers to extract batches
     const batchSet = new Set();
     const schoolUpper = String(school || '').toUpperCase();
-    
+
     if (schoolUpper === 'SOVET') {
       // For SOVET (Diploma), use parseDiplomaRegistration
       const { parseDiplomaRegistration } = await import('../../sovet/parse-registration/route');
-      records.forEach(record => {
+      allRecords.forEach(record => {
         if (record.Reg_No) {
           const parsed = parseDiplomaRegistration(String(record.Reg_No).trim());
           if (parsed && parsed.isValid && parsed.isDiploma && parsed.year) {
@@ -56,7 +69,7 @@ export async function GET(req) {
     } else if (schoolUpper === 'SOM') {
       // For SOM (Management), use parseSOMRegistration
       const { parseSOMRegistration } = await import('../../som/parse-registration/route');
-      records.forEach(record => {
+      allRecords.forEach(record => {
         if (record.Reg_No) {
           const parsed = parseSOMRegistration(String(record.Reg_No).trim());
           if (parsed && parsed.isValid && parsed.isSOM && parsed.year) {
@@ -67,7 +80,7 @@ export async function GET(req) {
     } else {
       // For SOET (B.Tech), use parseBTechRegistration
       const { parseBTechRegistration } = await import('../../soet/parse-registration/route');
-      records.forEach(record => {
+      allRecords.forEach(record => {
         if (record.Reg_No) {
           const parsed = parseBTechRegistration(String(record.Reg_No).trim());
           if (parsed && parsed.isValid && parsed.isBTech && parsed.year) {
