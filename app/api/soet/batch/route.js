@@ -117,29 +117,11 @@ export async function POST(req) {
     if (branch && branch !== 'All') {
       const normalizedBranch = branch.trim();
       const branchCodes = branchCodeMap[normalizedBranch] || branchCodeMap[normalizedBranch.toUpperCase()] || [];
-      const branchNames = [
-        normalizedBranch,
-        normalizedBranch === 'Civil' ? 'Civil Engineering' : null,
-        normalizedBranch === 'CSE' ? 'Computer Science Engineering' : null,
-        normalizedBranch === 'CSE' ? 'Computer Science and Engineering' : null,
-        normalizedBranch === 'ECE' ? 'Electronics & Communication Engineering' : null,
-        normalizedBranch === 'ECE' ? 'Electronics and Communication Engineering' : null,
-        normalizedBranch === 'EEE' ? 'Electrical & Electronics Engineering' : null,
-        normalizedBranch === 'EEE' ? 'Electrical and Electronics Engineering' : null,
-        normalizedBranch === 'Mechanical' ? 'Mechanical Engineering' : null,
-        (normalizedBranch === 'AIML' || normalizedBranch === 'CSE AIML') ? 'AIML' : null,
-        (normalizedBranch === 'AIML' || normalizedBranch === 'CSE AIML') ? 'CSE AIML' : null,
-      ].filter(Boolean);
 
-      // Match either by Branch field or by branch code embedded in Reg_No (index 5-7)
-      baseQuery.$or = [
-        { Branch: { $in: branchNames } },
-      ];
-
+      // ONLY match by branch code from Reg_No (index 5-7), not by Branch field
+      // Branch field is unreliable; code is embedded in registration number itself
       if (branchCodes.length > 0) {
-        baseQuery.$or.push({
-          $expr: { $in: [{ $substrBytes: ["$Reg_No", 5, 3] }, branchCodes] }
-        });
+        baseQuery.$expr = { $in: [{ $substrBytes: ["$Reg_No", 5, 3] }, branchCodes] };
       }
     }
 
