@@ -127,7 +127,8 @@ export async function POST(req) {
         normalizedBranch === 'EEE' ? 'Electrical & Electronics Engineering' : null,
         normalizedBranch === 'EEE' ? 'Electrical and Electronics Engineering' : null,
         normalizedBranch === 'Mechanical' ? 'Mechanical Engineering' : null,
-        normalizedBranch === 'AIML' ? 'CSE AIML' : null,
+        (normalizedBranch === 'AIML' || normalizedBranch === 'CSE AIML') ? 'AIML' : null,
+        (normalizedBranch === 'AIML' || normalizedBranch === 'CSE AIML') ? 'CSE AIML' : null,
       ].filter(Boolean);
 
       // Match either by Branch field or by branch code embedded in Reg_No (index 5-7)
