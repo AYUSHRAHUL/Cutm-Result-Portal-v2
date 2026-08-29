@@ -179,28 +179,9 @@ export async function POST(req) {
 
     // Fast path for dropdown lists: return distinct students only
     if (mode === 'list') {
-      // For dropdown, build a clean query that filters by batch AND branch code only (no Branch field)
-      const listQuery = {};
-
-      // Apply batch filter
-      if (batch && batch !== 'All') {
-        const batchYear = batch.length === 4 ? batch : `20${batch}`;
-        const shortYear = batchYear.slice(-2);
-        listQuery.Reg_No = {
-          $regex: `^(?:${shortYear}|${batchYear})`
-        };
-      }
-
-      // Apply branch filter ONLY by code (not by Branch field to avoid $or ambiguity)
-      if (branch && branch !== 'All') {
-        const normalizedBranch = branch.trim();
-        const branchCodes = branchCodeMap[normalizedBranch] || branchCodeMap[normalizedBranch.toUpperCase()] || [];
-
-        if (branchCodes.length > 0) {
-          // Filter ONLY by registration code, not by Branch field
-          listQuery.$expr = { $in: [{ $substrBytes: ["$Reg_No", 5, 3] }, branchCodes] };
-        }
-      }
+      // For dropdown, use the same branch/batch filtering as other modes
+      // This ensures consistency across all query types
+      const listQuery = baseQuery;  // Use the baseQuery that already has proper filtering
 
       const pipeline = [
         { $match: listQuery },
