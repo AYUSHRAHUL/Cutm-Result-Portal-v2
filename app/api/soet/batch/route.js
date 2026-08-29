@@ -179,17 +179,27 @@ export async function POST(req) {
 
     // Fast path for dropdown lists: return distinct students only
     if (mode === 'list') {
-      // For dropdown, fetch without branch filter first (get all students for the batch)
-      // Then filter by branch in application code based on registration parsing
+      // For dropdown, build a clean query that filters by batch AND branch code only (no Branch field)
       const listQuery = {};
 
-      // Only apply batch filter, not branch filter (we'll filter by branch in app code)
+      // Apply batch filter
       if (batch && batch !== 'All') {
         const batchYear = batch.length === 4 ? batch : `20${batch}`;
         const shortYear = batchYear.slice(-2);
         listQuery.Reg_No = {
           $regex: `^(?:${shortYear}|${batchYear})`
         };
+      }
+
+      // Apply branch filter ONLY by code (not by Branch field to avoid $or ambiguity)
+      if (branch && branch !== 'All') {
+        const normalizedBranch = branch.trim();
+        const branchCodes = branchCodeMap[normalizedBranch] || branchCodeMap[normalizedBranch.toUpperCase()] || [];
+
+        if (branchCodes.length > 0) {
+          // Filter ONLY by registration code, not by Branch field
+          listQuery.$expr = { $in: [{ $substrBytes: ["$Reg_No", 5, 3] }, branchCodes] };
+        }
       }
 
       const pipeline = [
@@ -251,58 +261,7 @@ export async function POST(req) {
           uniqueStudentMap.set(key, s);
         }
       });
-      let combinedStudents = Array.from(uniqueStudentMap.values());
-
-      // Apply branch filter in application code for accuracy
-      if (branch && branch !== 'All') {
-        const { parseBTechRegistration } = await import('../../soet/parse-registration/route');
-        const normalizedFilter = String(branch).trim().toUpperCase();
-
-        combinedStudents = combinedStudents.filter(s => {
-          try {
-            const regNo = String(s.Reg_No || '').trim();
-            const parsed = parseBTechRegistration(regNo);
-
-            if (!parsed || !parsed.isValid || !parsed.isBTech) {
-              return false;
-            }
-
-            // Get the branch code from parser
-            const branchCode = String(parsed.branchCode || '').trim();
-
-            // Check if they match by branch code
-            switch (normalizedFilter) {
-              case 'CSE':
-              case 'COMPUTER SCIENCE ENGINEERING':
-              case 'COMPUTER SCIENCE AND ENGINEERING':
-                return branchCode === '112';
-              case 'AIML':
-              case 'CSE AIML':
-                return branchCode === '137' || branchCode === '370';
-              case 'ECE':
-              case 'ELECTRONICS & COMMUNICATION ENGINEERING':
-              case 'ELECTRONICS AND COMMUNICATION ENGINEERING':
-                return branchCode === '113';
-              case 'EEE':
-              case 'ELECTRICAL & ELECTRONICS ENGINEERING':
-              case 'ELECTRICAL AND ELECTRONICS ENGINEERING':
-                return branchCode === '115';
-              case 'MECHANICAL':
-              case 'MECHANICAL ENGINEERING':
-              case 'ME':
-                return branchCode === '116';
-              case 'CIVIL':
-              case 'CIVIL ENGINEERING':
-                return branchCode === '111';
-              default:
-                return true;
-            }
-          } catch (e) {
-            console.warn(`Filter error for ${s.Reg_No}:`, e);
-            return false;
-          }
-        });
-      }
+      const combinedStudents = Array.from(uniqueStudentMap.values());
 
       // Filter out inactive students
       const students = combinedStudents.filter(s => !inactiveRegs.includes(s.Reg_No));
