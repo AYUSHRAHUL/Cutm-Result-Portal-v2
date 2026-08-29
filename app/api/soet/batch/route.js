@@ -18,8 +18,9 @@ export async function POST(req) {
       campus = payload?.campus || null;
     }
 
-    const { department, batch } = await req.json();
-    const branch = department; // Map department to branch for backward compatibility
+    // Handle both 'branch' (old) and 'department' (new frontend) parameter names
+    const requestData = await req.json();
+    const branch = requestData.department || requestData.branch;
     const client = await clientPromise;
 
     // Get campus from query params (priority) or payload
@@ -118,15 +119,29 @@ export async function POST(req) {
     if (branch && branch !== 'All') {
       const normalizedBranch = branch.trim();
       const branchCodes = branchCodeMap[normalizedBranch] || branchCodeMap[normalizedBranch.toUpperCase()] || [];
+      const branchNames = [
+        normalizedBranch,
+        normalizedBranch === 'Civil' ? 'Civil Engineering' : null,
+        normalizedBranch === 'CSE' ? 'Computer Science Engineering' : null,
+        normalizedBranch === 'CSE' ? 'Computer Science and Engineering' : null,
+        normalizedBranch === 'ECE' ? 'Electronics & Communication Engineering' : null,
+        normalizedBranch === 'ECE' ? 'Electronics and Communication Engineering' : null,
+        normalizedBranch === 'EEE' ? 'Electrical & Electronics Engineering' : null,
+        normalizedBranch === 'EEE' ? 'Electrical and Electronics Engineering' : null,
+        normalizedBranch === 'Mechanical' ? 'Mechanical Engineering' : null,
+        normalizedBranch === 'AIML' ? 'CSE AIML' : null,
+        normalizedBranch === 'CSE AIML' ? 'AIML' : null,  // Add AIML for RegistrationData
+      ].filter(Boolean);
 
-      // ONLY use code-based matching from Reg_No - ensure Reg_No is converted to string
+      // Match either by Branch field or by branch code embedded in Reg_No (index 5-7)
+      baseQuery.$or = [
+        { Branch: { $in: branchNames } },
+      ];
+
       if (branchCodes.length > 0) {
-        baseQuery.$expr = {
-          $in: [
-            { $substrBytes: [{ $toString: "$Reg_No" }, 5, 3] },
-            branchCodes
-          ]
-        };
+        baseQuery.$or.push({
+          $expr: { $in: [{ $substrBytes: ["$Reg_No", 5, 3] }, branchCodes] }
+        });
       }
     }
 
