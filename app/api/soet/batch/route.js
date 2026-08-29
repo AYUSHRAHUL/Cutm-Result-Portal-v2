@@ -95,10 +95,11 @@ export async function POST(req) {
     }
 
     // Branch filter (both full and short forms)
+    // IMPORTANT: Keep original mapping for compatibility. Only add 370 for 2026 AIML batches
     const branchCodeMap = {
       Civil: ['111'],
       'Civil Engineering': ['111'],
-      CSE: ['112'],  // Only 112 for CSE
+      CSE: ['112'],  // Only 112, not 137
       'Computer Science Engineering': ['112'],
       'Computer Science and Engineering': ['112'],
       ECE: ['113'],
