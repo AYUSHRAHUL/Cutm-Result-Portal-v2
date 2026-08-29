@@ -18,7 +18,8 @@ export async function POST(req) {
       campus = payload?.campus || null;
     }
 
-    const { branch, batch } = await req.json();
+    const { department, batch } = await req.json();
+    const branch = department; // Map department to branch for backward compatibility
     const client = await clientPromise;
 
     // Get campus from query params (priority) or payload
