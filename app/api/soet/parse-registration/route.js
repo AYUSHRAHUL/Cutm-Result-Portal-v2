@@ -22,7 +22,8 @@ const soetBtechBranchMap = {
 // Campus codes
 const campusCodes = {
     '0101': 'PKD',
-    '0201': 'BBSR'
+    '0201': 'BBSR',
+    '6401': 'PKD'  // 2026 batch onwards - CSE and CSE AIML new series
 };
 
 /**
