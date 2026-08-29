@@ -588,7 +588,7 @@ docker-compose logs -f redis
 - **Developer**: Ayush Kumar Singh
 - **Institution**: Centurion University of Technology and Management
 - **Batch**: 2022 (ECE)
-- **Guidance**: Prof. Sn Padhay
+- **Guidance**: Prof. SN Padhy
 
 ### Contact Information
 
