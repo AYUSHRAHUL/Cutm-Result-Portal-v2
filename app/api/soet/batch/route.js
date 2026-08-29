@@ -199,9 +199,49 @@ export async function POST(req) {
         { $sort: { Reg_No: 1 } } // Sort by registration number ascending
       ];
 
+      // Get students from result collection
       const rawStudents = await cutm.aggregate(pipeline).toArray();
+
+      // Also get students from RegistrationData collection (for newly uploaded registrations like 2026)
+      let regDataStudents = [];
+      try {
+        const regDataPipeline = [
+          { $match: query },
+          {
+            $group: {
+              _id: "$Reg_No",
+              Name: { $first: "$Name" },
+              Branch: { $first: "$Branch" },
+            }
+          },
+          {
+            $project: {
+              _id: 0,
+              Reg_No: { $toUpper: "$_id" },
+              Name: { $ifNull: ["$Name", ""] },
+              Branch: { $ifNull: ["$Branch", ""] },
+            }
+          },
+          { $sort: { Reg_No: 1 } }
+        ];
+        regDataStudents = await db.collection("RegistrationData").aggregate(regDataPipeline).toArray();
+      } catch (e) {
+        console.warn('RegistrationData collection not available in list mode');
+      }
+
+      // Combine and deduplicate by Reg_No
+      const allStudents = [...rawStudents, ...regDataStudents];
+      const uniqueStudentMap = new Map();
+      allStudents.forEach(s => {
+        const key = String(s.Reg_No || "").toUpperCase();
+        if (!uniqueStudentMap.has(key)) {
+          uniqueStudentMap.set(key, s);
+        }
+      });
+      const combinedStudents = Array.from(uniqueStudentMap.values());
+
       // Filter out inactive students
-      const students = rawStudents.filter(s => !inactiveRegs.includes(s.Reg_No));
+      const students = combinedStudents.filter(s => !inactiveRegs.includes(s.Reg_No));
       // Sort by last 4 digits of registration number (ascending)
       students.sort((a, b) => {
         const regA = String(a.Reg_No || "").trim();
