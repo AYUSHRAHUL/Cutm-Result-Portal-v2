@@ -179,8 +179,21 @@ export async function POST(req) {
 
     // Fast path for dropdown lists: return distinct students only
     if (mode === 'list') {
+      // For dropdown, fetch without branch filter first (get all students for the batch)
+      // Then filter by branch in application code based on registration parsing
+      const listQuery = {};
+
+      // Only apply batch filter, not branch filter (we'll filter by branch in app code)
+      if (batch && batch !== 'All') {
+        const batchYear = batch.length === 4 ? batch : `20${batch}`;
+        const shortYear = batchYear.slice(-2);
+        listQuery.Reg_No = {
+          $regex: `^(?:${shortYear}|${batchYear})`
+        };
+      }
+
       const pipeline = [
-        { $match: query },
+        { $match: listQuery },
         {
           $group: {
             _id: "$Reg_No",
@@ -206,7 +219,7 @@ export async function POST(req) {
       let regDataStudents = [];
       try {
         const regDataPipeline = [
-          { $match: query },
+          { $match: listQuery },
           {
             $group: {
               _id: "$Reg_No",
@@ -238,7 +251,39 @@ export async function POST(req) {
           uniqueStudentMap.set(key, s);
         }
       });
-      const combinedStudents = Array.from(uniqueStudentMap.values());
+      let combinedStudents = Array.from(uniqueStudentMap.values());
+
+      // Apply branch filter in application code for accuracy
+      if (branch && branch !== 'All') {
+        const { parseBTechRegistration } = await import('../../soet/parse-registration/route');
+        combinedStudents = combinedStudents.filter(s => {
+          const parsed = parseBTechRegistration(s.Reg_No);
+          if (!parsed || !parsed.isValid) return false;
+
+          // Get the branch from parser
+          const parsedBranch = parsed.branch || '';
+
+          // Normalize for comparison
+          const normalizedFilter = String(branch).trim().toUpperCase();
+          const normalizedParsed = parsedBranch.toUpperCase();
+
+          // Check if they match
+          if (normalizedFilter === 'CSE') {
+            return normalizedParsed.includes('COMPUTER SCIENCE');
+          } else if (normalizedFilter === 'AIML' || normalizedFilter === 'CSE AIML') {
+            return normalizedParsed.includes('AIML') || normalizedParsed.includes('137') || normalizedParsed.includes('370');
+          } else if (normalizedFilter === 'ECE') {
+            return normalizedParsed.includes('ELECTRONICS');
+          } else if (normalizedFilter === 'EEE') {
+            return normalizedParsed.includes('ELECTRICAL');
+          } else if (normalizedFilter === 'MECHANICAL') {
+            return normalizedParsed.includes('MECHANICAL');
+          } else if (normalizedFilter === 'CIVIL') {
+            return normalizedParsed.includes('CIVIL');
+          }
+          return true;
+        });
+      }
 
       // Filter out inactive students
       const students = combinedStudents.filter(s => !inactiveRegs.includes(s.Reg_No));
