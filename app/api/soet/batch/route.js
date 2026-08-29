@@ -256,38 +256,51 @@ export async function POST(req) {
       // Apply branch filter in application code for accuracy
       if (branch && branch !== 'All') {
         const { parseBTechRegistration } = await import('../../soet/parse-registration/route');
+        const normalizedFilter = String(branch).trim().toUpperCase();
+
         combinedStudents = combinedStudents.filter(s => {
-          const parsed = parseBTechRegistration(s.Reg_No);
-          if (!parsed || !parsed.isValid) return false;
+          try {
+            const regNo = String(s.Reg_No || '').trim();
+            const parsed = parseBTechRegistration(regNo);
 
-          // Get the branch code from parser (more reliable than name)
-          const branchCode = parsed.branchCode || '';
-          const parsedBranch = parsed.branch || '';
+            if (!parsed || !parsed.isValid || !parsed.isBTech) {
+              return false;
+            }
 
-          // Normalize for comparison
-          const normalizedFilter = String(branch).trim().toUpperCase();
+            // Get the branch code from parser
+            const branchCode = String(parsed.branchCode || '').trim();
 
-          // Check if they match by branch code or name
-          if (normalizedFilter === 'CSE') {
-            // CSE: branch code 112 only
-            return branchCode === '112';
-          } else if (normalizedFilter === 'AIML' || normalizedFilter === 'CSE AIML') {
-            // AIML: branch codes 137 (old) or 370 (2026+)
-            return branchCode === '137' || branchCode === '370';
-          } else if (normalizedFilter === 'ECE') {
-            // ECE: branch code 113
-            return branchCode === '113';
-          } else if (normalizedFilter === 'EEE') {
-            // EEE: branch code 115
-            return branchCode === '115';
-          } else if (normalizedFilter === 'MECHANICAL') {
-            // Mechanical: branch code 116
-            return branchCode === '116';
-          } else if (normalizedFilter === 'CIVIL') {
-            // Civil: branch code 111
-            return branchCode === '111';
+            // Check if they match by branch code
+            switch (normalizedFilter) {
+              case 'CSE':
+              case 'COMPUTER SCIENCE ENGINEERING':
+              case 'COMPUTER SCIENCE AND ENGINEERING':
+                return branchCode === '112';
+              case 'AIML':
+              case 'CSE AIML':
+                return branchCode === '137' || branchCode === '370';
+              case 'ECE':
+              case 'ELECTRONICS & COMMUNICATION ENGINEERING':
+              case 'ELECTRONICS AND COMMUNICATION ENGINEERING':
+                return branchCode === '113';
+              case 'EEE':
+              case 'ELECTRICAL & ELECTRONICS ENGINEERING':
+              case 'ELECTRICAL AND ELECTRONICS ENGINEERING':
+                return branchCode === '115';
+              case 'MECHANICAL':
+              case 'MECHANICAL ENGINEERING':
+              case 'ME':
+                return branchCode === '116';
+              case 'CIVIL':
+              case 'CIVIL ENGINEERING':
+                return branchCode === '111';
+              default:
+                return true;
+            }
+          } catch (e) {
+            console.warn(`Filter error for ${s.Reg_No}:`, e);
+            return false;
           }
-          return true;
         });
       }
 
