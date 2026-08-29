@@ -260,26 +260,32 @@ export async function POST(req) {
           const parsed = parseBTechRegistration(s.Reg_No);
           if (!parsed || !parsed.isValid) return false;
 
-          // Get the branch from parser
+          // Get the branch code from parser (more reliable than name)
+          const branchCode = parsed.branchCode || '';
           const parsedBranch = parsed.branch || '';
 
           // Normalize for comparison
           const normalizedFilter = String(branch).trim().toUpperCase();
-          const normalizedParsed = parsedBranch.toUpperCase();
 
-          // Check if they match
+          // Check if they match by branch code or name
           if (normalizedFilter === 'CSE') {
-            return normalizedParsed.includes('COMPUTER SCIENCE');
+            // CSE: branch code 112 only
+            return branchCode === '112';
           } else if (normalizedFilter === 'AIML' || normalizedFilter === 'CSE AIML') {
-            return normalizedParsed.includes('AIML') || normalizedParsed.includes('137') || normalizedParsed.includes('370');
+            // AIML: branch codes 137 (old) or 370 (2026+)
+            return branchCode === '137' || branchCode === '370';
           } else if (normalizedFilter === 'ECE') {
-            return normalizedParsed.includes('ELECTRONICS');
+            // ECE: branch code 113
+            return branchCode === '113';
           } else if (normalizedFilter === 'EEE') {
-            return normalizedParsed.includes('ELECTRICAL');
+            // EEE: branch code 115
+            return branchCode === '115';
           } else if (normalizedFilter === 'MECHANICAL') {
-            return normalizedParsed.includes('MECHANICAL');
+            // Mechanical: branch code 116
+            return branchCode === '116';
           } else if (normalizedFilter === 'CIVIL') {
-            return normalizedParsed.includes('CIVIL');
+            // Civil: branch code 111
+            return branchCode === '111';
           }
           return true;
         });
