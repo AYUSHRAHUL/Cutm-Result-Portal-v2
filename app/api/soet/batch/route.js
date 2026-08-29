@@ -110,8 +110,8 @@ export async function POST(req) {
       'Electrical and Electronics Engineering': ['115'],
       Mechanical: ['116'],
       'Mechanical Engineering': ['116'],
-      AIML: ['137', '370'],     // 137 (old batch), 370 (2026+ batch)
-      'CSE AIML': ['137', '370'], // 137 (old batch), 370 (2026+ batch)
+      AIML: ['137'],     // All AIML batches use 137
+      'CSE AIML': ['137'], // All AIML batches use 137
     };
 
     if (branch && branch !== 'All') {
