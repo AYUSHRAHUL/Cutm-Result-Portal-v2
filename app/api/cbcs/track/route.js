@@ -339,12 +339,28 @@ export async function POST(req) {
       if (!si) {
         const regData = await tryDb
           .collection("RegistrationData")
-          .findOne(lookupQuery, { projection: { _id: 0, Name: 1, Reg_No: 1, Sem: 1 } });
+          .findOne(lookupQuery, { projection: { _id: 0, Name: 1, Reg_No: 1, Sem: 1, Branch: 1 } });
         if (regData) {
+          // Try to parse branch from registration data if available, otherwise from reg number
+          let parsedBranch = regData.Branch || null;
+
+          // If no branch in RegistrationData, parse from registration number
+          if (!parsedBranch || parsedBranch === "Unknown") {
+            try {
+              const { parseBTechRegistration } = await import('../../soet/parse-registration/route');
+              const parsed = parseBTechRegistration(regData.Reg_No);
+              if (parsed && parsed.branch) {
+                parsedBranch = parsed.branch;
+              }
+            } catch (e) {
+              console.warn(`Failed to parse branch for ${regData.Reg_No}:`, e);
+            }
+          }
+
           si = {
             Name: regData.Name,
             Reg_No: regData.Reg_No,
-            Branch: "From Registration Data",
+            Branch: parsedBranch || "Unknown",
             Sem: regData.Sem,
           };
         }
