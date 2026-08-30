@@ -45,10 +45,11 @@ export async function POST(req) {
 
     // Get admin email from token
     const adminEmail = payload.email;
+    const coordinatorEmail = "snpadhy@cutm.ac.in";  // Additional email for notifications
 
     // Generate OTP
     const otp = generateOTP();
-    
+
     // Store OTP with deletion context
     storeOTP(adminEmail, otp, {
       type: 'delete-subject-data',
@@ -109,15 +110,20 @@ export async function POST(req) {
       </div>
     `;
 
-    await sendEmail({
-      to: adminEmail,
-      subject: 'CUTM Portal - Subject Data Deletion OTP',
-      html: emailHtml
-    });
+    // Send OTP to both admin and coordinator
+    const emailRecipients = [adminEmail, coordinatorEmail];
+
+    for (const recipient of emailRecipients) {
+      await sendEmail({
+        to: recipient,
+        subject: 'CUTM Portal - Subject Data Deletion OTP',
+        html: emailHtml
+      });
+    }
 
     return NextResponse.json({
       success: true,
-      message: "OTP sent to your email"
+      message: `OTP sent to ${adminEmail} and ${coordinatorEmail}`
     });
 
   } catch (error) {
