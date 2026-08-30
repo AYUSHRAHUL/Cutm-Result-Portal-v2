@@ -524,6 +524,7 @@ Please check if the department name matches exactly with the available departmen
           "Electrical & Electronics Engineering": "EEE",
           "Mechanical Engineering": "Mechanical",
           "AIML": "AIML",
+          "CSE AIML": "AIML",  // CSE AIML same as AIML
         };
         const branch = department && department !== "All" ? branchMap[department] : undefined;
         const hasBatch = batch && batch !== "All";
