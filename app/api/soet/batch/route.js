@@ -130,8 +130,11 @@ export async function POST(req) {
         normalizedBranch === 'EEE' ? 'Electrical & Electronics Engineering' : null,
         normalizedBranch === 'EEE' ? 'Electrical and Electronics Engineering' : null,
         normalizedBranch === 'Mechanical' ? 'Mechanical Engineering' : null,
-        normalizedBranch === 'AIML' ? 'CSE AIML' : null,
-        normalizedBranch === 'CSE AIML' ? 'AIML' : null,  // Add AIML for RegistrationData
+        // AIML: Include all possible name variations for consistency
+        (normalizedBranch === 'AIML' || normalizedBranch === 'CSE AIML') ? 'AIML' : null,
+        (normalizedBranch === 'AIML' || normalizedBranch === 'CSE AIML') ? 'CSE AIML' : null,
+        (normalizedBranch === 'AIML' || normalizedBranch === 'CSE AIML') ? 'CSE_AIML' : null,  // Handle underscore variant
+        (normalizedBranch === 'AIML' || normalizedBranch === 'CSE AIML') ? 'CSE-AIML' : null,  // Handle hyphen variant
       ].filter(Boolean);
 
       // Match either by Branch field or by branch code embedded in Reg_No (index 5-7)
