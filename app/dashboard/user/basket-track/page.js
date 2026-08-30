@@ -457,6 +457,7 @@ export default function UserBasketTrack() {
       "Electrical & Electronics Engineering": "EEE",
       "Mechanical Engineering": "Mechanical",
       "AIML": "AIML",
+      "CSE AIML": "AIML",  // CSE AIML same as AIML
     };
     const branchShort = Object.keys(branchMap).find(key => branchCode.includes(key)) 
       ? branchMap[Object.keys(branchMap).find(key => branchCode.includes(key))] 
