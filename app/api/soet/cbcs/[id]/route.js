@@ -2,26 +2,23 @@ import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
 import { getCampusSchoolDatabase } from "@/lib/campus";
+import { requireRole } from "@/lib/api-auth";
 
 /**
  * SOET CBCS [id] Route - B.Tech only
  */
 export async function PUT(req, { params }) {
   try {
+    // Editing catalog entries is an admin-only action
+    const { payload, error } = await requireRole(req, ["admin"]);
+    if (error) return error;
+
     const id = params.id;
     const updates = await req.json();
     const client = await clientPromise;
 
     // Get campus from params or token
     const { searchParams } = new URL(req.url);
-    const token = req.cookies.get("token")?.value;
-    let payload = {};
-    if (token) {
-      const { jwtVerify } = await import("jose");
-      const secret = new TextEncoder().encode(process.env.JWT_SECRET || "dev-secret");
-      try { payload = (await jwtVerify(token, secret)).payload; } catch { }
-    }
-
     const campusParam = searchParams.get('campus');
     const campus = campusParam || payload.campus || null;
     
@@ -71,19 +68,15 @@ export async function PUT(req, { params }) {
 
 export async function DELETE(req, { params }) {
   try {
+    // Deleting catalog entries is an admin-only action
+    const { payload, error } = await requireRole(req, ["admin"]);
+    if (error) return error;
+
     const id = params.id;
     const client = await clientPromise;
 
     // Get campus from params or token
     const { searchParams } = new URL(req.url);
-    const token = req.cookies.get("token")?.value;
-    let payload = {};
-    if (token) {
-      const { jwtVerify } = await import("jose");
-      const secret = new TextEncoder().encode(process.env.JWT_SECRET || "dev-secret");
-      try { payload = (await jwtVerify(token, secret)).payload; } catch { }
-    }
-
     const campusParam = searchParams.get('campus');
     const campus = campusParam || payload.campus || null;
     

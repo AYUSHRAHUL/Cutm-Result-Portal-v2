@@ -1,19 +1,8 @@
 import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
-import { jwtVerify } from "jose";
 import * as XLSX from 'xlsx';
 import { getCampusSchoolDatabase } from "@/lib/campus";
-
-// JWT verification helper
-async function verifyToken(token) {
-    try {
-        const secret = new TextEncoder().encode(process.env.JWT_SECRET || "dev-secret");
-        const { payload } = await jwtVerify(token, secret);
-        return payload;
-    } catch {
-        return null;
-    }
-}
+import { requireRole } from "@/lib/api-auth";
 
 // Helper function to check if file is allowed
 function allowedFile(filename) {
@@ -71,16 +60,11 @@ function findColumn(headers, ...names) {
  */
 export async function POST(req) {
     try {
-        // Check authentication
-        const token = req.cookies.get("token")?.value;
-        if (!token) {
-            return NextResponse.json({ error: "Unauthorized - Please login first" }, { status: 401 });
-        }
-
-        const payload = await verifyToken(token);
-        if (!payload?.email) {
-            return NextResponse.json({ error: "Unauthorized - Invalid token" }, { status: 401 });
-        }
+        // Bulk-overwriting the subject catalog is an admin-only action. This
+        // previously required only a valid token, so any logged-in student could
+        // replace the catalog.
+        const { payload, error } = await requireRole(req, ["admin"]);
+        if (error) return error;
 
         // Get campus from params or token
         const { searchParams } = new URL(req.url);
