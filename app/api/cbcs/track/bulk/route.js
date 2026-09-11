@@ -369,7 +369,11 @@ export async function POST(req) {
           'Electronics & Communication Engineering': '3',
           'Electrical & Electronics Engineering': '5',
           'Mechanical Engineering': '6',
-          'AIML': '7'
+          'AIML': '7',
+          // AIML arrives under several names (metadata API returns "CSE AIML" for code 137)
+          'CSE AIML': '7',
+          'CSE-AIML': '7',
+          'CSE_AIML': '7'
         };
         const deptCode = deptMap[department];
         if (deptCode) {
