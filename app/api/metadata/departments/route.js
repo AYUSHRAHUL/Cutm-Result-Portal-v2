@@ -33,10 +33,27 @@ export async function GET(req) {
     const collectionName = (school && school.toUpperCase() === 'SOM') ? "som_result" : "result";
     const collection = db.collection(collectionName);
 
-    // Get all registration numbers
-    const records = await collection.find({ Reg_No: { $exists: true } })
-      .project({ Reg_No: 1 })
-      .toArray();
+    // Branch is derived entirely from the first 8 characters of the registration
+    // number (all three parsers read at most slice(5, 8)), so group by that prefix in
+    // MongoDB and parse one representative per group. This returns a few dozen rows
+    // instead of the whole collection, which is what made this endpoint slow enough
+    // to leave the department dropdown showing "Loading departments..." for seconds.
+    const prefixGroups = await collection.aggregate([
+      { $match: { Reg_No: { $exists: true, $ne: null } } },
+      { $project: { reg: { $trim: { input: { $toString: "$Reg_No" } } } } },
+      // Every parser requires exactly 12 characters, so drop the rest here rather
+      // than letting a malformed row become the sample for its prefix group.
+      { $match: { $expr: { $eq: [{ $strLenCP: "$reg" }, 12] } } },
+      {
+        $group: {
+          _id: { $substrCP: ["$reg", 0, 8] },
+          sample: { $first: "$reg" }
+        }
+      }
+    ], { allowDiskUse: true }).toArray();
+
+    // Keep the shape the parsing loops below expect
+    const records = prefixGroups.map(g => ({ Reg_No: g.sample }));
 
     // Parse registration numbers to extract branches
     const branchSet = new Set();

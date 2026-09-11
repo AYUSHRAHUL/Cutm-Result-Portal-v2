@@ -33,17 +33,33 @@ export async function GET(req) {
     const collectionName = (school && school.toUpperCase() === 'SOM') ? "som_result" : "result";
     const collection = db.collection(collectionName);
 
-    // Get all registration numbers from primary collection
-    const records = await collection.find({ Reg_No: { $exists: true } })
-      .project({ Reg_No: 1 })
-      .toArray();
+    // Batch comes from the leading digits of the registration number, so group by the
+    // first 8 characters in MongoDB and parse one representative per group rather than
+    // pulling every row out of the collection and parsing it in JS.
+    async function distinctRegistrationSamples(col) {
+      const groups = await col.aggregate([
+        { $match: { Reg_No: { $exists: true, $ne: null } } },
+        { $project: { reg: { $trim: { input: { $toString: "$Reg_No" } } } } },
+        // Every parser requires exactly 12 characters, so drop the rest here rather
+        // than letting a malformed row become the sample for its prefix group.
+        { $match: { $expr: { $eq: [{ $strLenCP: "$reg" }, 12] } } },
+        {
+          $group: {
+            _id: { $substrCP: ["$reg", 0, 8] },
+            sample: { $first: "$reg" }
+          }
+        }
+      ], { allowDiskUse: true }).toArray();
+      return groups.map(g => ({ Reg_No: g.sample }));
+    }
+
+    // Get registration numbers from primary collection
+    const records = await distinctRegistrationSamples(collection);
 
     // Also get registration numbers from RegistrationData collection (for newly uploaded registrations)
     let registrationDataRecords = [];
     try {
-      registrationDataRecords = await db.collection("RegistrationData").find({ Reg_No: { $exists: true } })
-        .project({ Reg_No: 1 })
-        .toArray();
+      registrationDataRecords = await distinctRegistrationSamples(db.collection("RegistrationData"));
     } catch (e) {
       console.warn('RegistrationData collection not available or query failed');
     }
