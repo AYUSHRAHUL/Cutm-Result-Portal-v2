@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 import { generateOTP, storeOTP } from "@/lib/otpStore";
-import { sendEmail } from "@/lib/email";
+import { sendEmailToRecipients, COORDINATOR_EMAIL } from "@/lib/email";
 
 async function verifyToken(token) {
   try {
@@ -45,7 +45,7 @@ export async function POST(req) {
 
     // Get admin email from token
     const adminEmail = payload.email;
-    const coordinatorEmail = "snpadhy@cutm.ac.in";  // Additional email for notifications
+    const coordinatorEmail = COORDINATOR_EMAIL;  // Additional email for notifications
 
     // Generate OTP
     const otp = generateOTP();
@@ -110,20 +110,33 @@ export async function POST(req) {
       </div>
     `;
 
-    // Send OTP to both admin and coordinator
-    const emailRecipients = [adminEmail, coordinatorEmail];
+    // Send OTP to both admin and coordinator, independently of each other
+    const { sent, failed, success, emailConfigured } = await sendEmailToRecipients(
+      [adminEmail, coordinatorEmail],
+      { subject: 'CUTM Portal - Subject Data Deletion OTP', html: emailHtml }
+    );
 
-    for (const recipient of emailRecipients) {
-      await sendEmail({
-        to: recipient,
-        subject: 'CUTM Portal - Subject Data Deletion OTP',
-        html: emailHtml
+    if (!success) {
+      return NextResponse.json({
+        error: `Failed to send OTP: ${failed.map(f => `${f.to} (${f.error})`).join(', ')}`
+      }, { status: 500 });
+    }
+
+    if (!emailConfigured) {
+      // No EMAIL_USER / EMAIL_PASS on this deployment: the OTP was logged to the
+      // server console, not emailed. Say so rather than reporting a false success.
+      return NextResponse.json({
+        success: true,
+        emailConfigured: false,
+        message: "Email is not configured on the server (EMAIL_USER / EMAIL_PASS missing), so the OTP was NOT sent. Ask whoever manages the Vercel project to add them."
       });
     }
 
     return NextResponse.json({
       success: true,
-      message: `OTP sent to ${adminEmail} and ${coordinatorEmail}`
+      emailConfigured: true,
+      message: `OTP sent to ${sent.join(' and ')}`,
+      ...(failed.length > 0 && { warning: `Could not reach ${failed.map(f => f.to).join(', ')}` })
     });
 
   } catch (error) {
