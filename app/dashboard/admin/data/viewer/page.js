@@ -95,8 +95,18 @@ function RegistrationDataViewerContent() {
       const data = await res.json();
       if (!res.ok) {
         setOtpMessage(data.error || "Failed to send OTP");
+      } else if (data.emailConfigured === false) {
+        // OTP was generated but only logged server-side - don't advance to the
+        // entry step, because no code is going to arrive.
+        setOtpMessage(data.message || "Email is not configured on the server, so no OTP was sent.");
+        setOtpStep("idle");
       } else {
-        setOtpMessage("OTP sent to your email. It is valid for 10 minutes.");
+        // Show which addresses the server actually reached.
+        setOtpMessage(
+          [data.message || "OTP sent to your email.", "It is valid for 10 minutes.", data.warning]
+            .filter(Boolean)
+            .join(" ")
+        );
         setOtpStep("sent");
       }
     } catch (err) {

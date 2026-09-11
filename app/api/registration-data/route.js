@@ -3,7 +3,7 @@ import { clientPromise } from "@/lib/mongodb";
 import { jwtVerify } from "jose";
 import { ObjectId } from "mongodb";
 import { generateOTP, storeOTP, verifyOTP, removeOTP } from "@/lib/otpStore";
-import { sendOTPEmail } from "@/lib/email";
+import { sendOTPToMultipleEmails, COORDINATOR_EMAIL } from "@/lib/email";
 // Helper function to get branch from registration
 async function getBranchFromRegistration(registration, department = null) {
   if (!registration) return department || 'Unknown';
@@ -299,8 +299,43 @@ export async function POST(req) {
       }
       const code = generateOTP();
       storeOTP(adminEmail, code, { type: 'clear-registration-data', requestedBy: payload.email });
-      await sendOTPEmail(adminEmail, code, 'registration');
-      return NextResponse.json({ success: true, message: "OTP sent to admin email" });
+
+      // Copy the coordinator as well as the requesting admin, de-duplicated so an
+      // admin who is also the coordinator gets one mail rather than two. The OTP is
+      // still only valid against the requesting admin's own address.
+      const recipients = [...new Set(
+        [adminEmail, COORDINATOR_EMAIL]
+          .filter(Boolean)
+          .map(e => String(e).toLowerCase().trim())
+          .filter(Boolean)
+      )];
+
+      const results = await sendOTPToMultipleEmails(recipients, code, 'registration');
+      const sent = results.filter(r => r.success).map(r => r.email);
+      const failed = results.filter(r => !r.success);
+
+      if (sent.length === 0) {
+        return NextResponse.json({
+          error: `Failed to send OTP: ${failed.map(f => `${f.email} (${f.error})`).join(', ')}`
+        }, { status: 500 });
+      }
+
+      // sendOTPEmail reports success after only logging when the server has no
+      // EMAIL_USER / EMAIL_PASS, so say plainly that nothing was actually sent.
+      if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+        return NextResponse.json({
+          success: true,
+          emailConfigured: false,
+          message: "Email is not configured on the server (EMAIL_USER / EMAIL_PASS missing), so the OTP was NOT sent."
+        });
+      }
+
+      return NextResponse.json({
+        success: true,
+        emailConfigured: true,
+        message: `OTP sent to ${sent.join(' and ')}`,
+        ...(failed.length > 0 && { warning: `Could not reach ${failed.map(f => f.email).join(', ')}` })
+      });
     }
 
     if (action === 'verify-otp') {
