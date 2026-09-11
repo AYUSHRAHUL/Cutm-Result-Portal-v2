@@ -336,16 +336,15 @@ function TeacherBasketProgressTrackerContent() {
         }
 
         const btechDepts = [
-          "All",
           "Civil Engineering",
           "Computer Science Engineering",
           "Electronics & Communication Engineering",
           "Electrical & Electronics Engineering",
           "Mechanical Engineering",
-          "AIML"
+          "AIML",
+          "CSE AIML"   // name returned by /api/metadata/departments for branch code 137
         ];
         const diplomaDepts = [
-          "All",
           "Civil Engineering",
           "Computer Science Engineering",
           "Electrical Engineering",
@@ -354,8 +353,13 @@ function TeacherBasketProgressTrackerContent() {
           "Automobile Engineering"
         ];
         const somDepts = ["BBA", "MBA"];
-        
-        const validDepartments = isSom ? somDepts : (isDiploma ? diplomaDepts : btechDepts);
+
+        // Validate against the same list that populated the dropdown, so a department
+        // name coming from the metadata API is never rejected here.
+        const baseDepartments = availableDepartments.length > 0
+          ? availableDepartments
+          : (isSom ? somDepts : (isDiploma ? diplomaDepts : btechDepts));
+        const validDepartments = ["All", ...baseDepartments];
 
         if (!validDepartments.includes(department) && department !== "All") {
           throw new Error("Please select a valid department from the dropdown");
