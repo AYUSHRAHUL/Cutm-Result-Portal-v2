@@ -87,7 +87,7 @@ function TeacherBasketProgressTrackerContent() {
     { value: "Electronics & Communication Engineering", label: "Electronics & Communication Engineering" },
     { value: "Electrical & Electronics Engineering", label: "Electrical & Electronics Engineering" },
     { value: "Mechanical Engineering", label: "Mechanical Engineering" },
-    { value: "AIML", label: "AIML" }
+    { value: "CSE AIML", label: "CSE AIML" }
   ];
   const diplomaDeptsList = [
     { value: "Civil Engineering", label: "Civil Engineering" },
@@ -2720,13 +2720,15 @@ Please check if the department name matches exactly with the available departmen
                 >
                   <option value="">Select Department</option>
                   {!isSom && <option value="All">All Departments</option>}
-                  {loadingMetadata && availableDepartments.length === 0 && (
-                    <option disabled>Loading departments...</option>
-                  )}
+                  {/* While metadata is loading, show only the placeholder. Rendering the
+                      fallback list here would let the user pick an option that is removed
+                      from the DOM once the API responds, blanking their selection. */}
                   {availableDepartments.length > 0 ? (
                     availableDepartments.map(dept => (
                       <option key={dept} value={dept}>{dept}</option>
                     ))
+                  ) : loadingMetadata ? (
+                    <option disabled>Loading departments...</option>
                   ) : (
                     deptOptions.map((opt) => (
                       <option key={opt.value} value={opt.value}>

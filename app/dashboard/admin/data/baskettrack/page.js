@@ -275,7 +275,7 @@ export function BasketTrackerContent({ schoolType }) {
           ? availableDepartments
           : (isDiploma
             ? ["Civil Engineering", "Computer Science Engineering", "Electronics & Communication Engineering", "Electrical Engineering", "Mechanical Engineering", "Automobile Engineering", "Mining Engineering"]
-            : ["Civil Engineering", "Computer Science Engineering", "Electronics & Communication Engineering", "Electrical & Electronics Engineering", "Mechanical Engineering", "AIML"]);
+            : ["Civil Engineering", "Computer Science Engineering", "Electronics & Communication Engineering", "Electrical & Electronics Engineering", "Mechanical Engineering", "CSE AIML"]);
 
         const validDepartments = ["All", ...baseDepartments];
 
@@ -1971,13 +1971,15 @@ Please check if the department name matches exactly with the available departmen
                 >
                   <option value="">Select Department</option>
                   {!isSom && <option value="All">All Departments</option>}
-                  {loadingMetadata && availableDepartments.length === 0 && (
-                    <option disabled>Loading departments...</option>
-                  )}
+                  {/* While metadata is loading, show only the placeholder. Rendering the
+                      fallback list here would let the user pick an option that is removed
+                      from the DOM once the API responds, blanking their selection. */}
                   {availableDepartments.length > 0 ? (
                     availableDepartments.map(dept => (
                       <option key={dept} value={dept}>{dept}</option>
                     ))
+                  ) : loadingMetadata ? (
+                    <option disabled>Loading departments...</option>
                   ) : isDiploma ? (
                     <>
                       <option value="Civil Engineering">Civil Engineering</option>
@@ -1999,7 +2001,7 @@ Please check if the department name matches exactly with the available departmen
                       <option value="Electronics & Communication Engineering">Electronics & Communication Engineering</option>
                       <option value="Electrical & Electronics Engineering">Electrical & Electronics Engineering</option>
                       <option value="Mechanical Engineering">Mechanical Engineering</option>
-                      <option value="AIML">AIML</option>
+                      <option value="CSE AIML">CSE AIML</option>
                     </>
                   )}
                 </select>
