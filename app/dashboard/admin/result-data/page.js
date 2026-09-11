@@ -411,10 +411,17 @@ function ResultDataManagementContent() {
       });
 
       const data = await response.json();
-      if (data.success) {
+      if (data.success && data.emailConfigured === false) {
+        // The OTP was generated but only logged server-side, never emailed.
+        // Don't advance to the OTP entry step - there is no code to enter.
+        setOtpSent(false);
+        setOtpError(data.message || 'Email is not configured on the server, so no OTP was sent.');
+      } else if (data.success) {
         setOtpSent(true);
         setOtpError("");
-        alert('OTP sent to your email!');
+        // Show what the server actually reported, including which addresses it
+        // reached and any recipient it could not deliver to.
+        alert([data.message || 'OTP sent to your email!', data.warning].filter(Boolean).join('\n'));
       } else {
         setOtpError(data.error || 'Failed to send OTP');
       }
