@@ -237,6 +237,23 @@ function TeacherBasketProgressTrackerContent() {
     fetchMetadata();
   }, [isSom]);
 
+  // The fallback options shown while metadata loads may use a different name for the
+  // same branch than the API does (e.g. "AIML" vs "CSE AIML"). If the user picked one
+  // of those before the API list arrived, remap it to the API's name instead of leaving
+  // the select pointing at an option that no longer exists.
+  useEffect(() => {
+    if (availableDepartments.length === 0) return;
+    if (!department || department === "All" || availableDepartments.includes(department)) return;
+
+    const key = d => String(d || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const selectedKey = key(department);
+    const match =
+      availableDepartments.find(d => key(d) === selectedKey) ||
+      availableDepartments.find(d => key(d).includes(selectedKey) || selectedKey.includes(key(d)));
+
+    setDepartment(match || "");
+  }, [availableDepartments, department]);
+
   // Set default department for SOM
   useEffect(() => {
     if (isSom && !department && !searchPerformed) {
@@ -2720,15 +2737,15 @@ Please check if the department name matches exactly with the available departmen
                 >
                   <option value="">Select Department</option>
                   {!isSom && <option value="All">All Departments</option>}
-                  {/* While metadata is loading, show only the placeholder. Rendering the
-                      fallback list here would let the user pick an option that is removed
-                      from the DOM once the API responds, blanking their selection. */}
+                  {loadingMetadata && availableDepartments.length === 0 && (
+                    <option disabled>Loading departments...</option>
+                  )}
+                  {/* The fallback stays selectable while metadata loads; if the API list
+                      arrives without the chosen name, the reconcile effect remaps it. */}
                   {availableDepartments.length > 0 ? (
                     availableDepartments.map(dept => (
                       <option key={dept} value={dept}>{dept}</option>
                     ))
-                  ) : loadingMetadata ? (
-                    <option disabled>Loading departments...</option>
                   ) : (
                     deptOptions.map((opt) => (
                       <option key={opt.value} value={opt.value}>
