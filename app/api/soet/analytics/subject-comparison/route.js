@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import { jwtVerify } from "jose";
 import { getCampusSchoolDatabase } from "@/lib/campus";
+import { loadBranchOverrides, isSameBranch } from "@/lib/branch-overrides";
 
 async function verifyToken(token) {
   try {
@@ -97,9 +98,14 @@ export async function GET(req) {
 
     // Filter for B.Tech students
     const { parseBTechRegistration } = await import('../../parse-registration/route');
+    const branchOverrides = await loadBranchOverrides(db);
+
     records = records.filter(record => {
       if (!record.Reg_No) return false;
-      const parsed = parseBTechRegistration(String(record.Reg_No).trim());
+      const regNo = String(record.Reg_No).trim();
+      // An assigned branch means a B.Tech student whose code the parser cannot read
+      if (branchOverrides.has(regNo.toUpperCase())) return true;
+      const parsed = parseBTechRegistration(regNo);
       return parsed && parsed.isValid && parsed.isBTech;
     });
 
@@ -126,7 +132,13 @@ export async function GET(req) {
 
       records = records.filter(record => {
         if (!record.Reg_No) return false;
-        const parsed = parseBTechRegistration(String(record.Reg_No).trim());
+
+        // An assigned branch decides membership on its own, both ways
+        const regNo = String(record.Reg_No).trim();
+        const ov = branchOverrides.get(regNo.toUpperCase());
+        if (ov?.branch) return isSameBranch(ov.branch, branchFilter);
+
+        const parsed = parseBTechRegistration(regNo);
         if (!parsed || !parsed.isValid || !parsed.isBTech) return false;
 
         const parsedShort = branchShortMap[parsed.branchCode] || (parsed.branch || '').toUpperCase().trim();

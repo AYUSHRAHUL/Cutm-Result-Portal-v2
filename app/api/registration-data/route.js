@@ -4,6 +4,7 @@ import { jwtVerify } from "jose";
 import { ObjectId } from "mongodb";
 import { generateOTP, storeOTP, verifyOTP, removeOTP } from "@/lib/otpStore";
 import { sendOTPToMultipleEmails, COORDINATOR_EMAIL } from "@/lib/email";
+import { loadBranchOverrides } from "@/lib/branch-overrides";
 // Helper function to get branch from registration
 async function getBranchFromRegistration(registration, department = null) {
   if (!registration) return department || 'Unknown';
@@ -85,6 +86,10 @@ export async function GET(req) {
     // Get all registration data
     const data = await collection.find({ Type: 'Registration' }).toArray();
     
+    // An admin-assigned branch wins, so a student whose branch code the parser
+    // cannot read is listed under the branch they were assigned rather than Unknown.
+    const branchOverrides = await loadBranchOverrides(db);
+
     // Calculate statistics
     const stats = {
       totalRecords: data.length,
@@ -92,6 +97,8 @@ export async function GET(req) {
       semesters: [...new Set(data.map(item => item.Sem))].sort(),
       departments: [...new Set(await Promise.all(data.map(async (item) => {
         if (item.Reg_No) {
+          const ov = branchOverrides.get(String(item.Reg_No).trim().toUpperCase());
+          if (ov?.branch) return ov.branch;
           const branch = await getBranchFromRegistration(item.Reg_No);
           return branch !== 'Unknown' ? branch : 'Unknown';
         }
