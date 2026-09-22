@@ -106,7 +106,18 @@ export async function GET(req) {
       });
     }
 
-    // Convert to sorted array
+    // Include batches an admin has assigned by hand, so a student moved to a batch
+    // no registration number implies still has that batch available as a filter.
+    try {
+      const { loadBranchOverrides } = await import("@/lib/branch-overrides");
+      const overrides = await loadBranchOverrides(db);
+      for (const o of overrides.values()) {
+        if (o?.batch) batchSet.add(o.batch);
+      }
+    } catch (e) {
+      console.warn('metadata/batches: could not merge batch overrides -', e?.message);
+    }
+
     const batches = Array.from(batchSet).sort().reverse();
 
     return NextResponse.json({

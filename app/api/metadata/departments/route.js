@@ -106,6 +106,19 @@ export async function GET(req) {
       });
     }
 
+    // Include branches an admin has assigned by hand. Without this, a branch that
+    // only exists via overrides - because no registration number implies it - would
+    // be missing from the filter dropdowns, leaving those students unreachable.
+    try {
+      const { loadBranchOverrides } = await import("@/lib/branch-overrides");
+      const branchOverrides = await loadBranchOverrides(db);
+      for (const o of branchOverrides.values()) {
+        if (o?.branch) branchSet.add(o.branch);
+      }
+    } catch (e) {
+      console.warn('metadata/departments: could not merge branch overrides -', e?.message);
+    }
+
     // Convert to sorted array
     const departments = Array.from(branchSet).sort();
 
