@@ -2,6 +2,7 @@ import { clientPromise } from "@/lib/mongodb";
 import { NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 import { getCampusSchoolDatabase, getDatabaseFromRegistration } from "@/lib/campus";
+import { loadBranchOverrides, effectiveBranch, effectiveBatch } from "@/lib/branch-overrides";
 
 // 🧮 Map CUTM grades to numeric values
 const GRADE_MAP = {
@@ -337,6 +338,13 @@ export async function POST(req) {
     if (!branch) {
       branch = normalizeBranch(meta?.Branch || meta?.Department || "") || 'Engineering';
     }
+
+    // An admin-assigned branch wins over anything derived above. Students whose
+    // registration carries an unrecognised branch code can only be placed by hand,
+    // and this is where that assignment has to be honoured for the results view.
+    const overrides = await loadBranchOverrides(db);
+    branch = effectiveBranch(registration, branch, overrides) || branch;
+    batch = effectiveBatch(registration, batch, overrides) || batch;
 
     return NextResponse.json({
       registration,

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import { jwtVerify } from "jose";
 import { getCampusSchoolDatabase } from "@/lib/campus";
+import { loadBranchOverrides, isSameBranch, normalizeBranchKey } from "@/lib/branch-overrides";
 // Branch detection moved to parse-registration API
 
 async function verifyToken(token) {
@@ -99,6 +100,12 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
 
   // Removed console.log to reduce overhead
 
+  // Admin-assigned branches. Loaded before the match is built because the query
+  // itself filters on branch codes, so an overridden student has to be admitted
+  // here or no amount of downstream filtering will bring them back.
+  const branchOverrides = await loadBranchOverrides(db);
+  const overriddenRegs = Array.from(branchOverrides.keys());
+
   const match = {
     Reg_No: { $type: "string", $nin: inactiveRegs }, // Exclude inactive students
     Grade: { $exists: true },
@@ -106,8 +113,14 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
       $and: [
         // Exclude Diploma registrations (program code positions 4-5 === '07')
         { $ne: [{ $substr: ["$Reg_No", 4, 2] }, "07"] },
-        // Only B.Tech branch codes (including AIML 137)
-        { $in: [{ $substr: ["$Reg_No", 5, 3] }, ["111", "112", "113", "115", "116", "137"]] }
+        // B.Tech branch codes (including AIML 137), or a registration an admin has
+        // assigned a branch to - those carry codes the parser does not recognise
+        {
+          $or: [
+            { $in: [{ $substr: ["$Reg_No", 5, 3] }, ["111", "112", "113", "115", "116", "137"]] },
+            { $in: ["$Reg_No", overriddenRegs] }
+          ]
+        }
       ]
     }
   };
@@ -165,10 +178,30 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
       }
     }
 
+    // Overrides move students between branches, so the filter has to work both
+    // ways: admit those assigned INTO a wanted branch even though their code says
+    // otherwise, and drop those assigned AWAY from it even though their code
+    // still matches - otherwise they are counted under two branches at once.
+    const overrideInclude = [];
+    const overrideExclude = [];
+    for (const [oReg, o] of branchOverrides.entries()) {
+      if (!o?.branch) continue;
+      if (branchFilters.some(f => isSameBranch(f, o.branch))) overrideInclude.push(oReg);
+      else overrideExclude.push(oReg);
+    }
+
     const uniqueCodes = Array.from(new Set(wantedCodes));
-    if (uniqueCodes.length > 0) {
+    if (uniqueCodes.length > 0 || overrideInclude.length > 0) {
       match.$expr.$and.push({
-        $in: [{ $substr: ["$Reg_No", 5, 3] }, uniqueCodes]
+        $and: [
+          {
+            $or: [
+              { $in: [{ $substr: ["$Reg_No", 5, 3] }, uniqueCodes] },
+              { $in: ["$Reg_No", overrideInclude] }
+            ]
+          },
+          { $not: { $in: ["$Reg_No", overrideExclude] } }
+        ]
       });
     }
   }
@@ -231,6 +264,14 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     if (validBTechRegNos.has(regNo)) return true;
     if (invalidRegNos.has(regNo)) return false;
 
+    // A registration an admin has assigned a branch to is a B.Tech student whose
+    // branch code the parser does not recognise - keep it rather than discarding it
+    // as invalid.
+    if (branchOverrides.has(regNo.toUpperCase())) {
+      validBTechRegNos.add(regNo);
+      return true;
+    }
+
     // Parse and cache result
     const parsed = parseBTechRegistration(regNo);
     if (parsed && parsed.isValid && parsed.isBTech) {
@@ -265,12 +306,16 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
   const filterByBatch = (record) => {
     if (batchFilters.length === 0 || batchFilters.includes("all")) return true;
     if (!record.Reg_No) return false;
-    const parsed = parseBTechRegistration(String(record.Reg_No).trim());
-    if (!parsed || !parsed.isValid || !parsed.isBTech) return false;
 
-    // Use parsed year from parseBTechRegistration
-    const recordYear = parsed.year || ''; // e.g., "2023", "2024"
-    const recordYearCode = parsed.yearCode || ''; // e.g., "23", "24"
+    const regNo = String(record.Reg_No).trim();
+    const ov = branchOverrides.get(regNo.toUpperCase());
+    const parsed = parseBTechRegistration(regNo);
+    if (!ov && (!parsed || !parsed.isValid || !parsed.isBTech)) return false;
+
+    // An overridden batch wins; for a registration the parser cannot read, fall back
+    // to its leading two digits, which carry the intake year in every SOET format.
+    const recordYear = ov?.batch || parsed?.year || (regNo.length >= 2 ? `20${regNo.slice(0, 2)}` : '');
+    const recordYearCode = recordYear ? String(recordYear).slice(-2) : '';
 
     return batchFilters.some(batch => {
       const batchStr = String(batch).trim();
@@ -285,6 +330,17 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
   const filterByBranch = (record) => {
     if (branchFilters.length === 0 || branchFilters.includes("all")) return true;
     if (!record.Reg_No) return false;
+
+    // An admin-assigned branch decides membership on its own, in both directions:
+    // it admits a student whose registration says otherwise (or cannot be parsed at
+    // all, e.g. branch code 132), and excludes them from the branch their
+    // registration implies - otherwise they would be counted under both.
+    const regNo = String(record.Reg_No).trim().toUpperCase();
+    const ov = branchOverrides.get(regNo);
+    if (ov?.branch) {
+      return branchFilters.some(f => isSameBranch(f, ov.branch));
+    }
+
     const parsed = parseBTechRegistration(String(record.Reg_No).trim());
     if (!parsed || !parsed.isValid || !parsed.isBTech) return false;
 
@@ -413,19 +469,31 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
   filteredData.forEach(record => {
     if (!record.Reg_No) return;
 
+    const regNo = String(record.Reg_No).trim();
+    const ov = branchOverrides.get(regNo.toUpperCase());
+
     const parsed = parsedRegCache.get(record.Reg_No);
-    if (!parsed || !parsed.isValid || !parsed.isBTech) return;
+    // Keep students the parser cannot read when an admin has assigned them a branch
+    if (!ov?.branch && (!parsed || !parsed.isValid || !parsed.isBTech)) return;
 
-    const parsedBranch = parsed.branch || 'Unknown';
-    let deptName = branchDisplayMap[parsedBranch] || parsedBranch.toUpperCase();
-
-    // If only one branch is filtered and no specific batch is selected, 
-    // show breakdown by Year in the department chart for better insights
-    if (branchFilters.length === 1 && !branchFilters.includes("all") && (batchFilters.length === 0 || batchFilters.includes("all"))) {
-      deptName = parsed.year || 'Unknown';
+    let deptName;
+    if (ov?.branch) {
+      // Fold the assigned branch into the same vocabulary the chart already uses,
+      // so an override spelled "Electronics & Communication Engineering" joins the
+      // ECE bucket rather than forming a department of its own.
+      const overrideDisplayMap = { CIVIL: 'CIVIL', CSE: 'CSE', ECE: 'ECE', EEE: 'EEE', MECH: 'ME', AIML: 'AIML' };
+      const key = normalizeBranchKey(ov.branch);
+      deptName = overrideDisplayMap[key] || String(ov.branch).toUpperCase();
+    } else {
+      const parsedBranch = parsed.branch || 'Unknown';
+      deptName = branchDisplayMap[parsedBranch] || parsedBranch.toUpperCase();
     }
 
-    const regNo = String(record.Reg_No).trim();
+    // If only one branch is filtered and no specific batch is selected,
+    // show breakdown by Year in the department chart for better insights
+    if (branchFilters.length === 1 && !branchFilters.includes("all") && (batchFilters.length === 0 || batchFilters.includes("all"))) {
+      deptName = ov?.batch || parsed?.year || (regNo.length >= 2 ? `20${regNo.slice(0, 2)}` : 'Unknown');
+    }
     const studentHasFail = studentOutcome.get(regNo)?.hasFail || false;
 
     if (!departmentStatsMap[deptName]) {
@@ -501,11 +569,14 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
   filteredData.forEach(record => {
     if (!record.Reg_No) return;
 
-    const parsed = parsedRegCache.get(record.Reg_No);
-    if (!parsed || !parsed.isValid || !parsed.isBTech) return;
-
-    const batch = parsed.year || 'Unknown';
     const regNo = String(record.Reg_No).trim();
+    const ov = branchOverrides.get(regNo.toUpperCase());
+
+    const parsed = parsedRegCache.get(record.Reg_No);
+    // Keep students the parser cannot read when an admin has assigned them a branch
+    if (!ov && (!parsed || !parsed.isValid || !parsed.isBTech)) return;
+
+    const batch = ov?.batch || parsed?.year || (regNo.length >= 2 ? `20${regNo.slice(0, 2)}` : 'Unknown');
     const studentHasFail = studentOutcome.get(regNo)?.hasFail || false;
 
     if (!batchStatsMap[batch]) {
