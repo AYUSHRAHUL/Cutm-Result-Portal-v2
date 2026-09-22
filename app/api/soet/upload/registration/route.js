@@ -117,9 +117,29 @@ export async function POST(req) {
         // Import parser to verify B.Tech students
         const { parseBTechRegistration } = await import('../../parse-registration/route');
 
+        // Registrations an admin has explicitly assigned a branch to.
+        // parseBTechRegistration only recognises branch codes 111/112/113/115/116/137,
+        // so a genuine B.Tech student on any other code (e.g. 132) is unparseable and
+        // was silently dropped here - which left the basket tracker with no records to
+        // show for them. An override is treated as the admin declaring the row valid,
+        // and supplies the branch it is stored under.
+        const overrideMap = new Map();
+        try {
+            const overrideDocs = await db.collection("branch_overrides")
+                .find({}, { projection: { _id: 0, reg: 1, branch: 1 } })
+                .toArray();
+            for (const o of overrideDocs) {
+                const oReg = String(o.reg || "").trim().toUpperCase();
+                if (oReg && o.branch) overrideMap.set(oReg, String(o.branch).trim());
+            }
+        } catch (e) {
+            console.warn('SOET registration upload: could not read branch_overrides', e?.message);
+        }
+
         let processedCount = 0;
         let insertedCount = 0;
         let skippedCount = 0;
+        const skippedRegs = new Set();
         const errors = [];
 
         try {
@@ -170,11 +190,13 @@ export async function POST(req) {
 
                 if (!regNo || !subjectCode) continue;
 
-                // Verify this is a B.Tech student
+                // Verify this is a B.Tech student, or one an admin has assigned a branch to
                 const parsed = parseBTechRegistration(regNo);
-                if (!parsed || !parsed.isValid || !parsed.isBTech) {
+                const overrideBranch = overrideMap.get(regNo) || null;
+                if ((!parsed || !parsed.isValid || !parsed.isBTech) && !overrideBranch) {
                     skippedCount++;
-                    continue; // Skip non-B.Tech students
+                    skippedRegs.add(regNo);
+                    continue; // Skip non-B.Tech students with no branch override
                 }
 
                 const name = nameCol ? String(row[nameCol] || "").trim() : "";
@@ -205,7 +227,9 @@ export async function POST(req) {
                     Credits: credits,
                     Sem: semValue,
                     Subject_Type: subjectType,
-                    Branch: parsed.branch || "Unknown",
+                    // An admin-set branch wins over the parsed one: the override is the
+                    // deliberate statement of which branch this student belongs to.
+                    Branch: overrideBranch || parsed?.branch || "Unknown",
                 });
             }
 
@@ -263,11 +287,19 @@ export async function POST(req) {
             return NextResponse.json({ error: `Error processing file: ${fileError.message}` }, { status: 500 });
         }
 
+        // Name the skipped registrations rather than only counting them - a bare count
+        // gave no way to tell which students were being dropped, or why.
+        const skippedList = Array.from(skippedRegs);
+        const skippedDetail = skippedList.length > 0
+            ? ` Skipped (unrecognised B.Tech registration, no branch override): ${skippedCount} row(s) across ${skippedList.length} registration(s) - ${skippedList.slice(0, 10).join(', ')}${skippedList.length > 10 ? `, +${skippedList.length - 10} more` : ''}. Set a branch for these in Branch Change, then upload again.`
+            : '';
+
         return NextResponse.json({
             success: true,
-            message: `Registration data processed successfully. Unique Subjects Inserted/Updated: ${insertedCount}. Skipped (Non-B.Tech): ${skippedCount}.`,
+            message: `Registration data processed successfully. Unique Subjects Inserted/Updated: ${insertedCount}.${skippedDetail}`,
             count: insertedCount,
             skipped: skippedCount,
+            skippedRegistrations: skippedList,
             total: processedCount
         });
 

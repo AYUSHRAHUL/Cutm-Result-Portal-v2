@@ -111,6 +111,25 @@ export async function POST(req) {
     // Import parser to verify B.Tech students
     const { parseBTechRegistration } = await import('../parse-registration/route');
 
+    // Registrations an admin has explicitly assigned a branch to. parseBTechRegistration
+    // only recognises branch codes 111/112/113/115/116/137, so a genuine B.Tech student
+    // on any other code was dropped here and ended up with no results at all. An
+    // override is treated as the admin declaring the row valid.
+    const overrideRegs = new Set();
+    try {
+      const overrideDocs = await db.collection("branch_overrides")
+        .find({ branch: { $nin: [null, ""] } }, { projection: { _id: 0, reg: 1 } })
+        .toArray();
+      for (const o of overrideDocs) {
+        const oReg = String(o.reg || "").trim().toUpperCase();
+        if (oReg) overrideRegs.add(oReg);
+      }
+    } catch (e) {
+      console.warn('SOET result upload: could not read branch_overrides', e?.message);
+    }
+
+    const skippedRegs = new Set();
+
     for (const file of files) {
       if (!file || !allowedFile(file.name)) {
         errors.push(`Invalid file: ${file.name}`);
@@ -163,8 +182,9 @@ export async function POST(req) {
           if (!regNo || !subjectCode) continue;
 
           const parsed = parseBTechRegistration(regNo);
-          if (!parsed || !parsed.isValid || !parsed.isBTech) {
+          if ((!parsed || !parsed.isValid || !parsed.isBTech) && !overrideRegs.has(regNo)) {
             skippedNonBTech++;
+            skippedRegs.add(regNo);
             continue;
           }
 
@@ -244,13 +264,21 @@ export async function POST(req) {
       }
     }
 
-    const message = `SOET (B.Tech) files processed! Updated: ${totalUpdated}, Inserted: ${totalInserted}`;
-    
+    // Name the skipped registrations rather than only counting them, so it is clear
+    // which students were dropped and what to do about it.
+    const skippedList = Array.from(skippedRegs);
+    const skippedDetail = skippedList.length > 0
+      ? ` Skipped (unrecognised B.Tech registration, no branch override): ${skippedList.slice(0, 10).join(', ')}${skippedList.length > 10 ? `, +${skippedList.length - 10} more` : ''}. Set a branch for these in Branch Change, then upload again.`
+      : '';
+
+    const message = `SOET (B.Tech) files processed! Updated: ${totalUpdated}, Inserted: ${totalInserted}.${skippedDetail}`;
+
     return NextResponse.json({
       success: true,
       message,
       updated: totalUpdated,
       inserted: totalInserted,
+      skippedRegistrations: skippedList,
       total: totalUpdated + totalInserted,
       results,
       errors: errors.length > 0 ? errors : undefined,
