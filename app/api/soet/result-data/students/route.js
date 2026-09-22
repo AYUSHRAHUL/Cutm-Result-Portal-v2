@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import { jwtVerify } from "jose";
 import { getCampusSchoolDatabase } from "@/lib/campus";
+import { loadBranchOverrides, isSameBranch } from "@/lib/branch-overrides";
 
 async function verifyToken(token) {
   try {
@@ -127,9 +128,19 @@ export async function GET(req) {
       '137': ['AIML', 'CSE AIML', 'CSE-AIML']
     };
 
+    const branchOverrides = await loadBranchOverrides(db);
+
     records = records.filter(record => {
       if (!record.Reg_No) return false;
-      const parsed = parseBTechRegistration(String(record.Reg_No).trim());
+
+      // An admin-assigned branch decides membership on its own, both ways: it admits
+      // a student whose branch code the parser cannot read, and excludes one whose
+      // code still says the branch they were moved out of.
+      const regNo = String(record.Reg_No).trim();
+      const ov = branchOverrides.get(regNo.toUpperCase());
+      if (ov?.branch) return isSameBranch(ov.branch, branchFilter);
+
+      const parsed = parseBTechRegistration(regNo);
       if (!parsed || !parsed.isValid || !parsed.isBTech) return false;
 
       const normalizedFilter = branchFilter.toUpperCase().trim();

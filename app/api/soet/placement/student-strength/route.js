@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import { jwtVerify } from "jose";
 import { getCampusSchoolDatabase } from "@/lib/campus";
+import { loadBranchOverrides } from "@/lib/branch-overrides";
 
 async function verifyToken(token) {
   try {
@@ -133,6 +134,9 @@ export async function GET(req) {
       "@/app/api/soet/parse-registration/route"
     );
 
+    // Admin-assigned branches, for students whose branch code the parser cannot read
+    const branchOverrides = await loadBranchOverrides(db);
+
     const unique = new Map(); // reg -> { branchShort, batch }
 
     // First preference: registration data
@@ -143,14 +147,15 @@ export async function GET(req) {
       if (!reg) continue;
 
       // Parse using central SOET parser for accuracy
+      const ov = branchOverrides.get(reg.toUpperCase());
       const parsed = parseBTechRegistration(reg);
-      if (!parsed || !parsed.isValid || !parsed.isBTech) continue;
+      if (!ov?.branch && (!parsed || !parsed.isValid || !parsed.isBTech)) continue;
 
-      const longBranch =
-        getBranchFromRegistration(reg, doc.Department) || parsed.branch || doc.Department;
+      const longBranch = ov?.branch ||
+        getBranchFromRegistration(reg, doc.Department) || parsed?.branch || doc.Department;
       const branchShort = toShortBranch(longBranch);
 
-      const batchYear = parsed.year || `20${reg.slice(0, 2)}`;
+      const batchYear = ov?.batch || parsed?.year || `20${reg.slice(0, 2)}`;
 
       if (!branchShort || !batchYear) continue;
 
@@ -174,15 +179,16 @@ export async function GET(req) {
 
       if (unique.has(reg)) continue; // already counted via registration
 
+      const ov = branchOverrides.get(reg.toUpperCase());
       const parsed = parseBTechRegistration(reg);
-      if (!parsed || !parsed.isValid || !parsed.isBTech) continue;
+      if (!ov?.branch && (!parsed || !parsed.isValid || !parsed.isBTech)) continue;
 
-      const longBranch =
+      const longBranch = ov?.branch ||
         getBranchFromRegistration(reg, doc.Branch || doc.Department) ||
         doc.Branch ||
         doc.Department;
       const branchShort = toShortBranch(longBranch);
-      const batchYear = parsed.year || `20${reg.slice(0, 2)}`;
+      const batchYear = ov?.batch || parsed?.year || `20${reg.slice(0, 2)}`;
 
       if (!branchShort || !batchYear) continue;
 
