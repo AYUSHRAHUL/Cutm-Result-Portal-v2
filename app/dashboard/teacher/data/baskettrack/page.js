@@ -700,7 +700,11 @@ Please check if the department name matches exactly with the available departmen
       willShowTotalAs: basketsCompleted === totalBaskets && totalBaskets > 0 ? 'Completed' : 'Not Completed'
     });
 
-    return { totalBaskets, basketsCompleted, totalEarned, totalFailed, totalCredits, totalRequired, percentage };
+    // basketStatuses must be returned: the per-basket table reads
+    // overallStats.basketStatuses, and omitting it left that always undefined, so the
+    // table fell through to "No basket progress data available" while the Total row -
+    // which reads the totals below - showed correct figures.
+    return { totalBaskets, basketsCompleted, basketStatuses, totalEarned, totalFailed, totalCredits, totalRequired, percentage };
   }, [basketProgress, studentData, isMba, isBba, bbaDegreeType, is2023Onwards]);
 
   // Enhanced filtering and sorting for bulk results
