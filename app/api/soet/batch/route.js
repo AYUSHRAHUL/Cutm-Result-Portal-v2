@@ -97,9 +97,29 @@ export async function POST(req) {
       const shortYear = batchYear.slice(-2);
 
       // Filter for both numeric (starts with YY) and alphanumeric (starts with YYYY) formats
-      baseQuery.Reg_No = {
-        $regex: `^(?:${shortYear}|${batchYear})`
+      const batchPrefixCondition = {
+        Reg_No: { $regex: `^(?:${shortYear}|${batchYear})` }
       };
+
+      // Students an admin has moved INTO this batch. Their registration still begins
+      // with their original year, so the prefix test alone can never match them - a
+      // student moved 2024 -> 2025 was dropped from 2024 correctly but never added to
+      // 2025, leaving them in neither.
+      const assignedIntoBatch = [];
+      for (const [oReg, o] of assignedOverrides.entries()) {
+        if (o?.batch && String(o.batch) === batchYear) assignedIntoBatch.push(oReg);
+      }
+
+      if (assignedIntoBatch.length > 0) {
+        // Kept in $and so it composes with the branch $or below rather than
+        // overwriting it
+        baseQuery.$and = baseQuery.$and || [];
+        baseQuery.$and.push({
+          $or: [batchPrefixCondition, { Reg_No: { $in: assignedIntoBatch } }]
+        });
+      } else {
+        baseQuery.Reg_No = batchPrefixCondition.Reg_No;
+      }
     }
 
     // Branch filter (both full and short forms)
