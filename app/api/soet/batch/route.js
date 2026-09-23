@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import { verifyToken } from "@/lib/auth";
 import { getCampusSchoolDatabase } from "@/lib/campus";
+import { loadBranchOverrides, isSameBranch } from "@/lib/branch-overrides";
 
 /**
  * SOET (School of Engineering & Technology) Batch Route
@@ -51,6 +52,10 @@ export async function POST(req) {
         }
       }
     });
+
+    // Every admin-assigned branch/batch, keyed by registration. Loaded once so both
+    // the query below and the list-mode filter agree on what a student's branch is.
+    const assignedOverrides = await loadBranchOverrides(db);
 
     // Gather Reg_Nos from overrides that match the criteria
     let overrideRegs = [];
@@ -146,6 +151,18 @@ export async function POST(req) {
         baseQuery.$or.push({
           $expr: { $in: [{ $substrBytes: ["$Reg_No", 5, 3] }, branchCodes] }
         });
+      }
+
+      // Students an admin has assigned INTO this branch. Neither condition above
+      // necessarily finds them: the registration code still names their old branch,
+      // and the stored Branch field is only correct if their rows were uploaded after
+      // the override was set.
+      const assignedIntoBranch = [];
+      for (const [oReg, o] of assignedOverrides.entries()) {
+        if (o?.branch && isSameBranch(o.branch, normalizedBranch)) assignedIntoBranch.push(oReg);
+      }
+      if (assignedIntoBranch.length > 0) {
+        baseQuery.$or.push({ Reg_No: { $in: assignedIntoBranch } });
       }
     }
 
@@ -252,8 +269,27 @@ export async function POST(req) {
       });
       const combinedStudents = Array.from(uniqueStudentMap.values());
 
+      // An assigned branch or batch decides where a student belongs, in BOTH
+      // directions. The query above can only add students; it cannot remove one whose
+      // registration code still names the branch they were moved out of. Without this
+      // a student reassigned EEE -> ECE stayed listed under EEE as well as ECE.
+      const effectiveFiltered = combinedStudents.filter(s => {
+        const reg = String(s.Reg_No || "").trim().toUpperCase();
+        const ov = assignedOverrides.get(reg);
+        if (!ov) return true;
+
+        if (branch && branch !== 'All' && ov.branch) {
+          if (!isSameBranch(ov.branch, branch)) return false;
+        }
+        if (batch && batch !== 'All' && ov.batch) {
+          const targetBatchYear = String(batch).length === 4 ? String(batch) : `20${batch}`;
+          if (String(ov.batch) !== targetBatchYear) return false;
+        }
+        return true;
+      });
+
       // Filter out inactive students
-      const students = combinedStudents.filter(s => !inactiveRegs.includes(s.Reg_No));
+      const students = effectiveFiltered.filter(s => !inactiveRegs.includes(s.Reg_No));
       // Sort by last 4 digits of registration number (ascending)
       students.sort((a, b) => {
         const regA = String(a.Reg_No || "").trim();

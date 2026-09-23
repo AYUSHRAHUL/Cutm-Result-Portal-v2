@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import { verifyToken } from "@/lib/auth";
 import { getCampusSchoolDatabase, getDatabaseFromRegistration } from "@/lib/campus";
+import { isSameBranch } from "@/lib/branch-overrides";
 
 // Hard safety cap for very broad admin queries
 const MAX_BACKLOG_ROWS = 2000;
@@ -340,11 +341,22 @@ export async function POST(req) {
       else if (targetBranchRaw.includes('ME') || targetBranchRaw.includes('MECHANICAL')) lookupBranches.push('Mechanical Engineering');
       else if (targetBranchRaw.includes('AIML')) lookupBranches.push('AIML');
 
-      if (lookupBranches.length > 0) {
-        overridesArr.forEach(ov => {
-          if (lookupBranches.includes(ov.branch)) branchOverrideRegs.push(ov.reg.toUpperCase());
-        });
-      }
+      // Compared through isSameBranch so a differently spelled override ("AIML" for
+      // "CSE AIML", "ME" for "Mechanical Engineering") is still recognised.
+      const branchExcludeRegs = [];
+      overridesArr.forEach(ov => {
+        if (!ov?.branch) return;
+        const reg = String(ov.reg || "").toUpperCase();
+        if (!reg) return;
+        if (lookupBranches.some(lb => isSameBranch(ov.branch, lb)) || isSameBranch(ov.branch, branch)) {
+          branchOverrideRegs.push(reg);
+        } else {
+          // Assigned to a different branch: must be dropped even though the branch
+          // code in their registration still matches the regex below, otherwise they
+          // are listed under both the old and the new branch.
+          branchExcludeRegs.push(reg);
+        }
+      });
 
       if (branchCode) {
         // Add regex to match branch code at positions 5-7 for B.Tech
@@ -373,6 +385,12 @@ export async function POST(req) {
         // No standard code map match, but maybe overrides exist?
         if (!query.$and) query.$and = [];
         query.$and.push({ Reg_No: { $in: branchOverrideRegs } });
+      }
+
+      // Remove anyone assigned away from this branch, whichever condition matched them
+      if (branchExcludeRegs.length > 0) {
+        if (!query.$and) query.$and = [];
+        query.$and.push({ Reg_No: { $nin: branchExcludeRegs } });
       }
     }
 

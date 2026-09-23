@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import { getCampusSchoolDatabase } from "@/lib/campus";
+import { isSameBranch } from "@/lib/branch-overrides";
 import { jwtVerify } from "jose";
 
 async function verifyToken(token) {
@@ -126,20 +127,9 @@ export async function POST(req) {
         return parsedYear || recordBatch || "";
       };
 
-      const normalizeBranchForCompare = (br) => {
-        if (!br) return "";
-        const brStr = String(br).trim().toUpperCase();
-        const branchMap = {
-          'CIVIL ENGINEERING': 'CIVIL',
-          'COMPUTER SCIENCE AND ENGINEERING': 'CSE',
-          'COMPUTER SCIENCE ENGINEERING': 'CSE',
-          'ELECTRONICS AND COMMUNICATION ENGINEERING': 'ECE',
-          'ELECTRICAL AND ELECTRONICS ENGINEERING': 'EEE',
-          'MECHANICAL ENGINEERING': 'MECHANICAL',
-          'ME': 'MECHANICAL'
-        };
-        return branchMap[brStr] || brStr;
-      };
+      // Branch comparison now goes through isSameBranch from lib/branch-overrides,
+      // which also covers the "&" spellings and the AIML variants this local map
+      // missed.
 
       // Identify extra Reg_Nos that match criteria via overrides
       let extraRegs = [];
@@ -162,8 +152,11 @@ export async function POST(req) {
         else if (searchKey === 'aiml') targetBranch = "AIML";
 
         if (targetBranch) {
+          // isSameBranch, not ===: an override may store a different spelling of the
+          // same branch ("AIML" against "CSE AIML", "ME" against "Mechanical
+          // Engineering") and an exact match silently misses those students.
           overridesArr.forEach(ov => {
-            if (ov.branch === targetBranch) extraRegs.push(ov.reg);
+            if (ov.branch && isSameBranch(ov.branch, targetBranch)) extraRegs.push(ov.reg);
           });
         }
       }
@@ -277,15 +270,11 @@ export async function POST(req) {
           }
         }
 
-        // Check Department
+        // Check Department. Compared through isSameBranch rather than a substring
+        // test: "CSE AIML" contains "CSE", so a student in CSE used to pass an AIML
+        // filter and appear under both branches.
         if (department && department !== "All") {
-          const normalizedFilter = normalizeBranchForCompare(department);
-          const normalizedEffective = normalizeBranchForCompare(effectiveBranch);
-          if (normalizedFilter !== normalizedEffective &&
-            !normalizedEffective.includes(normalizedFilter) &&
-            !normalizedFilter.includes(normalizedEffective)) {
-            return;
-          }
+          if (!isSameBranch(effectiveBranch, department)) return;
         }
 
         // Update student object with effective values for display
