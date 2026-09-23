@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import { jwtVerify } from "jose";
 import { getCampusDatabase, getCampusSchoolDatabase } from "@/lib/campus";
+import { isSameBranch } from "@/lib/branch-overrides";
 // Import diploma helpers from SOVET parse-registration API
 async function getDiplomaHelpers() {
   const { isDiplomaStudent, isDiplomaLateralEntry, getDiplomaBranchName, getBranchFromRegistration } = await import('../../../sovet/parse-registration/route');
@@ -380,9 +381,14 @@ export async function POST(req) {
           orConds.push({ Reg_No: { $regex: `^.{7}${deptCode}` } });
         }
       }
-      // Include overrides for this department
+      // Include students assigned INTO this department. Compared through
+      // isSameBranch rather than ===, because the dropdown sends "CSE AIML" while an
+      // override may store "AIML" (or "ME" against "Mechanical Engineering"), and an
+      // exact match silently misses them.
       try {
-        const branchMatchRegs = overridesArr.filter(o => o.branch === department).map(o => o.reg);
+        const branchMatchRegs = overridesArr
+          .filter(o => o.branch && isSameBranch(o.branch, department))
+          .map(o => o.reg);
         if (branchMatchRegs.length > 0) orConds.push({ Reg_No: { $in: branchMatchRegs } });
       } catch { }
 
@@ -952,19 +958,17 @@ export async function POST(req) {
         }
       }
 
-      // Skip if department doesn't match the filter (only if department filter is applied and not "all")
+      // Skip if the student's effective department is not the one being filtered for.
+      // actualDepartment already prefers the override, so this is what removes a
+      // student from the branch their registration implies once they have been
+      // reassigned - without it they appear under both the old and the new branch.
+      //
+      // Compared through isSameBranch. The previous substring test
+      // (cleanActual.includes(cleanTarget) || cleanTarget.includes(cleanActual))
+      // let "CSE", "AIML" and "CSE AIML" match one another, so a student moved to
+      // CSE still passed the AIML filter and was listed twice.
       if (department && department !== "All" && department !== "Select Department") {
-        // Normalize for comparison
-        const cleanActual = String(actualDepartment || "").replace(/\s*\(Diploma\)\s*/i, '').trim().toUpperCase();
-        const cleanTarget = String(department || "").replace(/\s*\(Diploma\)\s*/i, '').trim().toUpperCase();
-
-        // Use normalized comparison
-        // Also check if cleaned branch name matches alias map if strict match fails (simplified here)
-        if (cleanActual !== cleanTarget) {
-          // Check if one contains the other (e.g. CSE contains Computer Science)
-          const isPartial = cleanActual.includes(cleanTarget) || cleanTarget.includes(cleanActual);
-          if (!isPartial) continue;
-        }
+        if (!isSameBranch(actualDepartment, department)) continue;
       }
 
       // Try both string and number matching for Reg_No
