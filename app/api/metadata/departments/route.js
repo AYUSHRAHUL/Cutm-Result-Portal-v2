@@ -110,10 +110,16 @@ export async function GET(req) {
     // only exists via overrides - because no registration number implies it - would
     // be missing from the filter dropdowns, leaving those students unreachable.
     try {
-      const { loadBranchOverrides } = await import("@/lib/branch-overrides");
+      const { loadBranchOverrides, isSameBranch } = await import("@/lib/branch-overrides");
       const branchOverrides = await loadBranchOverrides(db);
       for (const o of branchOverrides.values()) {
-        if (o?.branch) branchSet.add(o.branch);
+        if (!o?.branch) continue;
+        // Only add a branch that is not already listed under another spelling.
+        // An override stored as "AIML" must not appear beside the parser's
+        // "CSE AIML" - two dropdown entries for one branch, and picking the wrong
+        // one silently filters on a name half the data does not use.
+        const alreadyListed = Array.from(branchSet).some(b => isSameBranch(b, o.branch));
+        if (!alreadyListed) branchSet.add(o.branch);
       }
     } catch (e) {
       console.warn('metadata/departments: could not merge branch overrides -', e?.message);
