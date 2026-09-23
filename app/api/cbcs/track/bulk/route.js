@@ -20,6 +20,24 @@ async function verifyToken(token) {
   }
 }
 
+/**
+ * Registrations as both strings and numbers, for use in a Mongo $in.
+ *
+ * Reg_No is stored as a string in some collections and a number in others, so an
+ * $in built only from strings silently matches nothing for the numeric rows.
+ */
+function withNumericVariants(regs) {
+  const out = [];
+  for (const r of regs || []) {
+    const s = String(r || "").trim();
+    if (!s) continue;
+    out.push(s);
+    const n = Number(s);
+    if (Number.isSafeInteger(n) && String(n) === s) out.push(n);
+  }
+  return out;
+}
+
 const FAIL_OR_INCOMPLETE_GRADES = new Set(["F", "S", "M", "I", "R"]);
 
 const REQUIRED_CREDITS = {
@@ -389,7 +407,12 @@ export async function POST(req) {
         const branchMatchRegs = overridesArr
           .filter(o => o.branch && isSameBranch(o.branch, department))
           .map(o => o.reg);
-        if (branchMatchRegs.length > 0) orConds.push({ Reg_No: { $in: branchMatchRegs } });
+        // Match both the string and numeric forms of the registration. Reg_No is
+        // stored as a string in some collections and a number in others - the results
+        // query below already guards against this - and a string-only $in silently
+        // returns nothing for the numeric rows.
+        const branchMatchMixed = withNumericVariants(branchMatchRegs);
+        if (branchMatchMixed.length > 0) orConds.push({ Reg_No: { $in: branchMatchMixed } });
       } catch { }
 
       if (orConds.length > 0) {
@@ -409,10 +432,13 @@ export async function POST(req) {
       const isSovet = school === 'SOVET';
       const targetBatch = batch.length === 4 ? batch : `20${batch}`;
 
-      // Find overrides that match this batch
-      const batchOverrideRegs = overridesArr
-        .filter(o => o.batch === targetBatch)
-        .map(o => o.reg);
+      // Find overrides that match this batch. Compared as strings, and expanded to
+      // numeric variants so the $in matches however Reg_No happens to be stored.
+      const batchOverrideRegs = withNumericVariants(
+        overridesArr
+          .filter(o => o.batch && String(o.batch) === String(targetBatch))
+          .map(o => o.reg)
+      );
 
       if (isSovet) {
         // Diploma: Use robust $expr matching for numeric/string IDs
@@ -561,11 +587,22 @@ export async function POST(req) {
         `| overrides in db: ${overridesArr.length} | students returned: ${students.length} ` +
         `| overridden returned: ${JSON.stringify(returnedOverridden)}`
       );
-      const missing = overridesArr
-        .map(o => String(o.reg || "").toUpperCase())
-        .filter(r => !returnedOverridden.includes(r));
+      // Only registrations that SHOULD have matched this filter - listing every
+      // override was misleading, since most legitimately belong to other
+      // branches/batches.
+      const shouldMatch = overridesArr
+        .filter(o => {
+          if (department && department !== "All" && department !== "Select Department") {
+            if (!o.branch || !isSameBranch(o.branch, department)) return false;
+          }
+          return true;
+        })
+        .map(o => String(o.reg || "").toUpperCase());
+
+      const missing = shouldMatch.filter(r => !returnedOverridden.includes(r));
       if (missing.length > 0) {
-        console.log(`[OVERRIDE-DEBUG] overridden regs NOT returned by the query: ${JSON.stringify(missing)}`);
+        console.log(`[OVERRIDE-DEBUG] expected but NOT returned by the query: ${JSON.stringify(missing)}`);
+        console.log(`[OVERRIDE-DEBUG] query was: ${JSON.stringify(query)}`);
       }
     } catch (e) {
       console.warn('[OVERRIDE-DEBUG] failed:', e?.message);
