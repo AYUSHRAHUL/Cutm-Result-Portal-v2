@@ -549,6 +549,28 @@ export async function POST(req) {
 
     let students = Array.from(studentMap.values());
 
+    // Diagnostic: report how overridden registrations fared in the query itself.
+    // Limited to registrations that actually carry an override, so it cannot flood
+    // the logs. Remove once the override filtering is confirmed correct.
+    try {
+      const returnedOverridden = students
+        .map(s => String(s.Reg_No || "").toUpperCase())
+        .filter(r => overrideMap.has(r));
+      console.log(
+        `[OVERRIDE-DEBUG] department=${JSON.stringify(department)} batch=${JSON.stringify(batch)} ` +
+        `| overrides in db: ${overridesArr.length} | students returned: ${students.length} ` +
+        `| overridden returned: ${JSON.stringify(returnedOverridden)}`
+      );
+      const missing = overridesArr
+        .map(o => String(o.reg || "").toUpperCase())
+        .filter(r => !returnedOverridden.includes(r));
+      if (missing.length > 0) {
+        console.log(`[OVERRIDE-DEBUG] overridden regs NOT returned by the query: ${JSON.stringify(missing)}`);
+      }
+    } catch (e) {
+      console.warn('[OVERRIDE-DEBUG] failed:', e?.message);
+    }
+
     // CRITICAL: Apply JS filtering for diploma students by department
     // (MongoDB regex was skipped for diploma at line 262)
     if (department && department !== "All" && department !== "Select Department" && department !== "" && school === 'SOVET') {
@@ -918,6 +940,12 @@ export async function POST(req) {
       const regNo = String(student.Reg_No || "").toUpperCase();
       const ov = overrideMap.get(regNo);
 
+      // Diagnostic: trace only registrations carrying an override, so the logs stay
+      // readable. Remove once override filtering is confirmed correct.
+      const dbg = ov
+        ? (stage, extra = "") => console.log(`[OVERRIDE-DEBUG] ${regNo} ${stage} ${extra}`)
+        : () => { };
+
       // Effective Batch (e.g. "2024")
       let effectiveBatch = ov?.batch;
       if (!effectiveBatch) {
@@ -954,6 +982,7 @@ export async function POST(req) {
         if (effectiveBatchFull !== targetBatchFull) {
           // Skip students who don't match the batch filter effectively
           // This handles cases where regex matched 24... but override moved them to 2025
+          dbg("DROPPED by batch filter", `effective=${effectiveBatchFull} requested=${targetBatchFull}`);
           continue;
         }
       }
@@ -968,8 +997,12 @@ export async function POST(req) {
       // let "CSE", "AIML" and "CSE AIML" match one another, so a student moved to
       // CSE still passed the AIML filter and was listed twice.
       if (department && department !== "All" && department !== "Select Department") {
-        if (!isSameBranch(actualDepartment, department)) continue;
+        if (!isSameBranch(actualDepartment, department)) {
+          dbg("DROPPED by department filter", `effective=${JSON.stringify(actualDepartment)} requested=${JSON.stringify(department)}`);
+          continue;
+        }
       }
+      dbg("passed branch+batch filters", `effective branch=${JSON.stringify(actualDepartment)} batch=${JSON.stringify(effectiveBatch)}`);
 
       // Try both string and number matching for Reg_No
       const studentResults = results.filter(r =>
@@ -985,7 +1018,11 @@ export async function POST(req) {
         // console.log(`Sample results for ${student.Reg_No}:`, studentResults.slice(0, 1).map(r => r.Subject_Code));
       }
 
-      if (studentResults.length === 0) continue;
+      if (studentResults.length === 0) {
+        dbg("DROPPED - no academic records matched", `results pool=${results.length}`);
+        continue;
+      }
+      dbg("INCLUDED", `${studentResults.length} record(s)`);
 
       // Initialize baskets with appropriate credit requirements
       // PASS EFFECTIVE BATCH AND DEGREE TYPE HERE
