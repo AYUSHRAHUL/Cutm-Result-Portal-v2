@@ -1,3 +1,8 @@
+// Spreadsheet uploads process thousands of rows in batched round trips to Atlas,
+// which overruns Vercel's default function limit and surfaces as a dropped
+// connection (the client sees only "Upload failed") rather than an error response.
+export const maxDuration = 60;
+
 import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import * as XLSX from 'xlsx';

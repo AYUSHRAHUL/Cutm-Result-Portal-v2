@@ -80,7 +80,15 @@ export default function AdminUploadPage() {
       setMessage(successMessage);
       setFiles([]);
     } catch (err) {
-      setError("Upload failed. Please try again.");
+      // Reaching the catch means no response came back at all - the server did not
+      // reply with an error, the connection dropped. For a large spreadsheet that is
+      // almost always the function hitting its time limit part-way through.
+      setError(
+        "Upload failed - the server did not respond. This usually means the file " +
+        "was too large to finish in time. Try splitting it into smaller files " +
+        "(a few thousand rows each) and uploading them one at a time. " +
+        (err?.message ? `(${err.message})` : "")
+      );
     }
   }
 
