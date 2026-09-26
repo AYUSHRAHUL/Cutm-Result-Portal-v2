@@ -6,15 +6,16 @@ import { clientPromise } from "@/lib/mongodb";
 import { getCampusSchoolDatabase } from "@/lib/campus";
 import { requireRole } from "@/lib/api-auth";
 import { loadSectionDefinitions, normalizeBatch } from "@/lib/sections";
-import { buildSectionRoster } from "@/lib/section-roster";
+import { buildSectionRoster, isAllBranches } from "@/lib/section-roster";
 
 /**
- * GET ?branch=&batch=   admin only
+ * GET ?batch=&branch=   admin only. branch is optional; omit it, or pass "All",
+ * for the whole batch.
  *
- * The students of one SOET branch + batch with their current section, for the
- * Section Allotment page. Includes inactive students (flagged, shown greyed out)
- * and students whose stored section was allotted under a different branch or
- * batch (flagged `stale`, shown as needing reassignment).
+ * The students with their current section, for the Section Allotment page.
+ * Includes inactive students (flagged, shown greyed out), students moved by a
+ * branch override (flagged `overridden`, so they can be reviewed), and students
+ * whose stored section was allotted in a different batch (flagged `stale`).
  */
 export async function GET(req) {
   try {
@@ -22,43 +23,57 @@ export async function GET(req) {
     if (error) return error;
 
     const { searchParams } = new URL(req.url);
-    const branch = searchParams.get("branch");
     const batch = normalizeBatch(searchParams.get("batch"));
-    if (!branch || !batch) {
-      return NextResponse.json({ error: "branch and batch are required" }, { status: 400 });
+    const branch = searchParams.get("branch");
+    if (!batch) {
+      return NextResponse.json({ error: "batch is required" }, { status: 400 });
     }
 
     const campus = searchParams.get("campus") || payload.campus || null;
     const db = (await clientPromise).db(getCampusSchoolDatabase(campus, "SOET"));
 
-    const [sections, roster] = await Promise.all([
-      loadSectionDefinitions(db, branch, batch),
+    const [sections, roster, totals] = await Promise.all([
+      loadSectionDefinitions(db, batch),
       buildSectionRoster(db, branch, batch),
+      // Batch-wide totals per section, across every branch - a combined section's
+      // size is not visible from any single-branch view
+      db.collection("student_sections")
+        .aggregate([
+          { $match: { batch } },
+          { $group: { _id: "$section", count: { $sum: 1 } } },
+        ])
+        .toArray()
+        .catch(() => []),
     ]);
 
-    // Counts per section, plus unassigned; inactive students counted separately so
-    // the headline numbers reflect who is actually studying
+    // Counts within this view. Inactive students are counted separately so the
+    // headline numbers reflect who is actually studying.
     const counts = Object.fromEntries(sections.map(s => [s, 0]));
-    let unassigned = 0;
-    let inactive = 0;
-    let stale = 0;
+    let unassigned = 0, inactive = 0, stale = 0, branchChanged = 0;
     for (const s of roster.students) {
+      if (s.overridden) branchChanged++;
       if (s.inactive) { inactive++; continue; }
       if (s.stale) stale++;
       if (s.section && s.section in counts) counts[s.section]++;
       else unassigned++;
     }
 
+    const sectionTotals = Object.fromEntries(sections.map(s => [s, 0]));
+    for (const t of totals) {
+      if (t._id in sectionTotals) sectionTotals[t._id] = t.count;
+    }
+
     return NextResponse.json({
       success: true,
-      branch,
-      branchKey: roster.branchKey,
       batch,
+      branch: isAllBranches(branch) ? "All" : branch,
       sections,
       counts,
+      sectionTotals,
       unassigned,
       inactive,
       stale,
+      branchChanged,
       total: roster.students.length,
       students: roster.students,
     });

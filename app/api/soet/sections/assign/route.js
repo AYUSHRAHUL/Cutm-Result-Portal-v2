@@ -14,13 +14,16 @@ import {
 import { buildSectionRoster } from "@/lib/section-roster";
 
 /**
- * POST { branch, batch, regs: [...], section }   admin only
+ * POST { batch, regs: [...], section }   admin only
  *
  * Put the given students into `section`, or take them out of any section when
  * `section` is null or "". Used for tick-and-assign: many students, one section.
+ * Also how an admin changes a student's section - including after a branch
+ * override, which leaves the section in place until changed here.
  *
- * Only students who actually belong to this branch + batch (after overrides) are
- * written; any others are reported back rather than silently stored.
+ * A section may combine branches, so students are validated against the whole
+ * batch, not one branch. Registrations not in this batch are reported back
+ * rather than silently stored.
  */
 export async function POST(req) {
   try {
@@ -28,15 +31,13 @@ export async function POST(req) {
     if (error) return error;
 
     const body = await req.json().catch(() => ({}));
-    const branch = body?.branch;
     const batch = normalizeBatch(body?.batch);
-    const branchKey = sectionBranchKey(branch);
     const regs = Array.isArray(body?.regs)
       ? [...new Set(body.regs.map(r => String(r || "").trim().toUpperCase()).filter(Boolean))]
       : [];
 
-    if (!branchKey || !batch) {
-      return NextResponse.json({ error: "branch and batch are required" }, { status: 400 });
+    if (!batch) {
+      return NextResponse.json({ error: "batch is required" }, { status: 400 });
     }
     if (regs.length === 0) {
       return NextResponse.json({ error: "No students selected" }, { status: 400 });
@@ -51,19 +52,19 @@ export async function POST(req) {
     let section = null;
     if (!unassign) {
       section = normalizeSectionName(body.section);
-      const defined = await loadSectionDefinitions(db, branch, batch);
+      const defined = await loadSectionDefinitions(db, batch);
       if (!section || !defined.includes(section)) {
         return NextResponse.json({
-          error: `Section ${body.section} is not defined for this branch and batch`
+          error: `Section ${body.section} is not defined for ${batch}`
         }, { status: 400 });
       }
     }
 
-    // Only write students who genuinely belong here
-    const roster = await buildSectionRoster(db, branch, batch);
-    const eligible = new Set(roster.students.map(s => s.reg));
-    const valid = regs.filter(r => eligible.has(r));
-    const rejected = regs.filter(r => !eligible.has(r));
+    // Only write students who genuinely belong to this batch (any branch)
+    const roster = await buildSectionRoster(db, "All", batch);
+    const byReg = new Map(roster.students.map(s => [s.reg, s]));
+    const valid = regs.filter(r => byReg.has(r));
+    const rejected = regs.filter(r => !byReg.has(r));
 
     const collection = db.collection("student_sections");
     await collection.createIndex({ reg: 1 }, { unique: true });
@@ -78,7 +79,15 @@ export async function POST(req) {
             updateOne: {
               filter: { reg },
               update: {
-                $set: { reg, section, branchKey, batch, updatedAt: now, updatedBy: payload.email }
+                $set: {
+                  reg,
+                  section,
+                  batch,
+                  // The student's branch at the time of allotment - informational
+                  branchKey: sectionBranchKey(byReg.get(reg).branch) || null,
+                  updatedAt: now,
+                  updatedBy: payload.email,
+                },
               },
               upsert: true,
             },
@@ -94,7 +103,7 @@ export async function POST(req) {
       updated: valid.length,
       ...(rejected.length > 0 && {
         rejected,
-        warning: `${rejected.length} registration(s) are not in this branch and batch and were not changed`
+        warning: `${rejected.length} registration(s) are not in batch ${batch} and were not changed`
       }),
     });
   } catch (e) {
