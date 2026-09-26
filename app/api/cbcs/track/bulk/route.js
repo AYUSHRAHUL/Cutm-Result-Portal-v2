@@ -3,6 +3,7 @@ import { clientPromise } from "@/lib/mongodb";
 import { jwtVerify } from "jose";
 import { getCampusDatabase, getCampusSchoolDatabase } from "@/lib/campus";
 import { isSameBranch } from "@/lib/branch-overrides";
+import { loadStudentSections, resolveSection, sectionMatchesFilter } from "@/lib/sections";
 // Import diploma helpers from SOVET parse-registration API
 async function getDiplomaHelpers() {
   const { isDiplomaStudent, isDiplomaLateralEntry, getDiplomaBranchName, getBranchFromRegistration } = await import('../../../sovet/parse-registration/route');
@@ -313,7 +314,13 @@ export async function POST(req) {
       }, { status: 400 });
     }
 
-    const { registration, department, batch, semesters = [], basket, bbaDegreeType = "4year" } = requestBody;
+    const { registration, department, batch, semesters = [], basket, bbaDegreeType = "4year", section } = requestBody;
+
+    // Sections belong to a batch, so a section filter only makes sense with one
+    const sectionFilterActive = Boolean(section) && section !== "All" && section !== "all";
+    if (sectionFilterActive && (!batch || batch === "All")) {
+      return NextResponse.json({ error: "Choose a batch to filter by section" }, { status: 400 });
+    }
 
     // Department is optional for bulk analysis - if not provided, get all students
 
@@ -333,6 +340,9 @@ export async function POST(req) {
     const overridesCol = db.collection("branch_overrides");
     const overridesArr = await overridesCol.find({}, { projection: { _id: 0, reg: 1, branch: 1, batch: 1 } }).toArray();
     const overrideMap = new Map(overridesArr.map(o => [String(o.reg || "").toUpperCase(), o]));
+
+    // Section allotments - only loaded when a section filter is actually requested
+    const sectionsMap = sectionFilterActive ? await loadStudentSections(db) : null;
 
     // Fetch inactive students list for global exclusion
     const statusCollection = db.collection("student_status");
@@ -1011,6 +1021,15 @@ export async function POST(req) {
       // CSE still passed the AIML filter and was listed twice.
       if (department && department !== "All" && department !== "Select Department") {
         if (!isSameBranch(actualDepartment, department)) continue;
+      }
+
+      // Section filter. Resolved against the student's EFFECTIVE batch, so a
+      // student moved to another batch does not keep a section from the old one.
+      // Works with Department = All, which is how a combined section (e.g. Civil +
+      // Mechanical) is seen whole.
+      if (sectionFilterActive) {
+        const { section: studentSection } = resolveSection(regNo, effectiveBatch, sectionsMap);
+        if (!sectionMatchesFilter(studentSection, section)) continue;
       }
 
       // Try both string and number matching for Reg_No

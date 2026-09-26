@@ -6,6 +6,7 @@ import Link from "next/link";
 import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
 import { getSubjectSemesterRaw, normalizeSemesterBucket, formatSemesterDisplay } from "@/lib/subject-semester";
 import { getProgramSemesterKeys, capSemesterKeysForReport } from "@/lib/basket-report-semesters";
+import { UNASSIGNED } from "@/lib/sections";
 
 // Excel XML Helper Functions
 function escapeXml(value) {
@@ -104,6 +105,10 @@ function TeacherBasketProgressTrackerContent() {
   const deptOptions = isSom ? somDeptsList : (isDiploma ? diplomaDeptsList : btechDeptsList);
 
   const [batch, setBatch] = useState("");
+  // Section filter (SOET). Sections belong to a batch and may combine branches.
+  const [section, setSection] = useState("All");
+  const [availableSections, setAvailableSections] = useState([]);
+  const sectionChosen = Boolean(section) && section !== "All";
   const [registration, setRegistration] = useState("");
   const [registrationOptions, setRegistrationOptions] = useState([]);
   const [selectedRegistrations, setSelectedRegistrations] = useState([]);
@@ -394,7 +399,9 @@ function TeacherBasketProgressTrackerContent() {
           batch: batch && batch !== "All" && batch !== "Select Batch" ? batch : "", // Send empty string for "All" batches
           semesters: semesterValues.length > 0 && !semesterValues.includes("All") ? semesterValues : [], // Send empty array for "All" semesters
           basket: basket && basket !== "All" && basket !== "Select Basket" ? basket : "", // Send empty string for "All" baskets
-          bbaDegreeType: isBba ? bbaDegreeType : undefined
+          bbaDegreeType: isBba ? bbaDegreeType : undefined,
+          // Narrow to one section; with Department = All this shows a combined section whole
+          ...(sectionChosen ? { section } : {}),
         };
 
         console.log("Frontend sending request:", requestBody);
@@ -581,7 +588,11 @@ Please check if the department name matches exactly with the available departmen
         });
         const branch = department && department !== "All" ? branchMap[department] : undefined;
         const hasBatch = batch && batch !== "All";
-        const body = { ...(branch ? { branch } : {}), ...(hasBatch ? { batch } : {}) };
+        const body = {
+          ...(branch ? { branch } : {}),
+          ...(hasBatch ? { batch } : {}),
+          ...(sectionChosen ? { section } : {}),
+        };
         const baseBatch = getSchoolApiUrl("batch");
         const batchUrl = baseBatch.includes("?") ? `${baseBatch}&mode=list` : `${baseBatch}?mode=list`;
         const res = await fetch(batchUrl, {
@@ -623,12 +634,36 @@ Please check if the department name matches exactly with the available departmen
     setSemesters(allSemesters); // Keep all semesters visible
     setSemesterValues([]);
 
-    if (department && department !== "" && department !== "All" && batch && batch !== "" && batch !== "All") {
+    // A specific department, or - for a combined section - All Departments plus a
+    // section, since the section alone already narrows the list
+    const hasBatch = batch && batch !== "" && batch !== "All";
+    const hasDepartment = department && department !== "" && department !== "All";
+    if (hasBatch && (hasDepartment || (department === "All" && sectionChosen))) {
       loadRegistrations();
     } else {
       setRegistrationOptions([]);
     }
-  }, [department, batch, isDiploma]);
+  }, [department, batch, isDiploma, section]);
+
+  // Section names for the chosen batch (SOET only - sections are allotted per
+  // batch in Section Allotment). Any previously chosen section is reset, since
+  // section names belong to one batch.
+  useEffect(() => {
+    setSection("All");
+    setAvailableSections([]);
+    if (isDiploma || isSom || !batch || batch === "All") return;
+    (async () => {
+      try {
+        const base = getSchoolApiUrl("sections/definitions");
+        const url = `${base}${base.includes("?") ? "&" : "?"}batch=${encodeURIComponent(batch)}`;
+        const res = await fetch(url);
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && Array.isArray(data.sections)) setAvailableSections(data.sections);
+      } catch {
+        // No sections yet is a normal state - the filter simply stays disabled
+      }
+    })();
+  }, [batch, isDiploma, isSom]);
 
   // Load semesters for registration
   async function loadSemestersForRegistration(value) {
@@ -2727,7 +2762,7 @@ Please check if the department name matches exactly with the available departmen
         {/* Search Form */}
         <div className="bg-white rounded-lg shadow-sm border p-6 mb-6">
           <form onSubmit={onSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-6">
               {/* Department */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">
@@ -2784,6 +2819,31 @@ Please check if the department name matches exactly with the available departmen
                   )}
                 </select>
               </div>
+
+              {/* Section (SOET). Sections belong to a batch and can combine branches, so
+                  with Department = All Departments a combined section shows whole. */}
+              {!isDiploma && !isSom && (
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">Section:</label>
+                  <select
+                    value={section}
+                    onChange={e => setSection(e.target.value)}
+                    disabled={!batch || batch === "All" || availableSections.length === 0}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black disabled:bg-gray-100 disabled:text-gray-400"
+                  >
+                    <option value="All">All Sections</option>
+                    {availableSections.map(s => <option key={s} value={s}>Section {s}</option>)}
+                    <option value={UNASSIGNED}>Unassigned</option>
+                  </select>
+                  <div className="text-xs text-gray-500">
+                    {!batch || batch === "All"
+                      ? "Choose a batch to filter by section"
+                      : availableSections.length === 0
+                        ? "No sections allotted for this batch yet"
+                        : "Use All Departments to see a combined section"}
+                  </div>
+                </div>
+              )}
 
               {/* BBA Program Track Filter (Appears only for SOM/BBA) */}
               {isBba && (is2023Onwards || batch === "All" || !batch) && (

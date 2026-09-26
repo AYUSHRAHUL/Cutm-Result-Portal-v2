@@ -3,6 +3,7 @@ import { clientPromise } from "@/lib/mongodb";
 import { verifyToken } from "@/lib/auth";
 import { getCampusSchoolDatabase } from "@/lib/campus";
 import { loadBranchOverrides, isSameBranch } from "@/lib/branch-overrides";
+import { loadStudentSections, resolveSection, sectionMatchesFilter } from "@/lib/sections";
 
 /**
  * SOET (School of Engineering & Technology) Batch Route
@@ -308,8 +309,23 @@ export async function POST(req) {
         return true;
       });
 
+      // Section filter, resolved against each student's effective batch. A section
+      // can combine branches, so this also works with no branch chosen.
+      let sectionFiltered = effectiveFiltered;
+      const sectionWanted = requestData.section;
+      if (sectionWanted && sectionWanted !== 'All' && sectionWanted !== 'all') {
+        const sectionsMap = await loadStudentSections(db);
+        sectionFiltered = effectiveFiltered.filter(s => {
+          const reg = String(s.Reg_No || "").trim().toUpperCase();
+          const ov = assignedOverrides.get(reg);
+          const effectiveBatch = ov?.batch || `20${reg.slice(0, 2)}`;
+          const { section } = resolveSection(reg, effectiveBatch, sectionsMap);
+          return sectionMatchesFilter(section, sectionWanted);
+        });
+      }
+
       // Filter out inactive students
-      const students = effectiveFiltered.filter(s => !inactiveRegs.includes(s.Reg_No));
+      const students = sectionFiltered.filter(s => !inactiveRegs.includes(s.Reg_No));
       // Sort by last 4 digits of registration number (ascending)
       students.sort((a, b) => {
         const regA = String(a.Reg_No || "").trim();
