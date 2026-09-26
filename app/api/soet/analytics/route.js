@@ -74,6 +74,20 @@ export async function GET(req) {
 // CRITICAL: Maximum records to fetch to prevent MongoDB connection exhaustion
 const MAX_ANALYTICS_RECORDS = 50000; // Limit to 50k records max per analytics request
 
+/**
+ * An admin-assigned branch, mapped back to the exact name parseBTechRegistration
+ * returns for that branch (see soetBtechBranchMap). Keeps assigned and parsed
+ * students in one bucket instead of two differently spelled ones.
+ */
+const ASSIGNED_TO_PARSER_BRANCH = {
+  CIVIL: 'Civil Engineering',
+  CSE: 'Computer Science Engineering',
+  ECE: 'Electronics & Communication Engineering',
+  EEE: 'Electrical & Electronics Engineering',
+  MECH: 'Mechanical Engineering',
+  AIML: 'CSE AIML',
+};
+
 async function getAnalyticsData(db, batchFilter = null, branchFilter = null, semesterFilter = null, school = null) {
   const { parseBTechRegistration } = await import('../parse-registration/route');
 
@@ -476,18 +490,19 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
     // Keep students the parser cannot read when an admin has assigned them a branch
     if (!ov?.branch && (!parsed || !parsed.isValid || !parsed.isBTech)) return;
 
-    let deptName;
-    if (ov?.branch) {
-      // Fold the assigned branch into the same vocabulary the chart already uses,
-      // so an override spelled "Electronics & Communication Engineering" joins the
-      // ECE bucket rather than forming a department of its own.
-      const overrideDisplayMap = { CIVIL: 'CIVIL', CSE: 'CSE', ECE: 'ECE', EEE: 'EEE', MECH: 'ME', AIML: 'AIML' };
-      const key = normalizeBranchKey(ov.branch);
-      deptName = overrideDisplayMap[key] || String(ov.branch).toUpperCase();
-    } else {
-      const parsedBranch = parsed.branch || 'Unknown';
-      deptName = branchDisplayMap[parsedBranch] || parsedBranch.toUpperCase();
-    }
+    // Resolve an assigned branch back to the exact name parseBTechRegistration would
+    // have produced, then label BOTH paths with the same expression. Labelling them
+    // separately is what put "CSE" beside "COMPUTER SCIENCE ENGINEERING" and "ECE"
+    // beside "ELECTRONICS & COMMUNICATION ENGINEERING" - one branch, two bars.
+    //
+    // Note branchDisplayMap is keyed on short names while the parser returns full
+    // ones, so it only ever matches "CSE AIML"; everything else falls through to
+    // toUpperCase(). That fallback IS the chart's vocabulary.
+    const branchName = ov?.branch
+      ? (ASSIGNED_TO_PARSER_BRANCH[normalizeBranchKey(ov.branch)] || ov.branch)
+      : (parsed.branch || 'Unknown');
+
+    let deptName = branchDisplayMap[branchName] || String(branchName).toUpperCase();
 
     // If only one branch is filtered and no specific batch is selected,
     // show breakdown by Year in the department chart for better insights
