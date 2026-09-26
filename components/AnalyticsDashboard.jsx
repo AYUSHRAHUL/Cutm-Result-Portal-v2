@@ -3694,112 +3694,16 @@ export default function AnalyticsDashboard() {
                                     clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
                                     clonedSvg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
 
-                                    // Preserve gradients and colors - copy all defs
-                                    const defs = clonedSvg.querySelector('defs');
-                                    if (defs) {
-                                      // Ensure gradients are preserved with original colors
-                                      const gradients = defs.querySelectorAll('linearGradient, radialGradient');
-                                      gradients.forEach(grad => {
-                                        const originalId = grad.getAttribute('id');
-                                        if (originalId) {
-                                          // Keep original ID to maintain references
-                                          grad.setAttribute('id', originalId);
-                                        }
-                                        // Ensure all gradient stops preserve their colors
-                                        const stops = grad.querySelectorAll('stop');
-                                        stops.forEach(stop => {
-                                          const stopColor = stop.getAttribute('stop-color') || stop.getAttribute('stopColor');
-                                          const stopOpacity = stop.getAttribute('stop-opacity') || stop.getAttribute('stopOpacity') || '1';
-                                          // Force blue gradient colors for bars
-                                          const offset = stop.getAttribute('offset');
-                                          if (originalId === 'subjectPassGradient' || originalId?.includes('Pass')) {
-                                            if (offset === '0%' || offset === '0') {
-                                              stop.setAttribute('stop-color', '#60a5fa');
-                                              stop.setAttribute('stop-opacity', '1');
-                                            } else {
-                                              stop.setAttribute('stop-color', '#2563eb');
-                                              stop.setAttribute('stop-opacity', '0.95');
-                                            }
-                                          } else if (!stopColor) {
-                                            // Default blue gradient if missing
-                                            if (offset === '0%' || offset === '0') {
-                                              stop.setAttribute('stop-color', '#60a5fa');
-                                              stop.setAttribute('stop-opacity', '1');
-                                            } else {
-                                              stop.setAttribute('stop-color', '#2563eb');
-                                              stop.setAttribute('stop-opacity', '0.95');
-                                            }
-                                          } else {
-                                            // Preserve existing color but ensure opacity
-                                            stop.setAttribute('stop-opacity', stopOpacity);
-                                          }
-                                        });
-                                      });
-                                    } else {
-                                      // Create defs if missing and add gradient
-                                      const newDefs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-                                      const gradient = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
-                                      gradient.setAttribute('id', 'subjectPassGradient');
-                                      gradient.setAttribute('x1', '0');
-                                      gradient.setAttribute('y1', '0');
-                                      gradient.setAttribute('x2', '0');
-                                      gradient.setAttribute('y2', '1');
-                                      const stop1 = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
-                                      stop1.setAttribute('offset', '0%');
-                                      stop1.setAttribute('stop-color', '#60a5fa');
-                                      stop1.setAttribute('stop-opacity', '1');
-                                      const stop2 = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
-                                      stop2.setAttribute('offset', '100%');
-                                      stop2.setAttribute('stop-color', '#2563eb');
-                                      stop2.setAttribute('stop-opacity', '0.95');
-                                      gradient.appendChild(stop1);
-                                      gradient.appendChild(stop2);
-                                      newDefs.appendChild(gradient);
-                                      clonedSvg.insertBefore(newDefs, clonedSvg.firstChild);
-                                    }
-
-                                    // Find and color all bar elements - be more aggressive
-                                    const allPaths = clonedSvg.querySelectorAll('path');
-                                    const allRects = clonedSvg.querySelectorAll('rect');
-                                    const allPolygons = clonedSvg.querySelectorAll('polygon');
-
-                                    // Combine all potential bar elements
-                                    const allBarElements = [...allPaths, ...allRects, ...allPolygons];
-
-                                    allBarElements.forEach(bar => {
-                                      const fill = bar.getAttribute('fill');
-                                      const parent = bar.parentElement;
-
-                                      // Check if it's a bar element
-                                      const isBar = (
-                                        (parent && (
-                                          parent.classList.contains('recharts-bar') ||
-                                          parent.classList.contains('recharts-bar-rectangle') ||
-                                          parent.getAttribute('class')?.includes('recharts-bar')
-                                        )) ||
-                                        fill === 'url(#subjectPassGradient)' ||
-                                        (fill && fill.includes('gradient')) ||
-                                        (fill && fill.includes('subjectPassGradient'))
-                                      );
-
-                                      // Also check by dimensions - bars are usually wider than tall
-                                      const width = parseFloat(bar.getAttribute('width') || '0');
-                                      const height = parseFloat(bar.getAttribute('height') || '0');
-                                      const pathData = bar.getAttribute('d') || '';
-
-                                      // If it looks like a bar (rectangular shape), apply gradient
-                                      if (isBar || (width > 0 && height > 0 && width < height * 10) || pathData.includes('M') && pathData.includes('L')) {
-                                        // Force blue gradient
-                                        bar.setAttribute('fill', 'url(#subjectPassGradient)');
-                                        bar.removeAttribute('stroke'); // Remove any stroke that might interfere
-                                      }
-                                    });
-
-                                    // Also check for any elements with gradient fill and ensure they use the right gradient
-                                    const gradientElements = clonedSvg.querySelectorAll('[fill*="url(#subjectPassGradient)"], [fill*="gradient"]');
-                                    gradientElements.forEach(el => {
-                                      el.setAttribute('fill', 'url(#subjectPassGradient)');
-                                    });
+                                    // Leave the bars' fills alone. Each bar already carries its own
+                                    // solid colour from <Cell fill=...>, which survives cloning intact.
+                                    //
+                                    // This used to repaint every bar-like path/rect to
+                                    // fill="url(#subjectPassGradient)" - written for an older version of
+                                    // the chart that used that gradient. The chart no longer defines it,
+                                    // and Recharts always emits a <defs> (for its clip path), so the code
+                                    // never created a replacement either. A url(#...) pointing at a
+                                    // gradient that does not exist renders as no fill: every bar vanished
+                                    // from the PDF while the value labels, which are text, still showed.
 
                                     // Ensure background is white for print
                                     const bgRect = clonedSvg.querySelector('rect[width="100%"][height="100%"]');
