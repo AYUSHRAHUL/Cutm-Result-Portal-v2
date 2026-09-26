@@ -296,6 +296,14 @@ export default function AdminDashboardPKDSOET() {
               Override a student's branch by Reg_No; applies across all panels.
             </ModuleCard>
             <ModuleCard
+              title="Section Allotment"
+              icon="🗂️"
+              onClick={() => go("/dashboard/admin/section-allotment")}
+              features={["Batch-wise Sections", "Combine Branches", "Bulk Assign"]}
+            >
+              Allot students to sections batch-wise; a section can combine branches.
+            </ModuleCard>
+            <ModuleCard
               title="Honours Degree"
               icon="🎓"
               onClick={() => go("/dashboard/admin/honours")}
