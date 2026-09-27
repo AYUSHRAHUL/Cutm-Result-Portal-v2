@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { clientPromise } from "@/lib/mongodb";
 import { jwtVerify } from "jose";
 import { getCampusSchoolDatabase } from "@/lib/campus";
+import { loadSectionFilter } from "@/lib/section-roster";
 
 async function verifyToken(token) {
   try {
@@ -65,6 +66,13 @@ export async function GET(req) {
         Reg_No: { $regex: `^${batchPrefix}` }
       });
     }
+
+    // Section (needs a single batch) - only subjects taken by that section's students
+    const sectionFilter = await loadSectionFilter(db, batchFilter, searchParams.get('section'));
+    if (sectionFilter?.error) {
+      return NextResponse.json({ error: sectionFilter.error }, { status: 400 });
+    }
+    if (sectionFilter) matchConditions.push(sectionFilter.mongoMatch);
 
     // B.Tech branch mapping
     if (branchFilter && branchFilter !== "all") {

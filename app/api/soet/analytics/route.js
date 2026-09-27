@@ -3,6 +3,7 @@ import { clientPromise } from "@/lib/mongodb";
 import { jwtVerify } from "jose";
 import { getCampusSchoolDatabase } from "@/lib/campus";
 import { loadBranchOverrides, isSameBranch, normalizeBranchKey } from "@/lib/branch-overrides";
+import { loadSectionFilter } from "@/lib/section-roster";
 // Branch detection moved to parse-registration API
 
 async function verifyToken(token) {
@@ -52,8 +53,16 @@ export async function GET(req) {
     const dbName = getCampusSchoolDatabase(campus, school);
     const db = client.db(dbName);
 
+    // Section needs exactly one batch - sections belong to a batch
+    const sectionParam = searchParams.get('section');
+    const singleBatch = batchFilter.length === 1 ? batchFilter[0] : null;
+    const sectionFilter = await loadSectionFilter(db, singleBatch, sectionParam);
+    if (sectionFilter?.error) {
+      return NextResponse.json({ error: sectionFilter.error }, { status: 400 });
+    }
+
     // Get analytics data (B.Tech only)
-    const analytics = await getAnalyticsData(db, batchFilter, branchFilter, semesterFilter, school);
+    const analytics = await getAnalyticsData(db, batchFilter, branchFilter, semesterFilter, school, sectionFilter);
 
     // Removed console.log to reduce overhead
 
@@ -88,7 +97,7 @@ const ASSIGNED_TO_PARSER_BRANCH = {
   AIML: 'CSE AIML',
 };
 
-async function getAnalyticsData(db, batchFilter = null, branchFilter = null, semesterFilter = null, school = null) {
+async function getAnalyticsData(db, batchFilter = null, branchFilter = null, semesterFilter = null, school = null, sectionFilter = null) {
   const { parseBTechRegistration } = await import('../parse-registration/route');
 
   const batchFilters = Array.isArray(batchFilter) ? batchFilter : (batchFilter ? [batchFilter] : []);
@@ -296,6 +305,9 @@ async function getAnalyticsData(db, batchFilter = null, branchFilter = null, sem
       return false;
     }
   });
+
+  // Section: every statistic below then describes just that section
+  if (sectionFilter) cutm1Data = cutm1Data.filter(r => sectionFilter.matches(r.Reg_No));
 
   console.log(`[SOET Analytics] Records after B.Tech filter: ${cutm1Data.length} (filtered out ${beforeFilterCount - cutm1Data.length})`);
 

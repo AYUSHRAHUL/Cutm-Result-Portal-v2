@@ -3,6 +3,7 @@ import { clientPromise } from "@/lib/mongodb";
 import { jwtVerify } from "jose";
 import { getCampusSchoolDatabase } from "@/lib/campus";
 import { loadBranchOverrides, isSameBranch } from "@/lib/branch-overrides";
+import { loadSectionFilter } from "@/lib/section-roster";
 
 async function verifyToken(token) {
   try {
@@ -145,6 +146,14 @@ export async function GET(req) {
         return parsedShort === filterShort;
       });
     }
+
+    // Section (needs a single batch). Combined sections span branches, so this
+    // also applies with no branch chosen.
+    const sectionFilter = await loadSectionFilter(db, batchFilter, searchParams.get('section'));
+    if (sectionFilter?.error) {
+      return NextResponse.json({ error: sectionFilter.error }, { status: 400 });
+    }
+    if (sectionFilter) records = records.filter(r => sectionFilter.matches(r.Reg_No));
 
     // Calculate statistics for each subject
     // S and R grades are unattempted (neither pass nor fail)

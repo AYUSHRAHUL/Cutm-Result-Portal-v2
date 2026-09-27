@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { appendSchoolParams, getSchoolApiUrl, getSchoolAndCampus } from "@/lib/api-helper";
+import { UNASSIGNED } from "@/lib/sections";
 import {
   DepartmentChart,
   SemesterChart,
@@ -80,6 +81,11 @@ export default function AnalyticsDashboard() {
   const [topStudentsData, setTopStudentsData] = useState(null); // Store filtered top students data
   const [loadingTopStudents, setLoadingTopStudents] = useState(false);
 
+  // Section filters (SOET only; need a single batch). Reset whenever their batch or
+  // branch changes - done in the change handlers so no fetch runs with a stale one.
+  const [subjectComparisonSection, setSubjectComparisonSection] = useState("all");
+  const [topStudentsSection, setTopStudentsSection] = useState("all");
+
   // Passing Analysis specific filters and state
   const [passingAnalysisBatch, setPassingAnalysisBatch] = useState([]); // Array for checkboxes
   const [passingAnalysisBranch, setPassingAnalysisBranch] = useState([]); // Array for checkboxes
@@ -96,6 +102,9 @@ export default function AnalyticsDashboard() {
   const campusParam = searchParams.get('campus');
   const isDiploma = schoolParam === 'SOVET' || schoolParam === 'sovet';
   const isSom = schoolParam === 'SOM' || schoolParam === 'som';
+  const sectionsEnabled = !isSom && !isDiploma;
+  const subjectComparisonSections = useSectionOptions(sectionsEnabled, subjectComparisonBatch, subjectComparisonBranch);
+  const topStudentsSections = useSectionOptions(sectionsEnabled, topStudentsBatch, topStudentsBranch);
 
   // Store school and campus in localStorage when URL params are present
   useEffect(() => {
@@ -194,6 +203,9 @@ export default function AnalyticsDashboard() {
         const semValue = String(subjectComparisonSemester).replace(/^Sem\s*/i, "").trim();
         params.set("semester", semValue);
       }
+      if (subjectComparisonSection !== "all") {
+        params.set("section", subjectComparisonSection);
+      }
 
       const queryString = params.toString();
       const baseUrl = getSchoolApiUrl("analytics/subjects");
@@ -246,7 +258,7 @@ export default function AnalyticsDashboard() {
     } finally {
       setLoadingBasketSubjects(false);
     }
-  }, [subjectComparisonBatch, subjectComparisonBranch, subjectComparisonSemester]);
+  }, [subjectComparisonBatch, subjectComparisonBranch, subjectComparisonSemester, subjectComparisonSection]);
 
   // Fetch analytics data (always fetches all data, filtering happens client-side)
   const fetchAnalyticsData = useCallback(async () => {
@@ -336,7 +348,7 @@ export default function AnalyticsDashboard() {
         setLoadingTopStudents(true);
 
         // If all filters are "all", use original data from analyticsData
-        if (topStudentsSemester === "all" && topStudentsBatch === "all" && topStudentsBranch === "all") {
+        if (topStudentsSemester === "all" && topStudentsBatch === "all" && topStudentsBranch === "all" && topStudentsSection === "all") {
           setTopStudentsData(null); // null means use analyticsData.topPerformingStudents
           setLoadingTopStudents(false);
           return;
@@ -361,6 +373,9 @@ export default function AnalyticsDashboard() {
         if (topStudentsSemester !== "all") {
           const semValue = String(topStudentsSemester).replace(/^Sem\s*/i, "").trim();
           params.set('semester', semValue);
+        }
+        if (topStudentsSection !== "all") {
+          params.set('section', topStudentsSection);
         }
 
         const baseUrl = getSchoolApiUrl("analytics");
@@ -390,7 +405,7 @@ export default function AnalyticsDashboard() {
     };
 
     fetchTopStudentsData();
-  }, [topStudentsSemester, topStudentsBatch, topStudentsBranch, analyticsData, searchParams]);
+  }, [topStudentsSemester, topStudentsBatch, topStudentsBranch, topStudentsSection, analyticsData, searchParams]);
 
   // Fetch filtered department stats when overviewBatchFilter / overviewBranchFilter changes (ONLY for Department Distribution chart)
   useEffect(() => {
@@ -1066,6 +1081,9 @@ export default function AnalyticsDashboard() {
         if (subjectComparisonSemester && subjectComparisonSemester !== "all") {
           params.set("semester", subjectComparisonSemester);
         }
+        if (subjectComparisonSection !== "all") {
+          params.set("section", subjectComparisonSection);
+        }
         params.set("subjects", selectedSubjects.join(","));
 
         const baseUrl = getSchoolApiUrl("analytics/subject-comparison");
@@ -1169,7 +1187,7 @@ export default function AnalyticsDashboard() {
     return () => {
       abortController.abort();
     };
-  }, [selectedSubjects, subjectComparisonBatch, subjectComparisonBranch, subjectComparisonSemester]);
+  }, [selectedSubjects, subjectComparisonBatch, subjectComparisonBranch, subjectComparisonSemester, subjectComparisonSection]);
 
   // Fetch students when exactly 1 subject is selected
   // Fetch students for selected subject from dropdown (triggers when subject is selected)
@@ -1201,6 +1219,9 @@ export default function AnalyticsDashboard() {
           const semValue = String(subjectComparisonSemester).replace(/^Sem\s*/i, "").trim();
           params.set('semester', semValue);
         }
+        if (subjectComparisonSection !== "all") {
+          params.set('section', subjectComparisonSection);
+        }
 
         const baseUrl = getSchoolApiUrl("analytics/subject-students");
         let url = baseUrl + (baseUrl.includes('?') ? '&' : '?') + params.toString();
@@ -1228,6 +1249,9 @@ export default function AnalyticsDashboard() {
               }
               if (subjectComparisonSemester && subjectComparisonSemester !== "all") {
                 activeFilters.push(`Semester: ${subjectComparisonSemester}`);
+              }
+              if (subjectComparisonSection !== "all") {
+                activeFilters.push(subjectComparisonSection === UNASSIGNED ? "Section: Unassigned" : `Section: ${subjectComparisonSection}`);
               }
 
               const filterMsg = activeFilters.length > 0
@@ -1262,7 +1286,7 @@ export default function AnalyticsDashboard() {
     };
 
     fetchStudents();
-  }, [selectedSubjectToAdd, subjectComparisonBatch, subjectComparisonBranch, subjectComparisonSemester]);
+  }, [selectedSubjectToAdd, subjectComparisonBatch, subjectComparisonBranch, subjectComparisonSemester, subjectComparisonSection]);
 
   // When exactly one student is selected, fetch that student's full records
   useEffect(() => {
@@ -2589,7 +2613,7 @@ export default function AnalyticsDashboard() {
                       <label className="text-white/70 text-sm font-medium">Batch:</label>
                       <FilterSelect
                         value={subjectComparisonBatch}
-                        onChange={setSubjectComparisonBatch}
+                        onChange={(v) => { setSubjectComparisonBatch(v); setSubjectComparisonSection("all"); }}
                         options={batches}
                         label="Batch"
                       />
@@ -2598,11 +2622,22 @@ export default function AnalyticsDashboard() {
                       <label className="text-white/70 text-sm font-medium">Branch:</label>
                       <FilterSelect
                         value={subjectComparisonBranch}
-                        onChange={setSubjectComparisonBranch}
+                        onChange={(v) => { setSubjectComparisonBranch(v); setSubjectComparisonSection("all"); }}
                         options={branches}
                         label="Branch"
                       />
                     </div>
+                    {sectionsEnabled && (
+                      <div className="flex items-center gap-2">
+                        <label className="text-white/70 text-sm font-medium">Section:</label>
+                        <SectionSelect
+                          value={subjectComparisonSection}
+                          onChange={setSubjectComparisonSection}
+                          sections={subjectComparisonSections}
+                          batch={subjectComparisonBatch}
+                        />
+                      </div>
+                    )}
                     <div className="flex items-center gap-2">
                       <label className="text-white/70 text-sm font-medium">Semester:</label>
                       <FilterSelect
@@ -2705,12 +2740,14 @@ export default function AnalyticsDashboard() {
                                     <p className="text-xs text-red-200/80 mb-2">{studentsError}</p>
                                     {((subjectComparisonBatch && subjectComparisonBatch !== "all") ||
                                       (subjectComparisonBranch && subjectComparisonBranch !== "all") ||
-                                      (subjectComparisonSemester && subjectComparisonSemester !== "all")) && (
+                                      (subjectComparisonSemester && subjectComparisonSemester !== "all") ||
+                                      subjectComparisonSection !== "all") && (
                                         <button
                                           onClick={() => {
                                             setSubjectComparisonBatch("all");
                                             setSubjectComparisonBranch("all");
                                             setSubjectComparisonSemester("all");
+                                            setSubjectComparisonSection("all");
                                           }}
                                           className="text-xs px-3 py-1.5 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-300 rounded-lg transition-all flex items-center gap-1.5"
                                         >
@@ -4545,7 +4582,9 @@ export default function AnalyticsDashboard() {
             {(() => {
               // Use topStudentsData if semester filter is applied, otherwise use currentData
               const displayData = topStudentsData !== null ? topStudentsData : (currentData?.topPerformingStudents || []);
-              const hasData = displayData && displayData.length > 0;
+              // A filtered result (even an empty one) keeps the card, so its filters
+              // stay reachable - otherwise an empty section would hide the way back
+              const hasData = (displayData && displayData.length > 0) || topStudentsData !== null;
               
               return hasData ? (
               <CoolChartCard title="Top Performing Students" icon="🏆" fullWidth>
@@ -4563,7 +4602,7 @@ export default function AnalyticsDashboard() {
                       {/* Batch Filter */}
                       <FilterSelect
                         value={topStudentsBatch}
-                        onChange={setTopStudentsBatch}
+                        onChange={(v) => { setTopStudentsBatch(v); setTopStudentsSection("all"); }}
                         options={batches}
                         label="Batch"
                       />
@@ -4571,10 +4610,20 @@ export default function AnalyticsDashboard() {
                       {/* Branch Filter */}
                       <FilterSelect
                         value={topStudentsBranch}
-                        onChange={setTopStudentsBranch}
+                        onChange={(v) => { setTopStudentsBranch(v); setTopStudentsSection("all"); }}
                         options={branches}
                         label="Branch"
                       />
+
+                      {/* Section Filter (SOET) */}
+                      {sectionsEnabled && (
+                        <SectionSelect
+                          value={topStudentsSection}
+                          onChange={setTopStudentsSection}
+                          sections={topStudentsSections}
+                          batch={topStudentsBatch}
+                        />
+                      )}
 
                         {/* Semester Filter */}
                         <FilterSelect
@@ -4599,11 +4648,12 @@ export default function AnalyticsDashboard() {
                       </div>
 
                       {/* Clear Filters Button */}
-                        {(topStudentsBatch !== "all" || topStudentsBranch !== "all" || topStudentsSemester !== "all" || topStudentsSearch) && (
+                        {(topStudentsBatch !== "all" || topStudentsBranch !== "all" || topStudentsSemester !== "all" || topStudentsSection !== "all" || topStudentsSearch) && (
                         <button
                           onClick={() => {
                             setTopStudentsBatch("all");
                             setTopStudentsBranch("all");
+                            setTopStudentsSection("all");
                               setTopStudentsSemester("all");
                             setTopStudentsSearch("");
                           }}
@@ -4704,6 +4754,52 @@ function CoolChartCard({ title, icon, children, fullWidth = false }) {
       </div>
       {children}
     </div>
+  );
+}
+
+/**
+ * Section names for a batch, narrowed to those holding the branch's students.
+ * Empty until a single batch is chosen - sections belong to a batch.
+ */
+function useSectionOptions(enabled, batch, branch) {
+  const [sections, setSections] = useState([]);
+  useEffect(() => {
+    setSections([]);
+    if (!enabled || !batch || batch === "all") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const base = getSchoolApiUrl("sections/definitions");
+        const qs = new URLSearchParams({ batch, ...(branch && branch !== "all" ? { branch } : {}) }).toString();
+        const res = await fetch(`${base}${base.includes("?") ? "&" : "?"}${qs}`, { credentials: "include" });
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok && Array.isArray(data.sections)) setSections(data.sections);
+      } catch {
+        // No sections yet is a normal state
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [enabled, batch, branch]);
+  return sections;
+}
+
+/** Section dropdown styled like FilterSelect; disabled until a batch is chosen */
+function SectionSelect({ value, onChange, sections, batch }) {
+  const noBatch = !batch || batch === "all";
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={noBatch}
+      title={noBatch ? "Choose a batch to filter by section" : undefined}
+      className="px-4 py-2 bg-white/10 border border-white/20 text-white rounded-full text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      <option value="all" className="text-black">{noBatch ? "Section (pick a batch)" : "All Sections"}</option>
+      {sections.map((s) => (
+        <option key={s} value={s} className="text-black">Section {s}</option>
+      ))}
+      {!noBatch && <option value={UNASSIGNED} className="text-black">Unassigned</option>}
+    </select>
   );
 }
 
