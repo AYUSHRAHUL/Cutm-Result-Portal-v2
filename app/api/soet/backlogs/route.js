@@ -3,6 +3,7 @@ import { clientPromise } from "@/lib/mongodb";
 import { verifyToken } from "@/lib/auth";
 import { getCampusSchoolDatabase, getDatabaseFromRegistration } from "@/lib/campus";
 import { isSameBranch } from "@/lib/branch-overrides";
+import { loadStudentSections, resolveSection, sectionMatchesFilter } from "@/lib/sections";
 
 // Hard safety cap for very broad admin queries
 const MAX_BACKLOG_ROWS = 2000;
@@ -169,6 +170,11 @@ export async function POST(req) {
     // Search for backlogs
     const { registration, subject_code, registrations } = body;
     let { branch, year, semesters = [], allowAll, bulkSummary } = body;
+
+    // Section names belong to one batch, so a section filter needs a year
+    if (body.section && body.section !== "All" && body.section !== "all" && !year) {
+      return NextResponse.json({ error: "Choose a year to filter by section" }, { status: 400 });
+    }
 
     // Handle bulk summary request (optimized for admin dashboard)
     if (bulkSummary && registrations && Array.isArray(registrations)) {
@@ -486,7 +492,20 @@ export async function POST(req) {
     });
 
     // Since we already filtered at DB level (if branch was provided), no need for additional JS filtering
-    const finalBacklogs = processedBacklogs;
+    let finalBacklogs = processedBacklogs;
+
+    // Section filter. Each row's section is resolved against its effective batch,
+    // so a batch override cannot carry an old section across. A section can combine
+    // branches, so this works with no branch chosen.
+    const sectionWanted = body.section;
+    if (sectionWanted && sectionWanted !== "All" && sectionWanted !== "all") {
+      const sectionsMap = await loadStudentSections(db);
+      finalBacklogs = processedBacklogs.filter(r => {
+        const reg = String(r.Reg_No || "").trim().toUpperCase();
+        const { section } = resolveSection(reg, r.Batch, sectionsMap);
+        return sectionMatchesFilter(section, sectionWanted);
+      });
+    }
 
     return NextResponse.json({
       backlogs: finalBacklogs,

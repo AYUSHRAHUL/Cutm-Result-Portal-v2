@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { UNASSIGNED } from "@/lib/sections";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
@@ -88,6 +89,10 @@ function BacklogContent() {
   const [subjectCode, setSubjectCode] = useState("");
   const [branch, setBranch] = useState("");
   const [year, setYear] = useState("");
+  // Section filter (SOET). Sections belong to a batch and may combine branches.
+  const [section, setSection] = useState("All");
+  const [availableSections, setAvailableSections] = useState([]);
+  const sectionChosen = Boolean(section) && section !== "All";
   const [regList, setRegList] = useState([]);
   const [regMode, setRegMode] = useState("manual");
   const [selectedReg, setSelectedReg] = useState("");
@@ -856,7 +861,8 @@ function BacklogContent() {
           subject_code: (subjValue || "").toUpperCase(),
           branch: branch || "",
           year: year || "",
-          allowAll: isAll ? true : undefined
+          allowAll: isAll ? true : undefined,
+          ...(sectionChosen ? { section } : {}),
         };
       // Use AbortController to cancel previous slow requests
       if (search.controller) {
@@ -1081,7 +1087,7 @@ function BacklogContent() {
           headers: { "Content-Type": "application/json" },
           signal: loadRegsControllerRef.current.signal,
           cache: "no-store",
-          body: JSON.stringify({ branch, batch: year })
+          body: JSON.stringify({ branch, batch: year, ...(sectionChosen ? { section } : {}) })
         });
         const data = await res.json();
         if (cancelled) return;
@@ -1244,7 +1250,7 @@ function BacklogContent() {
         try { loadRegsControllerRef.current.abort(); } catch { }
       }
     };
-  }, [branch, year, regMode, showAllMode]);
+  }, [branch, year, regMode, showAllMode, section]);
 
   // Reset summaries and results when branch or year changes to force reload
   useEffect(() => {
@@ -1256,7 +1262,28 @@ function BacklogContent() {
       setCount(0);
       setMessage("");
     }
-  }, [branch, year]);
+  }, [branch, year, section]);
+
+  // Section names for the chosen batch (SOET only). With a branch chosen, only the
+  // sections that hold that branch's students. Reset whenever batch or branch
+  // changes, since the previously chosen section may not exist in the new list.
+  useEffect(() => {
+    setSection("All");
+    setAvailableSections([]);
+    if (isSovet || isSom || !year || year === "All") return;
+    (async () => {
+      try {
+        const base = getSchoolApiUrl("sections/definitions");
+        const branchParam = branch && branch !== "All" ? `&branch=${encodeURIComponent(branch)}` : "";
+        const url = `${base}${base.includes("?") ? "&" : "?"}batch=${encodeURIComponent(year)}${branchParam}`;
+        const res = await fetch(url);
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && Array.isArray(data.sections)) setAvailableSections(data.sections);
+      } catch {
+        // No sections yet is a normal state - the control simply stays disabled
+      }
+    })();
+  }, [year, branch, isSovet, isSom]);
 
   useEffect(() => {
     if (regMode === "list" && selectedReg) {
@@ -1573,6 +1600,29 @@ function BacklogContent() {
     return fromRows || code || "Subject";
   })();
 
+  // Section filter (SOET), shared by both search blocks. Needs a batch, since section
+  // names belong to one; with a branch chosen it lists only sections holding that
+  // branch's students. Branch "All" plus a section shows a combined section whole.
+  const sectionSelect = !isSovet && !isSom ? (
+    <select
+      className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px] disabled:bg-gray-100 disabled:text-gray-400"
+      style={{ borderColor: "rgba(5,163,199,0.3)" }}
+      value={section}
+      onChange={e => setSection(e.target.value)}
+      disabled={!year || year === "All" || availableSections.length === 0}
+    >
+      <option value="All">
+        {!year || year === "All"
+          ? "Section (choose a batch first)"
+          : availableSections.length === 0
+            ? "No sections for this selection"
+            : "All Sections"}
+      </option>
+      {availableSections.map(s => <option key={s} value={s}>Section {s}</option>)}
+      <option value={UNASSIGNED}>Unassigned</option>
+    </select>
+  ) : null;
+
   return (
     <>
       <style jsx>{`
@@ -1684,6 +1734,7 @@ function BacklogContent() {
                       )}
                     </select>
                   </div>
+                  {sectionSelect && <div className="mb-2 sm:mb-3">{sectionSelect}</div>}
                   <div className="flex flex-col gap-2 sm:gap-3">
                     <select
                       className="w-full rounded-lg sm:rounded-xl border-2 bg-white px-3 py-2 sm:py-2.5 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
@@ -1796,6 +1847,7 @@ function BacklogContent() {
                     )}
                   </select>
                 </div>
+                {sectionSelect}
                 <button
                   type="button"
                   onClick={search}
