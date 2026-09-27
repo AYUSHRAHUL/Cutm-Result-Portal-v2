@@ -81,14 +81,20 @@ export async function GET(req) {
       baseQuery.Reg_No = { ...(baseQuery.Reg_No || {}), $regex: `^${batchPrefix}` };
     }
 
-    // Add semester filter
+    // Add semester filter. Kept in $and: merging it into the subject $or above made
+    // a record match on subject OR semester, so the semester was never applied.
     if (semesterFilter && semesterFilter !== "all") {
       const cleanSem = String(semesterFilter).replace(/^Sem\s*/i, "").trim();
-      baseQuery.$or = [
-        ...(baseQuery.$or || []),
-        { Sem: semesterFilter },
-        { Sem: cleanSem },
-        { Sem: `Sem ${cleanSem}` }
+      baseQuery.$and = [
+        ...(baseQuery.$and || []),
+        {
+          $or: [
+            { Sem: semesterFilter },
+            { Sem: cleanSem },
+            { Sem: `Sem ${cleanSem}` },
+            ...(/^\d+$/.test(cleanSem) ? [{ Sem: Number(cleanSem) }] : [])
+          ]
+        }
       ];
     }
 
