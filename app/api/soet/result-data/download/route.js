@@ -3,6 +3,7 @@ import { clientPromise } from "@/lib/mongodb";
 import { jwtVerify } from "jose";
 import { getCampusSchoolDatabase } from "@/lib/campus";
 import { loadBranchOverrides, isSameBranch } from "@/lib/branch-overrides";
+import { loadStudentSections, resolveSection, sectionMatchesFilter } from "@/lib/sections";
 
 async function verifyToken(token) {
   try {
@@ -142,6 +143,20 @@ export async function GET(req) {
       
       return parsedShort === filterShort;
     });
+
+    // Section filter. Resolved against each student's effective batch, so a batch
+    // override cannot carry an old section across. A section can combine branches.
+    const sectionFilter = searchParams.get('section');
+    if (sectionFilter && sectionFilter !== 'All' && sectionFilter !== 'all') {
+      const sectionsMap = await loadStudentSections(db);
+      records = records.filter(record => {
+        const reg = String(record.Reg_No || '').trim().toUpperCase();
+        const ov = branchOverrides.get(reg);
+        const effectiveBatch = ov?.batch || `20${reg.slice(0, 2)}`;
+        const { section } = resolveSection(reg, effectiveBatch, sectionsMap);
+        return sectionMatchesFilter(section, sectionFilter);
+      });
+    }
 
     // Convert to CSV
     const headers = ['Reg_No', 'Name', 'Subject_Code', 'Subject_Name', 'Sem', 'Grade', 'Credits'];

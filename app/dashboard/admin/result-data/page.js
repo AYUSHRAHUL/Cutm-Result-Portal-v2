@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { getSchoolApiUrl } from "@/lib/api-helper";
+import { UNASSIGNED } from "@/lib/sections";
 
 function ResultDataManagementContent() {
   const searchParams = useSearchParams();
@@ -22,7 +23,11 @@ function ResultDataManagementContent() {
   const [selectedBatch, setSelectedBatch] = useState("");
   const [selectedBranch, setSelectedBranch] = useState("");
   const [selectedSemester, setSelectedSemester] = useState("");
-  
+  // Section filter (SOET). Narrows both the subject list and each subject's students.
+  const [selectedSection, setSelectedSection] = useState("All");
+  const [availableSections, setAvailableSections] = useState([]);
+  const sectionChosen = Boolean(selectedSection) && selectedSection !== "All";
+
   const [batches, setBatches] = useState([]);
   const [branches, setBranches] = useState([]);
   const [semesters, setSemesters] = useState([]);
@@ -41,6 +46,7 @@ function ResultDataManagementContent() {
     setSelectedBatch("");
     setSelectedBranch("");
     setSelectedSemester("");
+    setSelectedSection("All");
     setBatches([]);
     setBranches([]);
     setSubjects([]);
@@ -208,7 +214,9 @@ function ResultDataManagementContent() {
         const params = new URLSearchParams({
           batch: String(selectedBatch).trim(),
           branch: String(selectedBranch).trim(),
-          semester: String(selectedSemester).trim()
+          semester: String(selectedSemester).trim(),
+          // Only the subjects taken by that section's students
+          ...(sectionChosen ? { section: selectedSection } : {}),
         });
 
         const subjectsUrl = `${baseUrl}${separator}${params}`;
@@ -247,7 +255,35 @@ function ResultDataManagementContent() {
     };
 
     fetchSubjects();
-  }, [selectedBatch, selectedBranch, selectedSemester]);
+  }, [selectedBatch, selectedBranch, selectedSemester, selectedSection]);
+
+  // Section names for the chosen batch and branch (SOET only) - only sections that
+  // hold this branch's students. The chosen section is reset in the batch/branch
+  // change handlers rather than here: resetting in an effect would first fire the
+  // subject fetch with the stale section and then again, and this page cannot
+  // cancel the first request. Here we only drop a section that is no longer listed.
+  useEffect(() => {
+    setAvailableSections([]);
+    if (selectedProgram === 'sovet' || !selectedBatch || !selectedBranch) return;
+    (async () => {
+      try {
+        const base = getApiUrl('sections/definitions');
+        const qs = new URLSearchParams({ batch: selectedBatch, branch: selectedBranch }).toString();
+        const res = await fetch(`${base}${base.includes('?') ? '&' : '?'}${qs}`, { credentials: 'include' });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && Array.isArray(data.sections)) {
+          setAvailableSections(data.sections);
+          setSelectedSection(prev =>
+            prev === "All" || prev === UNASSIGNED || data.sections.includes(prev) ? prev : "All"
+          );
+        }
+      } catch {
+        // No sections yet is a normal state - the control simply stays disabled
+      }
+    })();
+    // getApiUrl is recreated each render but only depends on selectedProgram/campus
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedBatch, selectedBranch, selectedProgram]);
 
   const handleViewStudents = async (subject) => {
     setSelectedSubjectForStudents(subject);
@@ -264,7 +300,8 @@ function ResultDataManagementContent() {
         subject: subject.code,
         batch: selectedBatch,
         branch: selectedBranch,
-        semester: selectedSemester
+        semester: selectedSemester,
+        ...(sectionChosen ? { section: selectedSection } : {}),
       });
 
       const response = await fetch(`${baseUrl}${separator}${params}`, {
@@ -516,7 +553,7 @@ function ResultDataManagementContent() {
         {/* Filters */}
         <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
           <h2 className="text-xl font-semibold text-gray-800 mb-4">Filters</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Batch
@@ -524,7 +561,7 @@ function ResultDataManagementContent() {
               </label>
               <select
                 value={selectedBatch}
-                onChange={(e) => setSelectedBatch(e.target.value)}
+                onChange={(e) => { setSelectedBatch(e.target.value); setSelectedSection("All"); }}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 disabled={loadingBatches}
               >
@@ -551,7 +588,7 @@ function ResultDataManagementContent() {
               </label>
               <select
                 value={selectedBranch}
-                onChange={(e) => setSelectedBranch(e.target.value)}
+                onChange={(e) => { setSelectedBranch(e.target.value); setSelectedSection("All"); }}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 disabled={!selectedBatch}
               >
@@ -578,6 +615,31 @@ function ResultDataManagementContent() {
                 ))}
               </select>
             </div>
+
+            {/* Section (SOET) - lists only the sections holding this branch's students */}
+            {selectedProgram !== 'sovet' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Section</label>
+                <select
+                  value={selectedSection}
+                  onChange={(e) => setSelectedSection(e.target.value)}
+                  disabled={!selectedBatch || !selectedBranch || availableSections.length === 0}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-400"
+                >
+                  <option value="All">
+                    {!selectedBatch || !selectedBranch
+                      ? "Select batch & branch first"
+                      : availableSections.length === 0
+                        ? "No sections for this branch"
+                        : "All Sections"}
+                  </option>
+                  {availableSections.map(s => (
+                    <option key={s} value={s}>Section {s}</option>
+                  ))}
+                  <option value={UNASSIGNED}>Unassigned</option>
+                </select>
+              </div>
+            )}
           </div>
         </div>
 
@@ -619,9 +681,16 @@ function ResultDataManagementContent() {
                         >
                           View Students
                         </button>
+                        {/* Deleting a subject removes it for the whole branch - the delete
+                            route has no notion of sections. With a section selected the list
+                            looks narrower than what would be deleted, so block it there. */}
                         <button
                           onClick={() => handleDeleteClick(subject)}
-                          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                          disabled={sectionChosen}
+                          title={sectionChosen
+                            ? "Deleting applies to the whole branch, not just this section. Set Section to All Sections to delete."
+                            : undefined}
+                          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed"
                         >
                           Delete Subject
                         </button>
