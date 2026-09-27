@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import Link from "next/link";
 import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
+import SectionStudentPicker from "@/components/SectionStudentPicker";
 
 export default function AdminRecordsPage() {
   const [registration, setRegistration] = useState("");
@@ -38,10 +39,12 @@ export default function AdminRecordsPage() {
     });
   }, [rows, sortConfig]);
 
-  async function search(e) {
+  // overrideReg lets the section picker search the student it just chose, since the
+  // registration state has not updated yet at that moment
+  async function search(e, overrideReg) {
     e?.preventDefault();
     setMessage(""); setError(""); setRows([]);
-    const reg = registration.trim().toUpperCase();
+    const reg = String(overrideReg ?? registration).trim().toUpperCase();
     if (!reg) { 
       setError("Please enter a registration number."); 
       return; 
@@ -167,6 +170,9 @@ export default function AdminRecordsPage() {
           <h2 className="text-[#1A1F29] font-black mb-3 flex items-center gap-2 text-sm sm:text-base">
             🔎 Search Student Records
           </h2>
+          <SectionStudentPicker
+            onPick={(reg) => { setRegistration(reg); search(null, reg); }}
+          />
           <form ref={formRef} onSubmit={search} className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3">
             <input
               name="registration"
