@@ -3,12 +3,14 @@ import { clientPromise } from "@/lib/mongodb";
 import { getCampusSchoolDatabase } from "@/lib/campus";
 import { requireRole } from "@/lib/api-auth";
 import { loadSectionDefinitions, normalizeBatch, normalizeSectionName } from "@/lib/sections";
+import { isAllBranches, sectionsPresentForBranch } from "@/lib/section-roster";
 
 /**
  * Section names for one SOET batch. Sections belong to the batch and may combine
  * branches, so they are not keyed by branch.
  *
- * GET  ?batch=   admin or teacher - teachers need the names for filters
+ * GET  ?batch=&branch=   admin or teacher - teachers need the names for filters.
+ *        branch is optional: with it, only sections holding that branch's students
  * POST { action, batch, ... }   admin only
  *        action "add"     { name }
  *        action "rename"  { from, to }   - students in `from` move to `to`
@@ -28,14 +30,25 @@ export async function GET(req) {
 
     const { searchParams } = new URL(req.url);
     const batch = normalizeBatch(searchParams.get("batch"));
+    const branch = searchParams.get("branch");
     if (!batch) {
       return NextResponse.json({ error: "batch is required" }, { status: 400 });
     }
 
     const db = getDb(await clientPromise, req, payload);
-    const sections = await loadSectionDefinitions(db, batch);
 
-    return NextResponse.json({ success: true, batch, sections });
+    // With a branch, only the sections that hold that branch's students - so a
+    // filter for ECE offers ECE's sections, not every section in the batch
+    const sections = isAllBranches(branch)
+      ? await loadSectionDefinitions(db, batch)
+      : await sectionsPresentForBranch(db, batch, branch);
+
+    return NextResponse.json({
+      success: true,
+      batch,
+      branch: isAllBranches(branch) ? "All" : branch,
+      sections,
+    });
   } catch (e) {
     console.error("sections/definitions GET error", e);
     return NextResponse.json({ error: "Server error" }, { status: 500 });

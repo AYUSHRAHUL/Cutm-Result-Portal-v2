@@ -655,7 +655,9 @@ Please check if the department name matches exactly with the available departmen
     (async () => {
       try {
         const base = getSchoolApiUrl("sections/definitions");
-        const url = `${base}${base.includes("?") ? "&" : "?"}batch=${encodeURIComponent(batch)}`;
+        // With a department chosen, only the sections that hold its students
+        const branchParam = department && department !== "All" ? `&branch=${encodeURIComponent(department)}` : "";
+        const url = `${base}${base.includes("?") ? "&" : "?"}batch=${encodeURIComponent(batch)}${branchParam}`;
         const res = await fetch(url);
         const data = await res.json().catch(() => ({}));
         if (res.ok && Array.isArray(data.sections)) setAvailableSections(data.sections);
@@ -663,7 +665,7 @@ Please check if the department name matches exactly with the available departmen
         // No sections yet is a normal state - the filter simply stays disabled
       }
     })();
-  }, [batch, isDiploma, isSom]);
+  }, [batch, department, isDiploma, isSom]);
 
   // Load semesters for registration
   async function loadSemestersForRegistration(value) {
