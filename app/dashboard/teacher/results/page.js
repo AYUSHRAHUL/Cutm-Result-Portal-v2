@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
+import SectionStudentPicker from "@/components/SectionStudentPicker";
 
 function TeacherResultsPageContent() {
   const router = useRouter();
@@ -170,6 +171,9 @@ function TeacherResultsPageContent() {
           className="rounded-2xl border-2 bg-white p-4 sm:p-6 mb-6 shadow-lg"
           style={{ borderColor: "rgba(5,163,199,0.2)" }}
         >
+          <SectionStudentPicker
+            onPick={(reg) => { setRegistration(reg); loadSemesters(reg); }}
+          />
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             <input
               name="registration"

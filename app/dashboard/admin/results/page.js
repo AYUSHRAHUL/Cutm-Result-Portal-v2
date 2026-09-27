@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
+import SectionStudentPicker from "@/components/SectionStudentPicker";
 
 export default function AdminResultsPage() {
   const [registration, setRegistration] = useState("");
@@ -172,9 +173,12 @@ export default function AdminResultsPage() {
           className="rounded-xl sm:rounded-2xl border-2 bg-white p-4 sm:p-5 mb-4 sm:mb-6 shadow-lg"
           style={{ borderColor: "rgba(5,163,199,0.2)" }}
         >
+          <SectionStudentPicker
+            onPick={(reg) => { setRegistration(reg); loadSemesters(reg); }}
+          />
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_auto_auto_auto] gap-3">
-            <input 
-              name="registration" 
+            <input
+              name="registration"
               className="rounded-xl border-2 bg-white px-3 sm:px-4 py-2.5 sm:py-3 outline-none focus:ring-4 focus:ring-[#05A3C7]/20 text-[#1A1F29] font-medium text-sm sm:text-base min-h-[44px]" 
               style={{ borderColor: "rgba(5,163,199,0.3)" }}
               placeholder="Registration (e.g., 220101130056)" 
