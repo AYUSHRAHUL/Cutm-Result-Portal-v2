@@ -58,6 +58,27 @@ export async function POST(req) {
     // the query below and the list-mode filter agree on what a student's branch is.
     const assignedOverrides = await loadBranchOverrides(db);
 
+    // Section filter (all modes). Sections belong to a batch, so one is required.
+    // A section can combine branches, so this also works with no branch chosen.
+    const sectionWanted = requestData.section;
+    const sectionActive = !!sectionWanted && sectionWanted !== 'All' && sectionWanted !== 'all';
+    const requestedBatchYear = batch && batch !== 'All'
+      ? (String(batch).length === 4 ? String(batch) : `20${batch}`)
+      : null;
+    if (sectionActive && !requestedBatchYear) {
+      return NextResponse.json({ error: "Choose a batch to filter by section" }, { status: 400 });
+    }
+    const sectionsMap = sectionActive ? await loadStudentSections(db) : null;
+    // Every student reaching this check already passed the batch filter, so their
+    // effective batch is the override's, else the one requested.
+    const inWantedSection = (rawReg) => {
+      if (!sectionActive) return true;
+      const reg = String(rawReg || "").trim().toUpperCase();
+      const effectiveBatch = assignedOverrides.get(reg)?.batch || requestedBatchYear;
+      const { section } = resolveSection(reg, effectiveBatch, sectionsMap);
+      return sectionMatchesFilter(section, sectionWanted);
+    };
+
     // Gather Reg_Nos from overrides that match the criteria
     let overrideRegs = [];
 
@@ -309,20 +330,7 @@ export async function POST(req) {
         return true;
       });
 
-      // Section filter, resolved against each student's effective batch. A section
-      // can combine branches, so this also works with no branch chosen.
-      let sectionFiltered = effectiveFiltered;
-      const sectionWanted = requestData.section;
-      if (sectionWanted && sectionWanted !== 'All' && sectionWanted !== 'all') {
-        const sectionsMap = await loadStudentSections(db);
-        sectionFiltered = effectiveFiltered.filter(s => {
-          const reg = String(s.Reg_No || "").trim().toUpperCase();
-          const ov = assignedOverrides.get(reg);
-          const effectiveBatch = ov?.batch || `20${reg.slice(0, 2)}`;
-          const { section } = resolveSection(reg, effectiveBatch, sectionsMap);
-          return sectionMatchesFilter(section, sectionWanted);
-        });
-      }
+      const sectionFiltered = effectiveFiltered.filter(s => inWantedSection(s.Reg_No));
 
       // Filter out inactive students
       const students = sectionFiltered.filter(s => !inactiveRegs.includes(s.Reg_No));
@@ -381,7 +389,7 @@ export async function POST(req) {
 
       const rawStudents = await cutm.aggregate(pipeline).toArray();
       // Filter out inactive students
-      const students = rawStudents.filter(s => !inactiveRegs.includes(s._id));
+      const students = rawStudents.filter(s => !inactiveRegs.includes(s._id) && inWantedSection(s.Reg_No));
 
       const parseCredits = (creditStr) => {
         if (!creditStr) return 0;
@@ -513,6 +521,8 @@ export async function POST(req) {
 
       // Filter out inactive students
       if (inactiveRegs.includes(regNo)) return false;
+
+      if (!inWantedSection(regNo)) return false;
 
       return true;
     });

@@ -1,11 +1,24 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
+import { UNASSIGNED } from "@/lib/sections";
+
+// The batch box is free text ("2021" or "21"); sections need the 4-digit year
+function batchYearOf(value) {
+  const v = String(value || "").trim();
+  if (/^\d{4}$/.test(v)) return v;
+  if (/^\d{2}$/.test(v)) return `20${v}`;
+  return "";
+}
 
 export default function SOETBatchPage() {
   const [branch, setBranch] = useState("");
   const [batch, setBatch] = useState("");
+  const [section, setSection] = useState("All");
+  const [availableSections, setAvailableSections] = useState([]);
+  const batchYear = batchYearOf(batch);
+  const sectionChosen = section !== "All" && !!batchYear;
   const [rows, setRows] = useState([]);
   const [studentSummaryData, setStudentSummaryData] = useState([]);
   const [count, setCount] = useState(0);
@@ -23,6 +36,31 @@ export default function SOETBatchPage() {
     Grade: ""
   });
 
+  // Section names for the batch - only those holding the chosen branch's students
+  useEffect(() => {
+    setAvailableSections([]);
+    if (!batchYear) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const base = getSchoolApiUrl("sections/definitions");
+        const qs = new URLSearchParams({ batch: batchYear, ...(branch ? { branch } : {}) }).toString();
+        const res = await fetch(`${base}${base.includes("?") ? "&" : "?"}${qs}`);
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok && Array.isArray(data.sections)) setAvailableSections(data.sections);
+      } catch {
+        // No sections yet is a normal state
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [batchYear, branch]);
+
+  const requestBody = () => JSON.stringify({
+    branch,
+    batch,
+    ...(sectionChosen ? { section } : {}),
+  });
+
   async function onSubmit(e) {
     e.preventDefault();
     setMessage(""); setError(""); setRows([]); setCount(0); setStudentSummaryData([]);
@@ -34,7 +72,7 @@ export default function SOETBatchPage() {
       const res = await fetch(batchUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ branch, batch })
+        body: requestBody()
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "No data found");
@@ -138,7 +176,7 @@ export default function SOETBatchPage() {
       const res = await fetch(batchUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ branch, batch })
+        body: requestBody()
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "No data found");
@@ -272,6 +310,11 @@ export default function SOETBatchPage() {
     URL.revokeObjectURL(url);
   }
 
+  function sectionSuffix() {
+    if (!sectionChosen) return "";
+    return section === UNASSIGNED ? "_unassigned" : `_section_${section}`;
+  }
+
   function exportCSV() {
     if (rows.length === 0) return;
     const keys = ["Reg_No","Name","Sem","Subject_Code","Subject_Name","Credits","Grade"];
@@ -281,7 +324,7 @@ export default function SOETBatchPage() {
         return keys.map(k => escapeCsv(record[k] ?? "")).join(",");
       }))
       .join("\n");
-    downloadBlob(csv, `soet_batch_${branch || "all"}_${batch || "all"}.csv`, "text/csv;charset=utf-8;");
+    downloadBlob(csv, `soet_batch_${branch || "all"}_${batch || "all"}${sectionSuffix()}.csv`, "text/csv;charset=utf-8;");
   }
 
   function exportExcel() {
@@ -289,7 +332,7 @@ export default function SOETBatchPage() {
     const header = ["Reg No","Name","Semester","Subject Code","Subject Name","Credits","Grade"];
     const table = [header].concat(rows.map(r => [r.Reg_No,r.Name,r.Sem,r.Subject_Code,r.Subject_Name,computeCreditsSum(r.Credits),r.Grade]));
     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body><table>${table.map(row => `<tr>${row.map(c => `<td>${String(c ?? "").toString().replace(/&/g,'&amp;').replace(/</g,'&lt;')}</td>`).join("")}</tr>`).join("")}</table></body></html>`;
-    downloadBlob(html, `soet_batch_${branch || "all"}_${batch || "all"}.xls`, "application/vnd.ms-excel");
+    downloadBlob(html, `soet_batch_${branch || "all"}_${batch || "all"}${sectionSuffix()}.xls`, "application/vnd.ms-excel");
   }
 
   async function exportPDF() {
@@ -339,16 +382,16 @@ export default function SOETBatchPage() {
           
           <div className="p-4 sm:p-6">
             <form onSubmit={onSubmit} className="space-y-3 sm:space-y-4 mb-4 sm:mb-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
                 <div>
                   <label className="block font-bold mb-1.5 sm:mb-2 text-sm sm:text-base text-[#1A1F29]">
                     Branch
                   </label>
-                  <select 
-                    className="w-full border-2 rounded-xl bg-white px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]" 
+                  <select
+                    className="w-full border-2 rounded-xl bg-white px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
                     style={{ borderColor: "rgba(5,163,199,0.3)" }}
-                    value={branch} 
-                    onChange={e => setBranch(e.target.value)}
+                    value={branch}
+                    onChange={e => { setBranch(e.target.value); setSection("All"); }}
                   >
                     <option value="">Select Branch</option>
                     <option value="Civil">Civil Engineering</option>
@@ -367,9 +410,28 @@ export default function SOETBatchPage() {
                     className="w-full border-2 rounded-xl bg-white px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]" 
                     style={{ borderColor: "rgba(5,163,199,0.3)" }}
                     placeholder="e.g., 2021 or 21" 
-                    value={batch} 
-                    onChange={e => setBatch(e.target.value)} 
+                    value={batch}
+                    onChange={e => { setBatch(e.target.value); setSection("All"); }}
                   />
+                </div>
+                <div>
+                  <label className="block font-bold mb-1.5 sm:mb-2 text-sm sm:text-base text-[#1A1F29]">
+                    Section
+                  </label>
+                  <select
+                    className="w-full border-2 rounded-xl bg-white px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px] disabled:bg-gray-100 disabled:text-gray-400"
+                    style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                    value={section}
+                    disabled={!batchYear}
+                    title={!batchYear ? "Enter a batch first" : undefined}
+                    onChange={e => setSection(e.target.value)}
+                  >
+                    <option value="All">
+                      {!batchYear ? "Enter a batch first" : availableSections.length === 0 ? "All Sections (none defined)" : "All Sections"}
+                    </option>
+                    {availableSections.map(s => <option key={s} value={s}>Section {s}</option>)}
+                    <option value={UNASSIGNED}>Unassigned</option>
+                  </select>
                 </div>
               </div>
               <div className="text-center">

@@ -1,8 +1,17 @@
 "use client";
 
-import React, { useMemo, useState, Suspense } from "react";
+import React, { useEffect, useMemo, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
+import { UNASSIGNED } from "@/lib/sections";
+
+// The batch box is free text ("2021" or "21"); sections need the 4-digit year
+function batchYearOf(value) {
+  const v = String(value || "").trim();
+  if (/^\d{4}$/.test(v)) return v;
+  if (/^\d{2}$/.test(v)) return `20${v}`;
+  return "";
+}
 
 function TeacherBatchPageContent() {
   const searchParams = useSearchParams();
@@ -41,6 +50,32 @@ function TeacherBatchPageContent() {
   const [loading, setLoading] = useState(false);
   const [expandedStudents, setExpandedStudents] = useState(new Set());
 
+  // Section allotment exists only for SOET
+  const isSoet = !isSom && !isDiploma;
+  const [section, setSection] = useState("All");
+  const [availableSections, setAvailableSections] = useState([]);
+  const batchYear = batchYearOf(batch);
+  const sectionChosen = isSoet && section !== "All" && !!batchYear;
+
+  // Section names for the batch - only those holding the chosen branch's students
+  useEffect(() => {
+    setAvailableSections([]);
+    if (!isSoet || !batchYear) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const base = getSchoolApiUrl("sections/definitions");
+        const qs = new URLSearchParams({ batch: batchYear, ...(branch ? { branch } : {}) }).toString();
+        const res = await fetch(`${base}${base.includes("?") ? "&" : "?"}${qs}`);
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok && Array.isArray(data.sections)) setAvailableSections(data.sections);
+      } catch {
+        // No sections yet is a normal state
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isSoet, batchYear, branch]);
+
   async function onSubmit(e) {
     e.preventDefault();
     setMessage(""); setError(""); setRows([]); setCount(0);
@@ -51,7 +86,7 @@ function TeacherBatchPageContent() {
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ branch, batch })
+        body: JSON.stringify({ branch, batch, ...(sectionChosen ? { section } : {}) })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "No data found");
@@ -170,7 +205,7 @@ function TeacherBatchPageContent() {
           <div className="p-4 sm:p-6">
             {/* Search Form */}
             <form onSubmit={onSubmit} className="space-y-3 sm:space-y-4 mb-4 sm:mb-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+              <div className={`grid grid-cols-1 ${isSoet ? "md:grid-cols-3" : "md:grid-cols-2"} gap-3 sm:gap-4`}>
                 <div>
                   <label className="block font-bold mb-1.5 sm:mb-2 text-sm sm:text-base text-[#1A1F29]">
                     Branch
@@ -179,7 +214,7 @@ function TeacherBatchPageContent() {
                     className="w-full border-2 rounded-xl bg-white px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px]"
                     style={{ borderColor: "rgba(5,163,199,0.3)" }}
                     value={branch}
-                    onChange={e => setBranch(e.target.value)}
+                    onChange={e => { setBranch(e.target.value); setSection("All"); }}
                   >
                     <option value="">Select Branch</option>
                     {branchOptions.map((opt) => (
@@ -198,9 +233,29 @@ function TeacherBatchPageContent() {
                     style={{ borderColor: "rgba(5,163,199,0.3)" }}
                     placeholder="e.g., 2021 or 21"
                     value={batch}
-                    onChange={e => setBatch(e.target.value)}
+                    onChange={e => { setBatch(e.target.value); setSection("All"); }}
                   />
                 </div>
+                {isSoet && (
+                  <div>
+                    <label className="block font-bold mb-1.5 sm:mb-2 text-sm sm:text-base text-[#1A1F29]">
+                      Section
+                    </label>
+                    <select
+                      className="w-full border-2 rounded-xl bg-white px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base text-[#1A1F29] font-medium outline-none focus:ring-4 focus:ring-[#05A3C7]/20 transition-all min-h-[44px] disabled:bg-gray-100 disabled:text-gray-400"
+                      style={{ borderColor: "rgba(5,163,199,0.3)" }}
+                      value={section}
+                      disabled={!batchYear}
+                      onChange={e => setSection(e.target.value)}
+                    >
+                      <option value="All">
+                        {!batchYear ? "Enter a batch first" : availableSections.length === 0 ? "All Sections (none defined)" : "All Sections"}
+                      </option>
+                      {availableSections.map(s => <option key={s} value={s}>Section {s}</option>)}
+                      <option value={UNASSIGNED}>Unassigned</option>
+                    </select>
+                  </div>
+                )}
               </div>
               <div className="text-center">
                 <button
