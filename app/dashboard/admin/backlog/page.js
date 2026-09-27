@@ -1300,16 +1300,21 @@ function BacklogContent() {
           return; 
         }
         
-        // If batch and branch are selected, filter subjects based on actual backlog/result data
-        if (year && year !== "All" && year !== "" && branch && branch !== "All" && branch !== "") {
+        // If a batch is selected together with a branch or a section, list the subjects
+        // from actual backlog data. A section narrows it to that section's students;
+        // with Branch "All" that is how a combined section's subjects are shown, instead
+        // of falling through to the full CBCS catalogue below.
+        const hasSpecificBranch = branch && branch !== "All" && branch !== "";
+        if (year && year !== "All" && year !== "" && (hasSpecificBranch || sectionChosen)) {
           try {
             // Fetch backlog data to get actual subjects that exist in results for this batch and branch
             const backlogUrl = getSchoolApiUrl("backlogs");
             const backlogBody = {
               subject_code: "",
-              branch: branch,
+              branch: hasSpecificBranch ? branch : "",
               year: year,
-              allowAll: false
+              allowAll: false,
+              ...(sectionChosen ? { section } : {}),
             };
             
             const backlogRes = await fetch(backlogUrl, {
@@ -1442,7 +1447,7 @@ function BacklogContent() {
     };
     load();
     return () => { cancelled = true; };
-  }, [subjectMode, branch, year]);
+  }, [subjectMode, branch, year, section]);
 
   const getFilteredRows = () => {
     let filtered = [...rows];
