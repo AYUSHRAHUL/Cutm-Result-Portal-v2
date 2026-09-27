@@ -550,6 +550,9 @@ Please check if the department name matches exactly with the available departmen
 
   // Load registration list when department and batch are selected
   useEffect(() => {
+    // A superseded run (batch, department or section changed while it was in
+    // flight) must not overwrite the newer list, so each run can be cancelled
+    let cancelled = false;
     async function loadRegistrations() {
       try {
         setLoadingRegistrations(true);
@@ -593,6 +596,7 @@ Please check if the department name matches exactly with the available departmen
           body: JSON.stringify(body)
         });
         const data = await res.json();
+        if (cancelled) return;
         if (!res.ok) throw new Error(data.error || "Failed to load registrations");
         const records = data.records || [];
         const seen = new Set();
@@ -613,11 +617,12 @@ Please check if the department name matches exactly with the available departmen
         });
         setRegistrationOptions(options);
       } catch (err) {
+        if (cancelled) return;
         setRegistrationOptions([]);
         // Surface a subtle error note but don't block the page
         setError(prev => prev || err.message);
       } finally {
-        setLoadingRegistrations(false);
+        if (!cancelled) setLoadingRegistrations(false);
       }
     }
 
@@ -635,6 +640,7 @@ Please check if the department name matches exactly with the available departmen
     } else {
       setRegistrationOptions([]);
     }
+    return () => { cancelled = true; };
   }, [department, batch, section]);
 
   // Load semesters for registration
