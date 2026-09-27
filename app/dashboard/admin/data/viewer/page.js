@@ -4,6 +4,14 @@ import Link from "next/link";
 import { useState, useEffect, Suspense } from "react";
 import { appendSchoolParams, getSchoolApiUrl } from "@/lib/api-helper";
 import { useSearchParams, useRouter } from "next/navigation";
+import { UNASSIGNED } from "@/lib/sections";
+import { isSameBranch } from "@/lib/branch-overrides";
+
+/** "24..." -> "2024"; the first two digits of a registration are its year */
+function batchOfReg(reg) {
+  const m = String(reg || "").trim().match(/^(\d{2})/);
+  return m ? `20${m[1]}` : "";
+}
 
 function RegistrationDataViewerContent() {
   const searchParams = useSearchParams();
@@ -20,6 +28,15 @@ function RegistrationDataViewerContent() {
   const [semesterFilter, setSemesterFilter] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("");
   const [studentFilter, setStudentFilter] = useState("");
+  const [batchFilter, setBatchFilter] = useState("");
+  const [sectionFilter, setSectionFilter] = useState("All");
+
+  // SOET only: the chosen batch's roster (reg -> resolved section, after any
+  // branch/batch override) and its section names. null while not loaded.
+  const isSoet = !isDiploma && !isSom;
+  const [batchRoster, setBatchRoster] = useState(null);
+  const [batchSections, setBatchSections] = useState([]);
+  const [rosterError, setRosterError] = useState("");
 
   // OTP modal state for destructive delete
   const [showOtpModal, setShowOtpModal] = useState(false);
@@ -268,6 +285,50 @@ function RegistrationDataViewerContent() {
     }
   };
 
+  // Batches present in the loaded data, newest first
+  const availableBatches = Array.from(
+    new Set(registrationData.map(item => batchOfReg(item.Reg_No)).filter(Boolean))
+  ).sort((a, b) => b.localeCompare(a));
+
+  // Load the chosen batch's roster (SOET), for batch membership and sections
+  useEffect(() => {
+    setBatchRoster(null);
+    setBatchSections([]);
+    setRosterError("");
+    if (!isSoet || !batchFilter) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const base = getSchoolApiUrl("sections/students");
+        const res = await fetch(`${base}${base.includes("?") ? "&" : "?"}batch=${encodeURIComponent(batchFilter)}`);
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!res.ok) throw new Error(data.error || "Could not load sections");
+        const map = new Map();
+        for (const s of data.students || []) {
+          map.set(String(s.reg || "").toUpperCase(), { section: s.section || null, branch: s.branch || "" });
+        }
+        setBatchRoster(map);
+        setBatchSections(Array.isArray(data.sections) ? data.sections : []);
+      } catch (e) {
+        if (!cancelled) setRosterError(e.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isSoet, batchFilter]);
+
+  // With a department chosen, offer only the sections holding its students
+  const deptBranchName = { '1': 'Civil', '2': 'CSE', '3': 'ECE', '5': 'EEE', '6': 'Mechanical', '7': 'AIML' }[departmentFilter] || "";
+  const sectionOptions = (() => {
+    if (!batchRoster || !deptBranchName) return batchSections;
+    const present = new Set();
+    for (const { section, branch } of batchRoster.values()) {
+      if (section && isSameBranch(branch, deptBranchName)) present.add(section);
+    }
+    return batchSections.filter(s => present.has(s));
+  })();
+  const sectionChosen = isSoet && !!batchFilter && sectionFilter !== "All";
+
   // Apply filters
   useEffect(() => {
     try {
@@ -359,6 +420,25 @@ function RegistrationDataViewerContent() {
         });
       }
 
+      // Batch: SOET uses the roster (effective batch, so batch overrides count);
+      // until it arrives, and for other schools, the registration's year
+      if (batchFilter) {
+        filtered = filtered.filter(item => {
+          const reg = String(item.Reg_No || '').trim().toUpperCase();
+          if (isSoet && batchRoster) return batchRoster.has(reg);
+          return batchOfReg(reg) === batchFilter;
+        });
+      }
+
+      // Section: empty until the roster has loaded, rather than briefly showing everyone
+      if (sectionChosen) {
+        filtered = !batchRoster ? [] : filtered.filter(item => {
+          const reg = String(item.Reg_No || '').trim().toUpperCase();
+          const section = batchRoster.get(reg)?.section || null;
+          return sectionFilter === UNASSIGNED ? !section : section === sectionFilter;
+        });
+      }
+
       if (studentFilter) {
         const searchTerm = studentFilter.toLowerCase();
         filtered = filtered.filter(item => {
@@ -381,7 +461,7 @@ function RegistrationDataViewerContent() {
     } catch (error) {
       setFilteredData(registrationData || []);
     }
-  }, [registrationData, semesterFilter, departmentFilter, studentFilter, isDiploma]);
+  }, [registrationData, semesterFilter, departmentFilter, studentFilter, isDiploma, isSom, isSoet, batchFilter, batchRoster, sectionFilter, sectionChosen]);
 
   // Load data on mount
   useEffect(() => {
@@ -478,7 +558,7 @@ function RegistrationDataViewerContent() {
         )}
 
         {/* Filters */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
           <div>
             <label className="block text-xs sm:text-sm font-bold text-[#1A1F29] mb-2">Semester:</label>
             <select
@@ -498,7 +578,7 @@ function RegistrationDataViewerContent() {
             <label className="block text-xs sm:text-sm font-bold text-[#1A1F29] mb-2">Department:</label>
             <select
               value={departmentFilter}
-              onChange={(e) => setDepartmentFilter(e.target.value)}
+              onChange={(e) => { setDepartmentFilter(e.target.value); setSectionFilter("All"); }}
               className="w-full px-3 py-2 border-2 rounded-lg focus:ring-4 focus:ring-[#05A3C7]/20 outline-none text-xs sm:text-sm min-h-[44px]"
               style={{ borderColor: "rgba(5,163,199,0.3)" }}
             >
@@ -530,6 +610,45 @@ function RegistrationDataViewerContent() {
               )}
             </select>
           </div>
+
+          <div>
+            <label className="block text-xs sm:text-sm font-bold text-[#1A1F29] mb-2">Batch:</label>
+            <select
+              value={batchFilter}
+              onChange={(e) => { setBatchFilter(e.target.value); setSectionFilter("All"); }}
+              className="w-full px-3 py-2 border-2 rounded-lg focus:ring-4 focus:ring-[#05A3C7]/20 outline-none text-xs sm:text-sm min-h-[44px]"
+              style={{ borderColor: "rgba(5,163,199,0.3)" }}
+            >
+              <option value="">All Batches</option>
+              {availableBatches.map(b => (
+                <option key={b} value={b}>{b}</option>
+              ))}
+            </select>
+          </div>
+
+          {isSoet && (
+            <div>
+              <label className="block text-xs sm:text-sm font-bold text-[#1A1F29] mb-2">Section:</label>
+              <select
+                value={sectionFilter}
+                onChange={(e) => setSectionFilter(e.target.value)}
+                disabled={!batchFilter}
+                title={!batchFilter ? "Choose a batch first" : undefined}
+                className="w-full px-3 py-2 border-2 rounded-lg focus:ring-4 focus:ring-[#05A3C7]/20 outline-none text-xs sm:text-sm min-h-[44px] disabled:bg-gray-100 disabled:text-gray-400"
+                style={{ borderColor: "rgba(5,163,199,0.3)" }}
+              >
+                <option value="All">{!batchFilter ? "Choose a batch first" : "All Sections"}</option>
+                {sectionOptions.map(s => (
+                  <option key={s} value={s}>Section {s}</option>
+                ))}
+                {batchFilter && <option value={UNASSIGNED}>Unassigned</option>}
+              </select>
+              {rosterError && <p className="text-xs text-red-600 mt-1">{rosterError}</p>}
+              {sectionChosen && !batchRoster && !rosterError && (
+                <p className="text-xs text-[#5A6C7D] mt-1">Loading sections…</p>
+              )}
+            </div>
+          )}
 
           <div>
             <label className="block text-xs sm:text-sm font-bold text-[#1A1F29] mb-2">Search (Reg/Name/Subject Code/Subject):</label>
@@ -820,6 +939,11 @@ function RegistrationDataViewerContent() {
               </div>
 
               <div className="space-y-3">
+                <div className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-lg p-3 font-semibold">
+                  This deletes ALL registration records for this school and campus — not
+                  just the rows shown by your filters. To remove only some, tick them and
+                  use Delete Selected. Section allotments are not affected.
+                </div>
                 <div className="text-sm text-[#1A1F29] bg-blue-50 border border-blue-200 rounded-lg p-3">
                   OTP will be sent to your admin email on file. No need to enter email here.
                 </div>
